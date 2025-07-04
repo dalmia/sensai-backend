@@ -1,0 +1,9 @@
+todo
+
+migrations:
+- tasks table 
+  - reading material -> learning material
+  - questions go to separate questions table and linked to quiz tasks and exam tasks
+  - many attributes go to questions table out of tasks table
+
+- on delete cascade for all tables
