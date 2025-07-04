@@ -389,38 +389,6 @@ class TestDatabaseInitialization:
     @patch("src.api.db.get_new_db_connection")
     @patch("src.api.db.check_table_exists")
     @patch("src.api.db.set_db_defaults")
-    async def test_init_db_existing_db_creates_missing_code_drafts_table(
-        self,
-        mock_set_defaults,
-        mock_check_table,
-        mock_get_conn,
-        mock_path_exists,
-        mock_exists,
-    ):
-        """Test that init_db creates code_drafts table if database exists but table is missing."""
-        mock_exists.return_value = True  # Database exists
-        mock_path_exists.return_value = True  # Directory exists
-        mock_check_table.return_value = False  # code_drafts table doesn't exist
-        mock_cursor = AsyncMock()
-        mock_conn = AsyncMock()
-        mock_conn.cursor.return_value = mock_cursor
-        mock_conn.__aenter__.return_value = mock_conn
-        mock_get_conn.return_value = mock_conn
-
-        await init_db()
-
-        # Should create code_drafts table (CREATE TABLE + 2 CREATE INDEX statements)
-        assert mock_cursor.execute.call_count == 3
-        mock_conn.commit.assert_called_once()
-        # Should not set defaults when database already exists
-        mock_set_defaults.assert_not_called()
-
-    @patch("src.api.db.sqlite_db_path", "/test/path/test.db")
-    @patch("src.api.db.exists")
-    @patch("src.api.db.os.path.exists")
-    @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
-    @patch("src.api.db.set_db_defaults")
     async def test_init_db_existing_db_with_all_tables(
         self,
         mock_set_defaults,

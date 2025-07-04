@@ -115,6 +115,31 @@ class RemoveMembersFromCohortGroupRequest(BaseModel):
     member_ids: List[int]
 
 
+# Batch models
+class CreateBatchRequest(BaseModel):
+    name: str
+    cohort_id: int
+    user_ids: Optional[List[int]] = []
+
+
+class CreateBatchResponse(BaseModel):
+    id: int
+
+
+class AddMembersToBatchRequest(BaseModel):
+    user_ids: List[int]
+
+
+class RemoveMembersFromBatchRequest(BaseModel):
+    member_ids: List[int]
+
+
+class UpdateBatchRequest(BaseModel):
+    name: str
+    members_added: Optional[List[int]] = []
+    members_removed: Optional[List[int]] = []
+
+
 class RemoveCoursesFromCohortRequest(BaseModel):
     course_ids: List[int]
 

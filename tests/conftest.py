@@ -26,19 +26,29 @@ def mock_database_operations():
         "src.api.utils.db.execute_multiple_db_operations"
     ) as mock_execute_multiple, patch(
         "src.api.db.init_db"
-    ) as mock_init_db:
+    ) as mock_init_db, patch(
+        "api.utils.db.get_new_db_connection"
+    ) as mock_conn_api, patch(
+        "api.utils.db.execute_db_operation"
+    ) as mock_execute_api, patch(
+        "api.utils.db.execute_multiple_db_operations"
+    ) as mock_execute_multiple_api:
 
         # Setup default mock connection
         mock_conn_instance = AsyncMock()
         mock_cursor = AsyncMock()
+        mock_cursor.lastrowid = 1  # Default batch ID for tests
         mock_conn_instance.cursor.return_value = mock_cursor
         mock_conn_instance.__aenter__.return_value = mock_conn_instance
         mock_conn.return_value = mock_conn_instance
+        mock_conn_api.return_value = mock_conn_instance
 
         # Setup default return values
         mock_execute.return_value = None
         mock_execute_many.return_value = None
         mock_execute_multiple.return_value = None
+        mock_execute_api.return_value = None
+        mock_execute_multiple_api.return_value = None
         mock_init_db.return_value = None
 
         yield {
@@ -49,6 +59,10 @@ def mock_database_operations():
             "init_db": mock_init_db,
             "cursor": mock_cursor,
             "conn_instance": mock_conn_instance,
+            # API-level mocks
+            "connection_api": mock_conn_api,
+            "execute_api": mock_execute_api,
+            "execute_multiple_api": mock_execute_multiple_api,
         }
 
 

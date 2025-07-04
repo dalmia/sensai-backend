@@ -9,6 +9,7 @@ from os.path import exists
 from api.config import UPLOAD_FOLDER_NAME
 from api.routes import (
     auth,
+    batch,
     code,
     cohort,
     course,
@@ -106,6 +107,7 @@ if exists(settings.local_upload_folder):
 app.include_router(file.router, prefix="/file", tags=["file"])
 app.include_router(ai.router, prefix="/ai", tags=["ai"])
 app.include_router(auth.router, prefix="/auth", tags=["auth"])
+app.include_router(batch.router, prefix="/batches", tags=["batches"])
 app.include_router(task.router, prefix="/tasks", tags=["tasks"])
 app.include_router(chat.router, prefix="/chat", tags=["chat"])
 app.include_router(user.router, prefix="/users", tags=["users"])
