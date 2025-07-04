@@ -20,6 +20,8 @@ from api.config import (
     group_role_learner,
     group_role_mentor,
     uncategorized_milestone_color,
+    batches_table_name,
+    user_batches_table_name,
     task_completions_table_name,
     scorecards_table_name,
     question_scorecards_table_name,
@@ -140,6 +142,41 @@ async def create_cohort_tables(cursor):
 
     await cursor.execute(
         f"""CREATE INDEX idx_user_cohort_cohort_id ON {user_cohorts_table_name} (cohort_id)"""
+    )
+
+
+async def create_batches_table(cursor):
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {batches_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                cohort_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (cohort_id) REFERENCES {cohorts_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX idx_batch_cohort_id ON {batches_table_name} (cohort_id)"""
+    )
+
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {user_batches_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                batch_id INTEGER NOT NULL,
+                UNIQUE(user_id, batch_id),
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
+                FOREIGN KEY (batch_id) REFERENCES {batches_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX idx_user_batch_user_id ON {user_batches_table_name} (user_id)"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX idx_user_batch_batch_id ON {user_batches_table_name} (batch_id)"""
     )
 
 
@@ -476,8 +513,8 @@ async def init_db():
         cursor = await conn.cursor()
 
         if exists(sqlite_db_path):
-            if not await check_table_exists(code_drafts_table_name, cursor):
-                await create_code_drafts_table(cursor)
+            if not await check_table_exists(batches_table_name, cursor):
+                await create_batches_table(cursor)
 
             await conn.commit()
             return
@@ -520,6 +557,8 @@ async def init_db():
             await create_task_generation_jobs_table(cursor)
 
             await create_code_drafts_table(cursor)
+
+            await create_batches_table(cursor)
 
             await conn.commit()
 
