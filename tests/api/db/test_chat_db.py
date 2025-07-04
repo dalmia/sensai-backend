@@ -140,6 +140,7 @@ class TestGetChatHistory:
                 "user",
                 "Hello",
                 "text",
+                1,
             ),
             (
                 2,
@@ -151,6 +152,7 @@ class TestGetChatHistory:
                 "assistant",
                 "Hi",
                 "text",
+                2,
             ),
         ]
 
@@ -161,6 +163,8 @@ class TestGetChatHistory:
         assert result[0]["user_email"] == "user@example.com"
         assert result[0]["content"] == "Hello"
         assert result[1]["content"] == "Hi"
+        assert result[0]["course_id"] == 1
+        assert result[1]["course_id"] == 2
 
         mock_execute.assert_called_once()
 
