@@ -483,6 +483,7 @@ class ChatMessage(BaseModel):
 class PublicAPIChatMessage(ChatMessage):
     task_id: int
     user_email: str
+    course_id: int
 
 
 class Tag(BaseModel):

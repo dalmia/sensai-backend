@@ -7,6 +7,7 @@ from api.config import (
     tasks_table_name,
     users_table_name,
     task_completions_table_name,
+    course_tasks_table_name,
 )
 from api.models import StoreMessageRequest, ChatMessage, TaskType
 from api.db.task import get_basic_task_details
@@ -81,11 +82,12 @@ async def store_messages(
 async def get_all_chat_history(org_id: int):
     chat_history = await execute_db_operation(
         f"""
-        SELECT message.id, message.created_at, user.id AS user_id, user.email AS user_email, message.question_id, task.id AS task_id, message.role, message.content, message.response_type
+        SELECT message.id, message.created_at, user.id AS user_id, user.email AS user_email, message.question_id, task.id AS task_id, message.role, message.content, message.response_type, course_task.course_id
         FROM {chat_history_table_name} message
         INNER JOIN {questions_table_name} question ON message.question_id = question.id
         INNER JOIN {tasks_table_name} task ON question.task_id = task.id
         INNER JOIN {users_table_name} user ON message.user_id = user.id 
+        LEFT JOIN {course_tasks_table_name} course_task ON task.id = course_task.task_id
         WHERE task.deleted_at IS NULL AND task.org_id = ?
         ORDER BY message.created_at ASC
         """,
@@ -104,6 +106,7 @@ async def get_all_chat_history(org_id: int):
             "role": row[6],
             "content": row[7],
             "response_type": row[8],
+            "course_id": row[9],
         }
         for row in chat_history
     ]
