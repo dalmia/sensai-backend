@@ -75,6 +75,7 @@ class TestGetAllChatHistory:
                 "response_type": "text",
                 "task_id": 789,
                 "user_email": "test@example.com",
+                "course_id": 123,
             }
         ]
         mock_get_chat_history.return_value = mock_chat_data
