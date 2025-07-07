@@ -16,8 +16,8 @@ async def check_scheduled_tasks():
     await publish_scheduled_tasks()
 
 
-# Send usage summary stats every day at 9 AM IST
-@scheduler.scheduled_job("cron", hour=9, minute=0, timezone=ist_timezone)
+# Send usage summary stats every day at 11:15 PM IST
+@scheduler.scheduled_job("cron", hour=23, minute=15, timezone=ist_timezone)
 async def daily_usage_stats():
     if not settings.slack_usage_stats_webhook_url:
         return
@@ -25,6 +25,6 @@ async def daily_usage_stats():
     await send_usage_summary_stats()
 
 
-@scheduler.scheduled_job("cron", hour=10, minute=0, timezone=ist_timezone)
+@scheduler.scheduled_job("cron", hour=23, minute=45, timezone=ist_timezone)
 async def daily_traces():
     save_daily_traces()
