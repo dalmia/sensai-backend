@@ -33,6 +33,6 @@ watchfiles==1.0.5
 websockets==15.0.1
 python-multipart==0.0.20
 bugsnag==4.7.1
-arize-phoenix==10.10.0
+arize-phoenix==11.5.0
 arize-phoenix-otel==0.10.3
 openinference-instrumentation-openai==0.1.30

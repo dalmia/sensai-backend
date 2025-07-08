@@ -265,8 +265,11 @@ def convert_feedback_span_to_conversations(row):
     return conversation
 
 
-def save_daily_traces():
-    from phoenix.client import Client
+def save_daily_traces(
+    batch_size: int = 5,
+):
+    from phoenix import Client
+    from phoenix.trace.dsl import SpanQuery
 
     if settings.env != "production":
         # only run in production
@@ -277,7 +280,7 @@ def save_daily_traces():
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
     print(
-        f"Processing data for {start_date.strftime('%Y-%m-%d %H:%M')}",
+        f"Processing data for {start_date.strftime('%Y-%m-%d')}",
         flush=True,
     )
 
@@ -288,49 +291,118 @@ def save_daily_traces():
 
     # Accumulate dataframes per hour
     dfs = []
-    for hour in range(24):
-        hour_start = start_date.replace(hour=hour)
-        hour_end = hour_start.replace(minute=59, second=59, microsecond=0)
-        print(
-            f"Fetching spans for {hour_start.strftime('%Y-%m-%d %H:%M')} to {hour_end.strftime('%Y-%m-%d %H:%M')}",
-            flush=True,
+    start_time = start_date
+    end_time = start_date.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    current_time = start_time
+    time_interval = timedelta(minutes=60)
+
+    # For final feedback annotation, we need the full df at the end
+    df = pd.DataFrame()
+
+    # We'll use a folder per day, and store each query's CSV inside it
+    day_folder = (
+        f"{settings.s3_folder_name}/phoenix/spans/{start_date.strftime('%Y-%m-%d')}/"
+    )
+
+    count = 0
+
+    while current_time < end_time:
+        batch_start = current_time
+        batch_end = min(
+            batch_start + time_interval - timedelta(microseconds=1), end_time
         )
-        df_hour = phoenix_client.spans.get_spans_dataframe(
-            project_name=f"sensai-{settings.env}",
-            start_time=hour_start,
-            end_time=hour_end,
-            timeout=1200,
-            limit=100000,
-        )
-        if df_hour.empty:
-            continue
 
-        dfs.append(df_hour)
+        batch_query_start = batch_start
+        while True:
+            print(
+                f"Fetching spans from {batch_query_start.strftime('%Y-%m-%d %H:%M:%S')} to {batch_end.strftime('%Y-%m-%d %H:%M:%S')}",
+                flush=True,
+            )
 
-        if len(dfs) == 1:
-            df = df_hour
-        else:
-            df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+            q = (
+                SpanQuery()
+                # filter out long-running or mega-token spans ⇣
+                .where(f"name == 'ChatCompletion'")
+            )
 
-        print(f"Got {len(df)} spans so far", flush=True)
+            df_batch = phoenix_client.query_spans(
+                q,
+                project_name=f"sensai-{settings.env}",
+                start_time=batch_query_start,
+                end_time=batch_end,
+                timeout=1200,
+                limit=batch_size,
+            )
+            print(f"Received {len(df_batch)} spans", flush=True)
 
-        # Save dataframe to temporary local file
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".csv", delete=False
-        ) as temp_file:
-            df.to_csv(temp_file.name, index=False)
-            temp_filepath = temp_file.name
+            if df_batch.empty:
+                break
 
-        # Upload to S3
-        temp_filename = f"{start_date.strftime('%Y-%m-%d')}"
-        s3_key = f"{settings.s3_folder_name}/phoenix/spans/{temp_filename}.csv"
+            dfs.append(df_batch)
+            count += len(df_batch)
 
-        upload_file_to_s3(temp_filepath, s3_key)
+            print("Writing spans to file", flush=True)
 
-        # Clean up temporary file
-        os.remove(temp_filepath)
+            # Save this query's dataframe to a temporary local file
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".csv", delete=False
+            ) as temp_file:
+                df_batch.to_csv(temp_file.name, index=False)
+                temp_filepath = temp_file.name
 
-        print(f"Uploaded {len(df)} spans to S3 at key: {s3_key}", flush=True)
+            # Upload to S3: folder per day, file per query
+            temp_filename = f"{batch_query_start.strftime('%Y-%m-%d_%H-%M-%S')}.csv"
+            s3_key = f"{day_folder}{temp_filename}"
+
+            upload_file_to_s3(temp_filepath, s3_key)
+
+            # Clean up temporary file
+            os.remove(temp_filepath)
+
+            print(f"Uploaded {len(df_batch)} spans to S3 at key: {s3_key}", flush=True)
+
+            # If we got less than batch_size rows, there might be no more data in this batch window
+            if len(df_batch) != batch_size:
+                break
+
+            # Use the end time of the last element as the new start time for the next query
+            # To avoid missing any with the same timestamp, add 1 microsecond
+            last_end_time = df_batch["end_time"].max()
+            if pd.isnull(last_end_time):
+                # Defensive: if end_time is missing, break to avoid infinite loop
+                break
+
+            # If end_time is a string, convert to datetime
+            if isinstance(last_end_time, str):
+                last_end_time = pd.to_datetime(last_end_time)
+
+            # Ensure timezone consistency - make both timezone-naive for comparison
+            if hasattr(last_end_time, "tz_localize"):
+                # If it's a pandas Timestamp, convert to naive
+                last_end_time = (
+                    last_end_time.tz_localize(None)
+                    if last_end_time.tz is not None
+                    else last_end_time
+                )
+            elif hasattr(last_end_time, "tzinfo") and last_end_time.tzinfo is not None:
+                # If it's a datetime with timezone, convert to naive
+                last_end_time = last_end_time.replace(tzinfo=None)
+
+            batch_query_start = last_end_time + timedelta(microseconds=1)
+
+            # If the new start is after batch_end, we're done
+            if batch_query_start > batch_end:
+                break
+
+        current_time = batch_end + timedelta(microseconds=1)
+
+    print(
+        f"Total spans fetched: {count}, {sum(len(df) for df in dfs)}",
+        flush=True,
+    )
+
+    df = pd.concat(dfs, ignore_index=True)
 
     feedback_traces_for_annotation_df = prepare_feedback_traces_for_annotation(df)
 
