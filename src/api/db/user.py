@@ -13,6 +13,8 @@ from api.config import (
     course_cohorts_table_name,
     task_completions_table_name,
     user_organizations_table_name,
+    batches_table_name,
+    user_batches_table_name,
 )
 from api.slack import send_slack_notification_for_new_user
 from api.models import UserCohort
@@ -52,6 +54,7 @@ async def get_user_organizations(user_id: int):
 async def get_user_org_cohorts(user_id: int, org_id: int) -> List[UserCohort]:
     """
     Get all the cohorts in the organization that the user is a member in
+    For mentors, also include the batches they are part of in each cohort
     """
     cohorts = await execute_db_operation(
         f"""SELECT c.id, c.name, uc.role, uc.joined_at
@@ -65,15 +68,40 @@ async def get_user_org_cohorts(user_id: int, org_id: int) -> List[UserCohort]:
     if not cohorts:
         return []
 
-    return [
-        {
+    result = []
+    for cohort in cohorts:
+        cohort_data = {
             "id": cohort[0],
             "name": cohort[1],
             "role": cohort[2],
             "joined_at": cohort[3],
         }
-        for cohort in cohorts
-    ]
+
+        # If user is a mentor, get their batches in this cohort
+        if cohort[2] == "mentor":
+            batches = await execute_db_operation(
+                f"""
+                SELECT b.id, b.name
+                FROM {batches_table_name} b
+                JOIN {user_batches_table_name} ub ON b.id = ub.batch_id
+                WHERE ub.user_id = ? AND b.cohort_id = ?
+                ORDER BY b.created_at DESC
+                """,
+                (user_id, cohort[0]),
+                fetch_all=True,
+            )
+
+            cohort_data["batches"] = [
+                {
+                    "id": batch[0],
+                    "name": batch[1],
+                }
+                for batch in batches
+            ]
+
+        result.append(cohort_data)
+
+    return result
 
 
 def drop_users_table():

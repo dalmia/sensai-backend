@@ -659,11 +659,17 @@ class AddCVReviewUsageRequest(BaseModel):
     ai_review: str
 
 
+class Batch(BaseModel):
+    id: int
+    name: str
+
+
 class UserCohort(BaseModel):
     id: int
     name: str
     role: Literal[UserCourseRole.LEARNER, UserCourseRole.MENTOR]
     joined_at: Optional[datetime] = None
+    batches: Optional[List[Batch]] = []
 
 
 class AIChatRequest(BaseModel):

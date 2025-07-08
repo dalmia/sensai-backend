@@ -253,3 +253,26 @@ async def update_batch_name_and_members(
         await conn.commit()
 
     return await get_batch_by_id(batch_id)
+
+
+async def validate_batch_belongs_to_cohort(batch_id: int, cohort_id: int) -> bool:
+    """
+    Validate that a batch belongs to the specified cohort
+
+    Args:
+        batch_id: The ID of the batch to validate
+        cohort_id: The ID of the cohort
+
+    Returns:
+        bool: True if the batch belongs to the cohort, False otherwise
+    """
+    result = await execute_db_operation(
+        f"""
+        SELECT 1 FROM {batches_table_name} 
+        WHERE id = ? AND cohort_id = ?
+        """,
+        (batch_id, cohort_id),
+        fetch_one=True,
+    )
+
+    return result is not None

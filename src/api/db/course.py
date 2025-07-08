@@ -21,6 +21,7 @@ from api.config import (
     task_generation_jobs_table_name,
     organizations_table_name,
     group_role_learner,
+    group_role_mentor,
 )
 from api.db.task import (
     get_task,
@@ -953,7 +954,7 @@ async def get_user_courses(user_id: int) -> List[Dict]:
                 course_dict = convert_course_db_to_dict(course_row)
                 course_dict["role"] = role  # Add user's role to the course dictionary
 
-                if role == group_role_learner:
+                if role in [group_role_learner, group_role_mentor]:
                     course_dict["cohort_id"] = course_to_cohort[course_id]
 
                 courses.append(course_dict)
