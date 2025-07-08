@@ -3,6 +3,7 @@ from api.db.task import publish_scheduled_tasks
 from api.cron import send_usage_summary_stats, save_daily_traces
 from api.settings import settings
 from datetime import timezone, timedelta
+import asyncio
 
 # Create IST timezone
 ist_timezone = timezone(timedelta(hours=5, minutes=30))
@@ -22,9 +23,11 @@ async def daily_usage_stats():
     if not settings.slack_usage_stats_webhook_url:
         return
 
-    await send_usage_summary_stats()
+    # Run as background task to avoid blocking
+    asyncio.create_task(send_usage_summary_stats())
 
 
 @scheduler.scheduled_job("cron", hour=23, minute=45, timezone=ist_timezone)
 async def daily_traces():
-    save_daily_traces()
+    # Run as background task to avoid blocking (save_daily_traces is sync)
+    asyncio.create_task(asyncio.to_thread(save_daily_traces))

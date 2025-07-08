@@ -275,10 +275,9 @@ def save_daily_traces():
     # Process previous day from 00:00:00 to 23:59:59
     previous_day = datetime.now() - timedelta(days=1)
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_date = previous_day.replace(hour=23, minute=59, second=59, microsecond=0)
 
     print(
-        f"Processing data for {start_date.strftime('%Y-%m-%d %H:%M')} to {end_date.strftime('%Y-%m-%d %H:%M')}",
+        f"Processing data for {start_date.strftime('%Y-%m-%d %H:%M')}",
         flush=True,
     )
 
@@ -287,35 +286,51 @@ def save_daily_traces():
 
     phoenix_client = Client()
 
-    df = phoenix_client.spans.get_spans_dataframe(
-        project_name=f"sensai-{settings.env}",
-        start_time=start_date,
-        end_time=end_date,
-        timeout=1200,
-        limit=100000,
-    )
+    # Accumulate dataframes per hour
+    dfs = []
+    for hour in range(24):
+        hour_start = start_date.replace(hour=hour)
+        hour_end = hour_start.replace(minute=59, second=59, microsecond=0)
+        print(
+            f"Fetching spans for {hour_start.strftime('%Y-%m-%d %H:%M')} to {hour_end.strftime('%Y-%m-%d %H:%M')}",
+            flush=True,
+        )
+        df_hour = phoenix_client.spans.get_spans_dataframe(
+            project_name=f"sensai-{settings.env}",
+            start_time=hour_start,
+            end_time=hour_end,
+            timeout=1200,
+            limit=100000,
+        )
+        if df_hour.empty:
+            continue
 
-    print(f"Got {len(df)} spans", flush=True)
+        dfs.append(df_hour)
 
-    # Save dataframe to temporary local file
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".csv", delete=False
-    ) as temp_file:
-        df.to_csv(temp_file.name, index=False)
-        temp_filepath = temp_file.name
+        if len(dfs) == 1:
+            df = df_hour
+        else:
+            df = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
-    # Upload to S3
-    temp_filename = f"{start_date.strftime('%Y-%m-%d')}"
-    s3_key = f"{settings.s3_folder_name}/phoenix/spans/{temp_filename}.csv"
+        print(f"Got {len(df)} spans so far", flush=True)
 
-    print(f"Saved to {temp_filepath}", flush=True)
+        # Save dataframe to temporary local file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".csv", delete=False
+        ) as temp_file:
+            df.to_csv(temp_file.name, index=False)
+            temp_filepath = temp_file.name
 
-    upload_file_to_s3(temp_filepath, s3_key)
+        # Upload to S3
+        temp_filename = f"{start_date.strftime('%Y-%m-%d')}"
+        s3_key = f"{settings.s3_folder_name}/phoenix/spans/{temp_filename}.csv"
 
-    # Clean up temporary file
-    os.remove(temp_filepath)
+        upload_file_to_s3(temp_filepath, s3_key)
 
-    print(f"Uploaded {len(df)} spans to S3 at key: {s3_key}", flush=True)
+        # Clean up temporary file
+        os.remove(temp_filepath)
+
+        print(f"Uploaded {len(df)} spans to S3 at key: {s3_key}", flush=True)
 
     feedback_traces_for_annotation_df = prepare_feedback_traces_for_annotation(df)
 
