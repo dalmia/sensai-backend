@@ -60,8 +60,8 @@ async def create_cohort(request: CreateCohortRequest) -> CreateCohortResponse:
 
 
 @router.get("/{cohort_id}")
-async def get_cohort_by_id(cohort_id: int) -> Dict:
-    cohort_data = await get_cohort_by_id_from_db(cohort_id)
+async def get_cohort_by_id(cohort_id: int, batch_id: int | None = None) -> Dict:
+    cohort_data = await get_cohort_by_id_from_db(cohort_id, batch_id)
     if not cohort_data:
         raise HTTPException(status_code=404, detail="Cohort not found")
 
@@ -147,8 +147,10 @@ async def get_cohort_completion(cohort_id: int, user_id: int) -> Dict:
 
 
 @router.get("/{cohort_id}/leaderboard")
-async def get_leaderboard_data(cohort_id: int):
-    leaderboard_data = await get_cohort_streaks_from_db(cohort_id=cohort_id)
+async def get_leaderboard_data(cohort_id: int, batch_id: int | None = None) -> Dict:
+    leaderboard_data = await get_cohort_streaks_from_db(
+        cohort_id=cohort_id, batch_id=batch_id
+    )
 
     user_ids = [streak["user"]["id"] for streak in leaderboard_data]
 
