@@ -196,9 +196,21 @@ class TestUserDatabaseOperations:
     @patch("src.api.db.user.execute_db_operation")
     async def test_get_user_org_cohorts_success(self, mock_execute):
         """Test successful retrieval of user cohorts in organization."""
-        mock_execute.return_value = [
-            (1, "Cohort 1", "learner", "2023-01-01 12:00:00"),
-            (2, "Cohort 2", "mentor", "2023-01-02 12:00:00"),
+        # First call returns cohorts, second call returns batches for mentor
+        mock_execute.side_effect = [
+            [
+                (
+                    1,
+                    "Cohort 1",
+                    "learner",
+                    "2023-01-01 12:00:00",
+                ),
+                (2, "Cohort 2", "mentor", "2023-01-02 12:00:00"),
+            ],
+            [  # batches for mentor in cohort 2
+                (3, "Batch 1"),
+                (4, "Batch 2"),
+            ],
         ]
 
         result = await get_user_org_cohorts(1, 1)
@@ -215,6 +227,10 @@ class TestUserDatabaseOperations:
                 "name": "Cohort 2",
                 "role": "mentor",
                 "joined_at": "2023-01-02 12:00:00",
+                "batches": [
+                    {"id": 3, "name": "Batch 1"},
+                    {"id": 4, "name": "Batch 2"},
+                ],
             },
         ]
 

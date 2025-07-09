@@ -29,5 +29,5 @@ async def daily_usage_stats():
 
 @scheduler.scheduled_job("cron", hour=23, minute=45, timezone=ist_timezone)
 async def daily_traces():
-    # Run as background task to avoid blocking (save_daily_traces is sync)
-    asyncio.create_task(asyncio.to_thread(save_daily_traces))
+    # Run save_daily_traces in a thread since it's a sync function
+    await asyncio.to_thread(save_daily_traces)

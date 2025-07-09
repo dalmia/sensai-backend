@@ -296,8 +296,20 @@ async def test_get_user_org_cohorts_endpoint(client, mock_db):
     user_id = 1
     org_id = 1
     expected_cohorts = [
-        {"id": 1, "name": "Org Cohort 1", "role": "learner", "joined_at": None},
-        {"id": 2, "name": "Org Cohort 2", "role": "mentor", "joined_at": None},
+        {
+            "id": 1,
+            "name": "Org Cohort 1",
+            "role": "learner",
+            "joined_at": None,
+            "batches": [],
+        },
+        {
+            "id": 2,
+            "name": "Org Cohort 2",
+            "role": "mentor",
+            "joined_at": None,
+            "batches": [],
+        },
     ]
     mock_db["get_user_org_cohorts"].return_value = expected_cohorts
 
