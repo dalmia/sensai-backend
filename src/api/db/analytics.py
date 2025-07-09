@@ -11,6 +11,7 @@ from api.config import (
     course_cohorts_table_name,
     users_table_name,
     user_cohorts_table_name,
+    user_batches_table_name,
 )
 from api.models import LeaderboardViewType, TaskType, TaskStatus
 from api.db.user import get_user_streak_from_usage_dates
@@ -282,7 +283,9 @@ async def get_cohort_course_attempt_data(cohort_learner_ids: List[int], course_i
 
 
 async def get_cohort_streaks(
-    view: LeaderboardViewType = LeaderboardViewType.ALL_TIME, cohort_id: int = None
+    cohort_id: int,
+    view: LeaderboardViewType = LeaderboardViewType.ALL_TIME,
+    batch_id: int | None = None,
 ):
     # Build date filter based on duration
     date_filter = ""
@@ -291,7 +294,18 @@ async def get_cohort_streaks(
     elif view == LeaderboardViewType.MONTHLY:
         date_filter = "AND strftime('%Y-%m', datetime(timestamp, '+5 hours', '+30 minutes')) = strftime('%Y-%m', 'now')"
 
-    # Get all user interactions, ordered by user and timestamp
+    if batch_id is not None:
+        user_filter_subquery = f"""
+            SELECT uc.user_id
+            FROM {user_cohorts_table_name} uc
+            JOIN {user_batches_table_name} ub ON uc.user_id = ub.user_id
+            WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner'
+        """
+        params = (cohort_id, cohort_id, cohort_id, batch_id)
+    else:
+        user_filter_subquery = f"SELECT user_id FROM {user_cohorts_table_name} WHERE cohort_id = ? and role = 'learner'"
+        params = (cohort_id, cohort_id, cohort_id)
+
     usage_per_user = await execute_db_operation(
         f"""
     SELECT 
@@ -323,13 +337,11 @@ async def get_cohort_streaks(
         ORDER BY created_at DESC, user_id
     ) t ON u.id = t.user_id
     WHERE u.id IN (
-        -- Users who are in the cohort as learners
-        SELECT user_id FROM {user_cohorts_table_name} WHERE cohort_id = ? and role = 'learner'
-       
+        {user_filter_subquery}
     )
     GROUP BY u.id, u.email, u.first_name, u.middle_name, u.last_name
     """,
-        (cohort_id, cohort_id, cohort_id),
+        params,
         fetch_all=True,
     )
 

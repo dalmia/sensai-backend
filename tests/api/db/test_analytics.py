@@ -518,7 +518,7 @@ class TestGetCohortStreaks:
     async def test_get_cohort_streaks_usage_dates_processing(
         self, mock_db, mock_streak
     ):
-        """Test that usage dates are processed correctly."""
+        """Test that usage dates are properly sorted and processed."""
         mock_db.return_value = [
             (
                 1,
@@ -526,16 +526,114 @@ class TestGetCohortStreaks:
                 "John",
                 None,
                 "Doe",
-                "2023-01-03,2023-01-01,2023-01-02",
-            ),
+                "2023-01-03 12:00:00,2023-01-01 12:00:00,2023-01-02 12:00:00",
+            )
         ]
 
         mock_streak.return_value = ["2023-01-01", "2023-01-02", "2023-01-03"]
 
-        result = await get_cohort_streaks(
-            view=LeaderboardViewType.ALL_TIME, cohort_id=1
+        result = await get_cohort_streaks(cohort_id=1)
+
+        # Verify the dates were sorted before passing to streak function
+        mock_streak.assert_called_once_with(
+            ["2023-01-03 12:00:00", "2023-01-02 12:00:00", "2023-01-01 12:00:00"]
         )
 
-        # Verify usage dates were sorted in reverse order before being passed to streak function
-        mock_streak.assert_called_once_with(["2023-01-03", "2023-01-02", "2023-01-01"])
+        assert len(result) == 1
         assert result[0]["streak_count"] == 3
+
+    @pytest.mark.asyncio
+    @patch("api.db.analytics.get_user_streak_from_usage_dates")
+    @patch("api.db.analytics.execute_db_operation")
+    async def test_get_cohort_streaks_with_batch_id_none(self, mock_db, mock_streak):
+        """Test get_cohort_streaks when batch_id is explicitly None."""
+        mock_db.return_value = [
+            (
+                1,
+                "user1@example.com",
+                "John",
+                None,
+                "Doe",
+                "2023-01-01 12:00:00,2023-01-02 12:00:00",
+            ),
+            (
+                2,
+                "user2@example.com",
+                "Jane",
+                None,
+                "Smith",
+                "2023-01-01 12:00:00",
+            ),
+        ]
+
+        mock_streak.side_effect = [
+            ["2023-01-01", "2023-01-02"],  # User 1 streak
+            ["2023-01-01"],  # User 2 streak
+        ]
+
+        result = await get_cohort_streaks(cohort_id=1, batch_id=None)
+
+        # Verify the correct query was called (without batch filtering)
+        call_args = mock_db.call_args[0][0]
+        assert "user_batches" not in call_args
+        assert "ub.batch_id" not in call_args
+
+        # Verify params don't include batch_id
+        call_params = mock_db.call_args[0][1]
+        assert len(call_params) == 3  # cohort_id appears 3 times
+        assert all(
+            param == 1 for param in call_params
+        )  # All params should be cohort_id
+
+        assert len(result) == 2
+        assert result[0]["streak_count"] == 2
+        assert result[1]["streak_count"] == 1
+
+    @pytest.mark.asyncio
+    @patch("api.db.analytics.get_user_streak_from_usage_dates")
+    @patch("api.db.analytics.execute_db_operation")
+    async def test_get_cohort_streaks_with_batch_id(self, mock_db, mock_streak):
+        """Test get_cohort_streaks when batch_id is provided."""
+        mock_db.return_value = [
+            (
+                1,
+                "user1@example.com",
+                "John",
+                "M",
+                "Doe",
+                "2023-01-01 12:00:00,2023-01-02 12:00:00,2023-01-03 12:00:00",
+            ),
+            (
+                2,
+                "user2@example.com",
+                "Jane",
+                None,
+                "Smith",
+                "2023-01-01 12:00:00",
+            ),
+        ]
+
+        mock_streak.side_effect = [
+            ["2023-01-01", "2023-01-02", "2023-01-03"],  # User 1 streak
+            ["2023-01-01"],  # User 2 streak
+        ]
+
+        result = await get_cohort_streaks(cohort_id=1, batch_id=5)
+
+        # Verify the correct query was called (with batch filtering)
+        call_args = mock_db.call_args[0][0]
+        assert "user_batches" in call_args
+        assert "ub.batch_id" in call_args
+        assert "JOIN user_batches ub ON uc.user_id = ub.user_id" in call_args
+
+        # Verify params include both cohort_id and batch_id
+        call_params = mock_db.call_args[0][1]
+        assert len(call_params) == 4  # cohort_id appears 3 times + batch_id once
+        assert call_params[0] == 1  # cohort_id
+        assert call_params[1] == 1  # cohort_id
+        assert call_params[2] == 1  # cohort_id
+        assert call_params[3] == 5  # batch_id
+
+        assert len(result) == 2
+        assert result[0]["streak_count"] == 3
+        assert result[1]["streak_count"] == 1

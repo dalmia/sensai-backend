@@ -358,13 +358,52 @@ async def test_update_batch_name_and_members_add_error():
 @pytest.mark.asyncio
 async def test_update_batch_name_and_members_remove_error():
     # Test error when removing non-existent users
-    with patch("src.api.db.batch.get_new_db_connection") as mock_conn:
-        mock_conn_instance = AsyncMock()
+    with patch("src.api.db.batch.get_new_db_connection") as mock_get_connection:
+        mock_conn = AsyncMock()
         mock_cursor = AsyncMock()
-        # Simulate not all members found
-        mock_cursor.execute = AsyncMock()
-        mock_cursor.fetchall = AsyncMock(return_value=[(1,)])
-        mock_conn_instance.cursor.return_value = mock_cursor
-        mock_conn.return_value.__aenter__.return_value = mock_conn_instance
-        with pytest.raises(Exception, match="not in the batch"):
-            await update_batch_name_and_members(1, "NewName", None, [1, 2])
+        mock_cursor.fetchall.return_value = [(1,)]  # Only 1 user found, but 2 requested
+        mock_conn.cursor.return_value = mock_cursor
+        mock_get_connection.return_value.__aenter__.return_value = mock_conn
+
+        with pytest.raises(Exception, match="One or more members are not in the batch"):
+            await update_batch_name_and_members(1, "New Name", None, [1, 2])
+
+        mock_get_connection.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_validate_batch_belongs_to_cohort():
+    """Test validating that a batch belongs to a cohort"""
+    from src.api.db.batch import validate_batch_belongs_to_cohort
+
+    with patch("src.api.db.batch.execute_db_operation") as mock_execute:
+        # Test case 1: Batch belongs to cohort
+        mock_execute.return_value = (1,)  # Returns a result indicating batch exists
+
+        result = await validate_batch_belongs_to_cohort(1, 1)
+
+        assert result is True
+        mock_execute.assert_called_once_with(
+            """
+        SELECT 1 FROM batches 
+        WHERE id = ? AND cohort_id = ?
+        """,
+            (1, 1),
+            fetch_one=True,
+        )
+
+        # Test case 2: Batch does not belong to cohort
+        mock_execute.reset_mock()
+        mock_execute.return_value = None  # No result found
+
+        result = await validate_batch_belongs_to_cohort(1, 2)
+
+        assert result is False
+        mock_execute.assert_called_once_with(
+            """
+        SELECT 1 FROM batches 
+        WHERE id = ? AND cohort_id = ?
+        """,
+            (1, 2),
+            fetch_one=True,
+        )

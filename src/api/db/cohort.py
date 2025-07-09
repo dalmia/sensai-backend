@@ -13,6 +13,7 @@ from api.config import (
     organizations_table_name,
     user_organizations_table_name,
     users_table_name,
+    user_batches_table_name,
 )
 from api.utils.db import (
     execute_db_operation,
@@ -307,7 +308,7 @@ async def get_all_cohorts_for_org(org_id: int):
     return [{"id": row[0], "name": row[1]} for row in cohorts]
 
 
-async def get_cohort_by_id(cohort_id: int):
+async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
     # Fetch cohort details
     cohort = await execute_db_operation(
         f"""SELECT * FROM {cohorts_table_name} WHERE id = ?""",
@@ -318,18 +319,34 @@ async def get_cohort_by_id(cohort_id: int):
     if not cohort:
         return None
 
-    # Get all users and their roles in the cohort
-    members = await execute_db_operation(
-        f"""
-        SELECT DISTINCT u.id, u.email, uc.role
-        FROM {users_table_name} u
-        JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
-        WHERE uc.cohort_id = ?
-        ORDER BY uc.role
-        """,
-        (cohort_id,),
-        fetch_all=True,
-    )
+    # Get all users and their roles in the cohort, optionally filtered by batch
+    if batch_id is not None:
+        # Filter members by batch
+        members = await execute_db_operation(
+            f"""
+            SELECT DISTINCT u.id, u.email, uc.role
+            FROM {users_table_name} u
+            JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
+            JOIN {user_batches_table_name} ub ON u.id = ub.user_id
+            WHERE uc.cohort_id = ? AND ub.batch_id = ?
+            ORDER BY uc.role
+            """,
+            (cohort_id, batch_id),
+            fetch_all=True,
+        )
+    else:
+        # Get all users and their roles in the cohort
+        members = await execute_db_operation(
+            f"""
+            SELECT DISTINCT u.id, u.email, uc.role
+            FROM {users_table_name} u
+            JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
+            WHERE uc.cohort_id = ?
+            ORDER BY uc.role
+            """,
+            (cohort_id,),
+            fetch_all=True,
+        )
 
     cohort_data = {
         "id": cohort[0],
@@ -378,40 +395,80 @@ def format_user_cohort_group(group: Tuple):
     }
 
 
-async def get_cohort_analytics_metrics_for_tasks(cohort_id: int, task_ids: List[int]):
-    results = await execute_db_operation(
-        f"""
-        WITH cohort_learners AS (
-            SELECT u.id, u.email
-            FROM {users_table_name} u
-            JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id
-            WHERE uc.cohort_id = ? AND uc.role = 'learner'
-        ),
-        task_completion AS (
+async def get_cohort_analytics_metrics_for_tasks(
+    cohort_id: int, task_ids: List[int], batch_id: int = None
+):
+    if batch_id is not None:
+        # Filter by batch
+        results = await execute_db_operation(
+            f"""
+            WITH cohort_learners AS (
+                SELECT u.id, u.email
+                FROM {users_table_name} u
+                JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id
+                JOIN {user_batches_table_name} ub ON u.id = ub.user_id
+                WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner'
+            ),
+            task_completion AS (
+                SELECT
+                    cl.id as user_id,
+                    cl.email,
+                    ch.task_id,
+                    MAX(COALESCE(ch.is_solved, 0)) as is_solved
+                FROM cohort_learners cl
+                INNER JOIN {chat_history_table_name} ch
+                    ON cl.id = ch.user_id
+                    AND ch.task_id IN ({','.join('?' * len(task_ids))})
+                INNER JOIN {tasks_table_name} t
+                    ON ch.task_id = t.id
+                GROUP BY cl.id, cl.email, ch.task_id, t.name
+            )
             SELECT
-                cl.id as user_id,
-                cl.email,
-                ch.task_id,
-                MAX(COALESCE(ch.is_solved, 0)) as is_solved
-            FROM cohort_learners cl
-            INNER JOIN {chat_history_table_name} ch
-                ON cl.id = ch.user_id
-                AND ch.task_id IN ({','.join('?' * len(task_ids))})
-            INNER JOIN {tasks_table_name} t
-                ON ch.task_id = t.id
-            GROUP BY cl.id, cl.email, ch.task_id, t.name
+                user_id,
+                email,
+                GROUP_CONCAT(task_id) as task_ids,
+                GROUP_CONCAT(is_solved) as task_completion
+            FROM task_completion
+            GROUP BY user_id, email
+            """,
+            (cohort_id, batch_id, *task_ids),
+            fetch_all=True,
         )
-        SELECT
-            user_id,
-            email,
-            GROUP_CONCAT(task_id) as task_ids,
-            GROUP_CONCAT(is_solved) as task_completion
-        FROM task_completion
-        GROUP BY user_id, email
-        """,
-        (cohort_id, *task_ids),
-        fetch_all=True,
-    )
+    else:
+        # Original query without batch filtering
+        results = await execute_db_operation(
+            f"""
+            WITH cohort_learners AS (
+                SELECT u.id, u.email
+                FROM {users_table_name} u
+                JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id
+                WHERE uc.cohort_id = ? AND uc.role = 'learner'
+            ),
+            task_completion AS (
+                SELECT
+                    cl.id as user_id,
+                    cl.email,
+                    ch.task_id,
+                    MAX(COALESCE(ch.is_solved, 0)) as is_solved
+                FROM cohort_learners cl
+                INNER JOIN {chat_history_table_name} ch
+                    ON cl.id = ch.user_id
+                    AND ch.task_id IN ({','.join('?' * len(task_ids))})
+                INNER JOIN {tasks_table_name} t
+                    ON ch.task_id = t.id
+                GROUP BY cl.id, cl.email, ch.task_id, t.name
+            )
+            SELECT
+                user_id,
+                email,
+                GROUP_CONCAT(task_id) as task_ids,
+                GROUP_CONCAT(is_solved) as task_completion
+            FROM task_completion
+            GROUP BY user_id, email
+            """,
+            (cohort_id, *task_ids),
+            fetch_all=True,
+        )
 
     user_metrics = []
     task_metrics = defaultdict(list)
@@ -450,40 +507,80 @@ async def get_cohort_analytics_metrics_for_tasks(cohort_id: int, task_ids: List[
     return user_metrics
 
 
-async def get_cohort_attempt_data_for_tasks(cohort_id: int, task_ids: List[int]):
-    results = await execute_db_operation(
-        f"""
-        WITH cohort_learners AS (
-            SELECT u.id, u.email
-            FROM {users_table_name} u
-            JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
-            WHERE uc.cohort_id = ? AND uc.role = 'learner'
-        ),
-        task_attempts AS (
+async def get_cohort_attempt_data_for_tasks(
+    cohort_id: int, task_ids: List[int], batch_id: int = None
+):
+    if batch_id is not None:
+        # Filter by batch
+        results = await execute_db_operation(
+            f"""
+            WITH cohort_learners AS (
+                SELECT u.id, u.email
+                FROM {users_table_name} u
+                JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
+                JOIN {user_batches_table_name} ub ON u.id = ub.user_id
+                WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner'
+            ),
+            task_attempts AS (
+                SELECT 
+                    cl.id as user_id,
+                    cl.email,
+                    ch.task_id,
+                    CASE WHEN COUNT(ch.id) > 0 THEN 1 ELSE 0 END as has_attempted
+                FROM cohort_learners cl
+                INNER JOIN {chat_history_table_name} ch 
+                    ON cl.id = ch.user_id 
+                    AND ch.task_id IN ({','.join('?' * len(task_ids))})
+                INNER JOIN {tasks_table_name} t
+                    ON ch.task_id = t.id
+                GROUP BY cl.id, cl.email, ch.task_id, t.name
+            )
             SELECT 
-                cl.id as user_id,
-                cl.email,
-                ch.task_id,
-                CASE WHEN COUNT(ch.id) > 0 THEN 1 ELSE 0 END as has_attempted
-            FROM cohort_learners cl
-            INNER JOIN {chat_history_table_name} ch 
-                ON cl.id = ch.user_id 
-                AND ch.task_id IN ({','.join('?' * len(task_ids))})
-            INNER JOIN {tasks_table_name} t
-                ON ch.task_id = t.id
-            GROUP BY cl.id, cl.email, ch.task_id, t.name
+                user_id,
+                email,
+                GROUP_CONCAT(task_id) as task_ids,
+                GROUP_CONCAT(has_attempted) as task_attempts
+            FROM task_attempts
+            GROUP BY user_id, email
+            """,
+            (cohort_id, batch_id, *task_ids),
+            fetch_all=True,
         )
-        SELECT 
-            user_id,
-            email,
-            GROUP_CONCAT(task_id) as task_ids,
-            GROUP_CONCAT(has_attempted) as task_attempts
-        FROM task_attempts
-        GROUP BY user_id, email
-        """,
-        (cohort_id, *task_ids),
-        fetch_all=True,
-    )
+    else:
+        # Original query without batch filtering
+        results = await execute_db_operation(
+            f"""
+            WITH cohort_learners AS (
+                SELECT u.id, u.email
+                FROM {users_table_name} u
+                JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
+                WHERE uc.cohort_id = ? AND uc.role = 'learner'
+            ),
+            task_attempts AS (
+                SELECT 
+                    cl.id as user_id,
+                    cl.email,
+                    ch.task_id,
+                    CASE WHEN COUNT(ch.id) > 0 THEN 1 ELSE 0 END as has_attempted
+                FROM cohort_learners cl
+                INNER JOIN {chat_history_table_name} ch 
+                    ON cl.id = ch.user_id 
+                    AND ch.task_id IN ({','.join('?' * len(task_ids))})
+                INNER JOIN {tasks_table_name} t
+                    ON ch.task_id = t.id
+                GROUP BY cl.id, cl.email, ch.task_id, t.name
+            )
+            SELECT 
+                user_id,
+                email,
+                GROUP_CONCAT(task_id) as task_ids,
+                GROUP_CONCAT(has_attempted) as task_attempts
+            FROM task_attempts
+            GROUP BY user_id, email
+            """,
+            (cohort_id, *task_ids),
+            fetch_all=True,
+        )
 
     user_metrics = []
     task_attempts = defaultdict(list)

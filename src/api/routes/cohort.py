@@ -17,6 +17,7 @@ from api.db.cohort import (
     get_cohort_analytics_metrics_for_tasks as get_cohort_analytics_metrics_for_tasks_from_db,
     get_cohort_attempt_data_for_tasks as get_cohort_attempt_data_for_tasks_from_db,
 )
+from api.db.batch import validate_batch_belongs_to_cohort
 from api.db.course import get_courses_for_cohort as get_courses_for_cohort_from_db
 from api.db.analytics import (
     get_cohort_completion as get_cohort_completion_from_db,
@@ -59,8 +60,8 @@ async def create_cohort(request: CreateCohortRequest) -> CreateCohortResponse:
 
 
 @router.get("/{cohort_id}")
-async def get_cohort_by_id(cohort_id: int) -> Dict:
-    cohort_data = await get_cohort_by_id_from_db(cohort_id)
+async def get_cohort_by_id(cohort_id: int, batch_id: int | None = None) -> Dict:
+    cohort_data = await get_cohort_by_id_from_db(cohort_id, batch_id)
     if not cohort_data:
         raise HTTPException(status_code=404, detail="Cohort not found")
 
@@ -146,8 +147,10 @@ async def get_cohort_completion(cohort_id: int, user_id: int) -> Dict:
 
 
 @router.get("/{cohort_id}/leaderboard")
-async def get_leaderboard_data(cohort_id: int):
-    leaderboard_data = await get_cohort_streaks_from_db(cohort_id=cohort_id)
+async def get_leaderboard_data(cohort_id: int, batch_id: int | None = None) -> Dict:
+    leaderboard_data = await get_cohort_streaks_from_db(
+        cohort_id=cohort_id, batch_id=batch_id
+    )
 
     user_ids = [streak["user"]["id"] for streak in leaderboard_data]
 
@@ -183,9 +186,19 @@ async def get_leaderboard_data(cohort_id: int):
 
 
 @router.get("/{cohort_id}/courses/{course_id}/metrics")
-async def get_cohort_metrics_for_course(cohort_id: int, course_id: int):
+async def get_cohort_metrics_for_course(
+    cohort_id: int, course_id: int, batch_id: int | None = None
+):
+    # Validate batch belongs to cohort if batch_id is provided
+    if batch_id is not None:
+        batch_valid = await validate_batch_belongs_to_cohort(batch_id, cohort_id)
+        if not batch_valid:
+            raise HTTPException(
+                status_code=400, detail="Batch does not belong to the specified cohort"
+            )
+
     course_data = await get_course_from_db(course_id, only_published=True)
-    cohort_data = await get_cohort_by_id_from_db(cohort_id)
+    cohort_data = await get_cohort_by_id_from_db(cohort_id, batch_id)
 
     if not course_data:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -296,13 +309,33 @@ async def get_all_streaks_for_cohort(
 
 @router.get("/{cohort_id}/task_metrics")
 async def get_cohort_analytics_metrics_for_tasks(
-    cohort_id: int, task_ids: List[int] = Query(...)
+    cohort_id: int, task_ids: List[int] = Query(...), batch_id: int | None = None
 ):
-    return await get_cohort_analytics_metrics_for_tasks_from_db(cohort_id, task_ids)
+    # Validate batch belongs to cohort if batch_id is provided
+    if batch_id is not None:
+        batch_valid = await validate_batch_belongs_to_cohort(batch_id, cohort_id)
+        if not batch_valid:
+            raise HTTPException(
+                status_code=400, detail="Batch does not belong to the specified cohort"
+            )
+
+    return await get_cohort_analytics_metrics_for_tasks_from_db(
+        cohort_id, task_ids, batch_id
+    )
 
 
 @router.get("/{cohort_id}/task_attempt_data")
 async def get_cohort_attempt_data_for_tasks(
-    cohort_id: int, task_ids: List[int] = Query(...)
+    cohort_id: int, task_ids: List[int] = Query(...), batch_id: int | None = None
 ):
-    return await get_cohort_attempt_data_for_tasks_from_db(cohort_id, task_ids)
+    # Validate batch belongs to cohort if batch_id is provided
+    if batch_id is not None:
+        batch_valid = await validate_batch_belongs_to_cohort(batch_id, cohort_id)
+        if not batch_valid:
+            raise HTTPException(
+                status_code=400, detail="Batch does not belong to the specified cohort"
+            )
+
+    return await get_cohort_attempt_data_for_tasks_from_db(
+        cohort_id, task_ids, batch_id
+    )

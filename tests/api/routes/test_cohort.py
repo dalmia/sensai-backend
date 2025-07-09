@@ -65,7 +65,7 @@ async def test_get_cohort_by_id(client, mock_db):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == expected_cohort
-        mock_get_cohort.assert_called_with(cohort_id)
+        mock_get_cohort.assert_called_with(cohort_id, None)
 
         # Test cohort not found
         mock_get_cohort.reset_mock()
@@ -75,7 +75,7 @@ async def test_get_cohort_by_id(client, mock_db):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json() == {"detail": "Cohort not found"}
-        mock_get_cohort.assert_called_with(cohort_id)
+        mock_get_cohort.assert_called_with(cohort_id, None)
 
 
 @pytest.mark.asyncio
@@ -388,7 +388,7 @@ async def test_get_leaderboard_data(client, mock_db):
         assert "stats" in result
         assert "metadata" in result
         assert "num_tasks" in result["metadata"]
-        mock_get_streaks.assert_called_with(cohort_id=cohort_id)
+        mock_get_streaks.assert_called_with(cohort_id=cohort_id, batch_id=None)
         mock_get_completion.assert_called_with(cohort_id, [1, 2])
 
 
@@ -522,7 +522,7 @@ async def test_get_cohort_analytics_metrics_for_tasks(client, mock_db):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == expected_metrics
-        mock_get_metrics.assert_called_with(cohort_id, task_ids)
+        mock_get_metrics.assert_called_with(cohort_id, task_ids, None)
 
 
 @pytest.mark.asyncio
@@ -548,7 +548,7 @@ async def test_get_cohort_attempt_data_for_tasks(client, mock_db):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == expected_data
-        mock_get_attempt_data.assert_called_with(cohort_id, task_ids)
+        mock_get_attempt_data.assert_called_with(cohort_id, task_ids, None)
 
 
 @pytest.mark.asyncio
@@ -625,7 +625,7 @@ async def test_get_leaderboard_data_empty_users(client, mock_db):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {}
-        mock_get_streaks.assert_called_with(cohort_id=cohort_id)
+        mock_get_streaks.assert_called_with(cohort_id=cohort_id, batch_id=None)
 
 
 @pytest.mark.asyncio
@@ -780,3 +780,238 @@ async def test_get_cohort_metrics_for_course_completed_task_not_in_metadata(
         assert "quiz" in result["task_type_metrics"]
         # Use string key since JSON serialization converts integer keys to strings
         assert result["task_type_metrics"]["quiz"]["completions"]["1"] == 1
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_metrics_for_course_with_batch_id(client, mock_db):
+    """
+    Test getting cohort metrics for a specific course with batch_id filter
+    """
+    with patch(
+        "api.routes.cohort.validate_batch_belongs_to_cohort"
+    ) as mock_validate, patch(
+        "api.routes.cohort.get_course_from_db"
+    ) as mock_get_course, patch(
+        "api.routes.cohort.get_cohort_by_id_from_db"
+    ) as mock_get_cohort, patch(
+        "api.routes.cohort.get_cohort_completion_from_db"
+    ) as mock_get_completion, patch(
+        "api.routes.cohort.get_cohort_course_attempt_data_from_db"
+    ) as mock_get_attempt_data:
+
+        cohort_id = 1
+        course_id = 1
+        batch_id = 5
+
+        # Mock batch validation
+        mock_validate.return_value = True
+
+        # Mock course data
+        course_data = {
+            "milestones": [
+                {
+                    "id": 1,
+                    "name": "Milestone 1",
+                    "tasks": [
+                        {"id": 1, "type": "quiz"},
+                        {"id": 2, "type": "learning_material"},
+                    ],
+                }
+            ]
+        }
+        mock_get_course.return_value = course_data
+
+        # Mock cohort data (filtered by batch)
+        cohort_data = {
+            "members": [{"id": 1, "role": "learner"}, {"id": 2, "role": "learner"}]
+        }
+        mock_get_cohort.return_value = cohort_data
+
+        # Mock completion data
+        completion_data = {
+            1: {1: {"is_complete": True}, 2: {"is_complete": False}},
+            2: {1: {"is_complete": False}, 2: {"is_complete": True}},
+        }
+        mock_get_completion.return_value = completion_data
+
+        # Mock attempt data
+        attempt_data = {
+            1: {1: {"has_attempted": True}},
+            2: {1: {"has_attempted": False}},
+        }
+        mock_get_attempt_data.return_value = attempt_data
+
+        response = client.get(
+            f"/cohorts/{cohort_id}/courses/{course_id}/metrics?batch_id={batch_id}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+        # Verify batch validation was called
+        mock_validate.assert_called_once_with(batch_id, cohort_id)
+
+        # Verify get_cohort_by_id was called with batch_id
+        mock_get_cohort.assert_called_once_with(cohort_id, batch_id)
+
+        result = response.json()
+        assert "average_completion" in result
+        assert "num_tasks" in result
+        assert "num_active_learners" in result
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_metrics_for_course_invalid_batch(client, mock_db):
+    """
+    Test getting cohort metrics when batch doesn't belong to cohort
+    """
+    with patch("api.routes.cohort.validate_batch_belongs_to_cohort") as mock_validate:
+        cohort_id = 1
+        course_id = 1
+        batch_id = 999
+
+        # Mock batch validation failure
+        mock_validate.return_value = False
+
+        response = client.get(
+            f"/cohorts/{cohort_id}/courses/{course_id}/metrics?batch_id={batch_id}"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "detail": "Batch does not belong to the specified cohort"
+        }
+
+        # Verify batch validation was called
+        mock_validate.assert_called_once_with(batch_id, cohort_id)
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_analytics_metrics_for_tasks_with_batch_id(client, mock_db):
+    """
+    Test getting cohort analytics metrics for specific tasks with batch_id filter
+    """
+    with patch(
+        "api.routes.cohort.validate_batch_belongs_to_cohort"
+    ) as mock_validate, patch(
+        "api.routes.cohort.get_cohort_analytics_metrics_for_tasks_from_db"
+    ) as mock_get_metrics:
+
+        cohort_id = 1
+        task_ids = [1, 2, 3]
+        batch_id = 5
+
+        # Mock batch validation
+        mock_validate.return_value = True
+
+        expected_metrics = [
+            {"user_id": 1, "email": "user1@example.com", "num_completed": 2},
+            {"user_id": 2, "email": "user2@example.com", "num_completed": 1},
+        ]
+        mock_get_metrics.return_value = expected_metrics
+
+        response = client.get(
+            f"/cohorts/{cohort_id}/task_metrics",
+            params={"task_ids": task_ids, "batch_id": batch_id},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == expected_metrics
+
+        # Verify batch validation was called
+        mock_validate.assert_called_once_with(batch_id, cohort_id)
+
+        # Verify the database function was called with batch_id
+        mock_get_metrics.assert_called_once_with(cohort_id, task_ids, batch_id)
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_analytics_metrics_for_tasks_invalid_batch(client, mock_db):
+    """
+    Test getting cohort analytics metrics when batch doesn't belong to cohort
+    """
+    with patch("api.routes.cohort.validate_batch_belongs_to_cohort") as mock_validate:
+        cohort_id = 1
+        task_ids = [1, 2, 3]
+        batch_id = 999
+
+        # Mock batch validation failure
+        mock_validate.return_value = False
+
+        response = client.get(
+            f"/cohorts/{cohort_id}/task_metrics",
+            params={"task_ids": task_ids, "batch_id": batch_id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "detail": "Batch does not belong to the specified cohort"
+        }
+
+        # Verify batch validation was called
+        mock_validate.assert_called_once_with(batch_id, cohort_id)
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_attempt_data_for_tasks_with_batch_id(client, mock_db):
+    """
+    Test getting cohort attempt data for specific tasks with batch_id filter
+    """
+    with patch(
+        "api.routes.cohort.validate_batch_belongs_to_cohort"
+    ) as mock_validate, patch(
+        "api.routes.cohort.get_cohort_attempt_data_for_tasks_from_db"
+    ) as mock_get_attempt_data:
+
+        cohort_id = 1
+        task_ids = [1, 2, 3]
+        batch_id = 5
+
+        # Mock batch validation
+        mock_validate.return_value = True
+
+        expected_data = [
+            {"user_id": 1, "email": "user1@example.com", "num_attempted": 2},
+            {"user_id": 2, "email": "user2@example.com", "num_attempted": 3},
+        ]
+        mock_get_attempt_data.return_value = expected_data
+
+        response = client.get(
+            f"/cohorts/{cohort_id}/task_attempt_data",
+            params={"task_ids": task_ids, "batch_id": batch_id},
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == expected_data
+
+        # Verify batch validation was called
+        mock_validate.assert_called_once_with(batch_id, cohort_id)
+
+        # Verify the database function was called with batch_id
+        mock_get_attempt_data.assert_called_once_with(cohort_id, task_ids, batch_id)
+
+
+@pytest.mark.asyncio
+async def test_get_cohort_attempt_data_for_tasks_invalid_batch(client, mock_db):
+    """
+    Test getting cohort attempt data when batch doesn't belong to cohort
+    """
+    with patch("api.routes.cohort.validate_batch_belongs_to_cohort") as mock_validate:
+        cohort_id = 1
+        task_ids = [1, 2, 3]
+        batch_id = 999
+
+        # Mock batch validation failure
+        mock_validate.return_value = False
+
+        response = client.get(
+            f"/cohorts/{cohort_id}/task_attempt_data",
+            params={"task_ids": task_ids, "batch_id": batch_id},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "detail": "Batch does not belong to the specified cohort"
+        }
+
+        # Verify batch validation was called
+        mock_validate.assert_called_once_with(batch_id, cohort_id)

@@ -495,23 +495,164 @@ class TestCohortAnalytics:
 
     @patch("src.api.db.cohort.execute_db_operation")
     async def test_get_cohort_attempt_data_none_values(self, mock_execute):
-        """Test getting attempt data with None values."""
+        """Test handling of None values in attempt data."""
+        task_ids = [1, 2]
+        analytics_data = [
+            (1, "user1@example.com", None, None),  # No task data
+            (2, "user2@example.com", "1", "1"),  # Some task data
+        ]
+        mock_execute.return_value = analytics_data
+
+        result = await get_cohort_attempt_data_for_tasks(1, task_ids)
+
+        assert len(result) == 2
+
+        # User 1: No task attempts
+        user1 = result[0]
+        assert user1["num_attempted"] == 0
+        assert user1["task_1"] == 0
+        assert user1["task_2"] == 0
+
+        # User 2: Attempted 1 task
+        user2 = result[1]
+        assert user2["num_attempted"] == 1
+        assert user2["task_1"] == 1
+        assert user2["task_2"] == 0
+
+    @patch("src.api.db.cohort.execute_db_operation")
+    async def test_get_cohort_analytics_metrics_for_tasks_with_batch_id(
+        self, mock_execute
+    ):
+        """Test analytics metrics for tasks with batch_id filter."""
+        task_ids = [1, 2, 3]
+        analytics_data = [
+            (1, "user1@example.com", "1,2", "1,0"),  # User from batch
+            (2, "user2@example.com", "2,3", "1,1"),  # Another user from batch
+        ]
+        mock_execute.return_value = analytics_data
+
+        result = await get_cohort_analytics_metrics_for_tasks(1, task_ids, batch_id=5)
+
+        # Verify the query included batch filtering
+        call_args = mock_execute.call_args[0][0]
+        assert "user_batches" in call_args
+        assert "ub.batch_id" in call_args
+
+        # Verify params include batch_id
+        call_params = mock_execute.call_args[0][1]
+        assert 1 in call_params  # cohort_id
+        assert 5 in call_params  # batch_id
+        assert all(task_id in call_params for task_id in task_ids)
+
+        # Verify results structure
+        assert len(result) == 2
+
+        user1 = result[0]
+        assert user1["user_id"] == 1
+        assert user1["email"] == "user1@example.com"
+        assert user1["num_completed"] == 1  # Only task 1 completed
+        assert user1["task_1"] == 1
+        assert user1["task_2"] == 0
+        assert user1["task_3"] == 0
+
+        user2 = result[1]
+        assert user2["user_id"] == 2
+        assert user2["email"] == "user2@example.com"
+        assert user2["num_completed"] == 2  # Tasks 2 and 3 completed
+        assert user2["task_1"] == 0
+        assert user2["task_2"] == 1
+        assert user2["task_3"] == 1
+
+    @patch("src.api.db.cohort.execute_db_operation")
+    async def test_get_cohort_attempt_data_for_tasks_with_batch_id(self, mock_execute):
+        """Test attempt data for tasks with batch_id filter."""
+        task_ids = [1, 2, 3]
         attempt_data = [
-            (1, "user1@example.com", None, None),
+            (
+                1,
+                "user1@example.com",
+                "1,3",
+                "1,0",
+            ),  # User from batch attempted tasks 1 and 3
+            (
+                2,
+                "user2@example.com",
+                "2",
+                "1",
+            ),  # Another user from batch attempted task 2
         ]
         mock_execute.return_value = attempt_data
 
-        result = await get_cohort_attempt_data_for_tasks(1, [1, 2])
+        result = await get_cohort_attempt_data_for_tasks(1, task_ids, batch_id=5)
 
-        expected = [
-            {
-                "user_id": 1,
-                "email": "user1@example.com",
-                "num_attempted": 0,
-                "task_1": 0,
-                "task_2": 0,
-            }
+        # Verify the query included batch filtering
+        call_args = mock_execute.call_args[0][0]
+        assert "user_batches" in call_args
+        assert "ub.batch_id" in call_args
+
+        # Verify params include batch_id
+        call_params = mock_execute.call_args[0][1]
+        assert 1 in call_params  # cohort_id
+        assert 5 in call_params  # batch_id
+        assert all(task_id in call_params for task_id in task_ids)
+
+        # Verify results structure
+        assert len(result) == 2
+
+        user1 = result[0]
+        assert user1["user_id"] == 1
+        assert user1["email"] == "user1@example.com"
+        assert (
+            user1["num_attempted"] == 1
+        )  # Only attempted task 1 (task 3 had 0 attempt)
+        assert user1["task_1"] == 1
+        assert user1["task_2"] == 0
+        assert user1["task_3"] == 0
+
+        user2 = result[1]
+        assert user2["user_id"] == 2
+        assert user2["email"] == "user2@example.com"
+        assert user2["num_attempted"] == 1  # Attempted task 2
+        assert user2["task_1"] == 0
+        assert user2["task_2"] == 1
+        assert user2["task_3"] == 0
+
+    @patch("src.api.db.cohort.execute_db_operation")
+    async def test_get_cohort_by_id_with_batch_id(self, mock_execute):
+        """Test getting cohort by ID with batch_id filter for members."""
+        cohort_tuple = (1, "Test Cohort", 1)
+        members_data = [
+            (1, "user1@example.com", "learner"),  # Only users in the specified batch
+            (2, "user2@example.com", "learner"),
         ]
+
+        mock_execute.side_effect = [cohort_tuple, members_data]
+
+        result = await get_cohort_by_id(1, batch_id=5)
+
+        # Verify cohort query was normal
+        first_call = mock_execute.call_args_list[0]
+        assert "SELECT * FROM cohorts WHERE id = ?" in first_call[0][0]
+
+        # Verify members query included batch filtering
+        second_call = mock_execute.call_args_list[1]
+        members_query = second_call[0][0]
+        assert "user_batches" in members_query
+        assert "ub.batch_id" in members_query
+
+        # Verify params include batch_id
+        members_params = second_call[0][1]
+        assert members_params == (1, 5)  # cohort_id, batch_id
+
+        expected = {
+            "id": 1,
+            "org_id": 1,
+            "name": "Test Cohort",
+            "members": [
+                {"id": 1, "email": "user1@example.com", "role": "learner"},
+                {"id": 2, "email": "user2@example.com", "role": "learner"},
+            ],
+        }
 
         assert result == expected
 
