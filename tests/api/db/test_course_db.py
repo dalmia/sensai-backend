@@ -786,8 +786,11 @@ class TestCourseTransfer:
 
         await duplicate_course_to_org(1, 999)
 
-        mock_get_course.assert_called_once_with(1)
-        mock_create_course.assert_called_once_with("Test Course", 999)
+        # get_course is called twice: once to get the original course, once to return the duplicated course
+        assert mock_get_course.call_count == 2
+        mock_get_course.assert_any_call(1)  # Original course
+        mock_get_course.assert_any_call(456)  # Duplicated course
+        mock_create_course.assert_called_once_with("Test Course (Copy)", 999)
         mock_update_learning.assert_called_once()
         mock_update_quiz.assert_called_once()
 
