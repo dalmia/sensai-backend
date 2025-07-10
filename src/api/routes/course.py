@@ -16,6 +16,7 @@ from api.db.course import (
     get_course as get_course_from_db,
     swap_milestone_ordering_for_course as swap_milestone_ordering_for_course_in_db,
     swap_task_ordering_for_course as swap_task_ordering_for_course_in_db,
+    duplicate_course_to_org,
 )
 from api.db.cohort import (
     add_course_to_cohorts as add_course_to_cohorts_in_db,
@@ -38,6 +39,7 @@ from api.models import (
     SwapMilestoneOrderingRequest,
     SwapTaskOrderingRequest,
     CourseCohort,
+    DuplicateCourseRequest,
 )
 
 router = APIRouter()
@@ -155,3 +157,8 @@ async def swap_task_ordering(course_id: int, request: SwapTaskOrderingRequest):
         course_id, request.task_1_id, request.task_2_id
     )
     return {"success": True}
+
+
+@router.post("/{course_id}/duplicate", response_model=CourseWithMilestonesAndTasks)
+async def duplicate_course(course_id: int, request: DuplicateCourseRequest):
+    return await duplicate_course_to_org(course_id, request.org_id)

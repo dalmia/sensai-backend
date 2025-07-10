@@ -209,7 +209,7 @@ async def get_course_generation_job_details(job_uuid: str) -> Dict:
 async def duplicate_course_to_org(course_id: int, org_id: int):
     course = await get_course(course_id)
 
-    new_course_id = await create_course(course["name"], org_id)
+    new_course_id = await create_course(f'{course["name"]} (Copy)', org_id)
 
     for milestone in course["milestones"]:
         new_milestone_id, _ = await add_milestone_to_course(
@@ -275,6 +275,8 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     None,
                     TaskStatus.PUBLISHED,
                 )
+
+    return await get_course(new_course_id)
 
 
 async def update_course_generation_job_status_and_details(
