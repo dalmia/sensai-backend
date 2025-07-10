@@ -354,3 +354,27 @@ async def test_swap_task_ordering(client, mock_db):
         mock_swap.assert_called_with(
             course_id, request_body["task_1_id"], request_body["task_2_id"]
         )
+
+
+@pytest.mark.asyncio
+async def test_duplicate_course(client, mock_db):
+    """
+    Test duplicating a course to another org
+    """
+    with patch("api.routes.course.duplicate_course_to_org") as mock_duplicate:
+        course_id = 1
+        request_body = {"org_id": 2}
+        expected_response = {
+            "id": 10,
+            "name": "Course Copy",
+            "milestones": [],
+            "course_generation_status": None,
+        }
+
+        mock_duplicate.return_value = expected_response
+
+        response = client.post(f"/courses/{course_id}/duplicate", json=request_body)
+
+        assert response.status_code == 200
+        assert response.json() == expected_response
+        mock_duplicate.assert_called_with(course_id, request_body["org_id"])
