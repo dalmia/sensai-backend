@@ -737,3 +737,7 @@ class SaveCodeDraftRequest(BaseModel):
 class CodeDraft(BaseModel):
     id: int
     code: List[LanguageCodeDraft]
+
+
+class DuplicateCourseRequest(BaseModel):
+    org_id: int
