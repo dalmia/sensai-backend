@@ -29,6 +29,8 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: adalmia/sensai-ai:v2-dev
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
           build-args: |
             S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
             S3_FOLDER_NAME=${{ secrets.S3_FOLDER_NAME }}
