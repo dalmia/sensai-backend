@@ -32,11 +32,11 @@ jobs:
             S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
             S3_FOLDER_NAME=${{ secrets.S3_FOLDER_NAME }}
             ENV=${{ secrets.ENV }}
-            BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY_PROD }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_PROD }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID_PROD }}
+            BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
             SLACK_USER_SIGNUP_WEBHOOK_URL=${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}
             SLACK_COURSE_CREATED_WEBHOOK_URL=${{ secrets.SLACK_COURSE_CREATED_WEBHOOK_URL }}
             SLACK_USAGE_STATS_WEBHOOK_URL=${{ secrets.SLACK_USAGE_STATS_WEBHOOK_URL }}
             PHOENIX_ENDPOINT=${{ secrets.PHOENIX_ENDPOINT }}
-            PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY_PROD }}
+            PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY }}

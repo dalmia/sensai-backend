@@ -33,8 +33,8 @@ jobs:
             S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
             S3_FOLDER_NAME=${{ secrets.S3_FOLDER_NAME }}
             ENV=${{ secrets.ENV }}
-            BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY_STAGING }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY_STAGING }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID_STAGING }}
+            BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY }}
+            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
+            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
             PHOENIX_ENDPOINT=${{ secrets.PHOENIX_ENDPOINT }}
-            PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY_STAGING }}
+            PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY }}
