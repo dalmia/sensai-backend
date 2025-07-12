@@ -34,7 +34,7 @@ To run all tests and generate a coverage report:
 After running the full test suite with `run_tests.sh`, a HTML coverage report will be generated in the `coverage_html` directory. Open `coverage_html/index.html` in your browser to view the report.
 
 ### Codecov Integration
-This project is integrated with [Codecov](https://codecov.io) for continuous monitoring of code coverage. Coverage reports are automatically generated and uploaded to Codecov when tests are run in the GitHub Actions pipeline. The Codecov badge at the top of this README shows the current coverage status.
+This project is integrated with [Codecov](https://codecov.io) for continuous monitoring of code coverage. Coverage reports are automatically generated and uploaded to Codecov when a PR is made to the `main` branch or when a commit is made to the `main` branch. The Codecov badge at the top of this README shows the current coverage status.
 
 ## Community
 We are building a community of creators, builders, teachers, learners, parents, entrepreneurs, non-profits and volunteers who are excited about the future of AI and education. If you identify as one and want to be part of it, consider [joining our community](https://chat.whatsapp.com/LmiulDbWpcXIgqNK6fZyxe).
