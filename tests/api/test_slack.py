@@ -4,7 +4,7 @@ import aiohttp
 from src.api.slack import (
     send_slack_notification,
     send_slack_notification_for_new_user,
-    send_slack_notification_for_learner_added_to_cohort,
+    send_slack_notification_for_member_added_to_cohort,
     send_slack_notification_for_member_added_to_org,
     send_slack_notification_for_new_org,
     send_slack_notification_for_new_course,
@@ -113,7 +113,7 @@ class TestSlackNotificationForNewUser:
 
 @pytest.mark.asyncio
 class TestSlackNotificationForLearnerAddedToCohort:
-    """Test send_slack_notification_for_learner_added_to_cohort function."""
+    """Test send_slack_notification_for_member_added_to_cohort function."""
 
     @patch("src.api.slack.settings")
     @patch("src.api.slack.send_slack_notification")
@@ -124,13 +124,30 @@ class TestSlackNotificationForLearnerAddedToCohort:
         user_invited = {"email": "learner@example.com", "id": 456}
 
         # Execute
-        await send_slack_notification_for_learner_added_to_cohort(
-            user_invited, "test-school", 789, "Test Cohort", 101
+        await send_slack_notification_for_member_added_to_cohort(
+            user_invited, "learner", "test-school", 789, "Test Cohort", 101
         )
 
         # Verify
         expected_message = {
             "text": "Learner added to cohort: learner@example.com UserId: 456\n"
+            "School: test-school (SchoolId: 789)\n"
+            "Cohort: Test Cohort (CohortId: 101)"
+        }
+        mock_send.assert_called_once_with(
+            expected_message, "https://hooks.slack.com/test"
+        )
+        mock_send.reset_mock()
+
+        user_invited = {"email": "mentor@example.com", "id": 456}
+
+        await send_slack_notification_for_member_added_to_cohort(
+            user_invited, "mentor", "test-school", 789, "Test Cohort", 101
+        )
+
+        # Verify
+        expected_message = {
+            "text": "Mentor added to cohort: mentor@example.com UserId: 456\n"
             "School: test-school (SchoolId: 789)\n"
             "Cohort: Test Cohort (CohortId: 101)"
         }
@@ -149,8 +166,8 @@ class TestSlackNotificationForLearnerAddedToCohort:
         user_invited = {"email": "learner@example.com", "id": 456}
 
         # Execute
-        await send_slack_notification_for_learner_added_to_cohort(
-            user_invited, "test-school", 789, "Test Cohort", 101
+        await send_slack_notification_for_member_added_to_cohort(
+            user_invited, "learner", "test-school", 789, "Test Cohort", 101
         )
 
         # Verify

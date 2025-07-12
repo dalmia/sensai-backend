@@ -23,7 +23,7 @@ from api.utils.db import (
 )
 from api.db.user import insert_or_return_user
 from api.db.course import get_course
-from api.slack import send_slack_notification_for_learner_added_to_cohort
+from api.slack import send_slack_notification_for_member_added_to_cohort
 
 
 async def add_courses_to_cohort(
@@ -229,9 +229,9 @@ async def add_members_to_cohort(
         if user_exists:
             raise Exception("User already exists in cohort")
 
-        for user in users_to_add:
-            await send_slack_notification_for_learner_added_to_cohort(
-                user, org_slug, org_id, cohort[0], cohort_id
+        for user, role in zip(users_to_add, roles):
+            await send_slack_notification_for_member_added_to_cohort(
+                user, role, org_slug, org_id, cohort[0], cohort_id
             )
 
         # Add users to cohort

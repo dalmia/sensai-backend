@@ -30,8 +30,9 @@ async def send_slack_notification_for_new_user(user: Dict):
     await send_slack_notification(message, settings.slack_user_signup_webhook_url)
 
 
-async def send_slack_notification_for_learner_added_to_cohort(
+async def send_slack_notification_for_member_added_to_cohort(
     user_invited: Dict,
+    role: str,
     org_slug: str,
     org_id: int,
     cohort_name: str,
@@ -42,7 +43,7 @@ async def send_slack_notification_for_learner_added_to_cohort(
         return
 
     message = {
-        "text": f"Learner added to cohort: {user_invited['email']} UserId: {user_invited['id']}\n"
+        "text": f"{role.capitalize()} added to cohort: {user_invited['email']} UserId: {user_invited['id']}\n"
         f"School: {org_slug} (SchoolId: {org_id})\n"
         f"Cohort: {cohort_name} (CohortId: {cohort_id})"
     }

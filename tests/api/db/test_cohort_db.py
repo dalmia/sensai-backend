@@ -225,7 +225,7 @@ class TestCohortMemberOperations:
     @patch("src.api.db.cohort.execute_db_operation")
     @patch("src.api.db.cohort.get_new_db_connection")
     @patch("src.api.db.cohort.insert_or_return_user")
-    @patch("src.api.db.cohort.send_slack_notification_for_learner_added_to_cohort")
+    @patch("src.api.db.cohort.send_slack_notification_for_member_added_to_cohort")
     async def test_add_members_to_cohort_success(
         self, mock_slack, mock_insert_user, mock_connection, mock_execute
     ):
