@@ -40,3 +40,4 @@ jobs:
             GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
             PHOENIX_ENDPOINT=${{ secrets.PHOENIX_ENDPOINT }}
             PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY }}
+            SLACK_USER_SIGNUP_WEBHOOK_URL=${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}
