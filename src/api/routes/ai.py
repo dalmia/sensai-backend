@@ -118,7 +118,11 @@ def get_user_message_for_chat_history(user_response: str) -> str:
 
 @router.post("/chat")
 async def ai_response_for_question(request: AIChatRequest):
-    metadata = {"task_id": request.task_id, "user_id": request.user_id}
+    metadata = {
+        "task_id": request.task_id,
+        "user_id": request.user_id,
+        "user_email": request.user_email,
+    }
 
     if request.task_type == TaskType.QUIZ:
         if request.question_id is None and request.question is None:
@@ -158,11 +162,14 @@ async def ai_response_for_question(request: AIChatRequest):
             )
         session_id = f"lm_{request.task_id}_{request.user_id}"
 
+    task = await get_task(request.task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+
+    metadata["task_title"] = task["title"]
+
     if request.task_type == TaskType.LEARNING_MATERIAL:
         metadata["type"] = "learning_material"
-        task = await get_task(request.task_id)
-        if not task:
-            raise HTTPException(status_code=404, detail="Task not found")
 
         chat_history = request.chat_history
 
@@ -190,9 +197,9 @@ async def ai_response_for_question(request: AIChatRequest):
             chat_history = request.chat_history
 
             question["scorecard"] = await get_scorecard(question["scorecard_id"])
-
             metadata["question_id"] = None
 
+        metadata["question_title"] = question["title"]
         metadata["question_type"] = question["type"]
         metadata["question_purpose"] = (
             "practice" if question["response_type"] == "chat" else "exam"
