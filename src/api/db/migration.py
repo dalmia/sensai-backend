@@ -199,7 +199,41 @@ async def add_title_column_to_questions():
         await cursor.execute(f"PRAGMA table_info({questions_table_name})")
         columns = [col[1] for col in await cursor.fetchall()]
         if "title" not in columns:
-            await cursor.execute(f"ALTER TABLE {questions_table_name} ADD COLUMN title TEXT NOT NULL DEFAULT ''")
+            await cursor.execute(
+                f"ALTER TABLE {questions_table_name} ADD COLUMN title TEXT NOT NULL DEFAULT ''"
+            )
         # Update all rows to set title = 'Question {position+1}'
-        await cursor.execute(f"UPDATE {questions_table_name} SET title = 'Question ' || (position + 1)")
-        await conn.commit()        
+        await cursor.execute(
+            f"UPDATE {questions_table_name} SET title = 'Question ' || (position + 1)"
+        )
+        await conn.commit()
+
+
+async def get_task_titles_map():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute("SELECT id, title FROM tasks")
+        result = await cursor.fetchall()
+
+        return {row[0]: row[1] for row in result}
+
+
+async def get_question_titles_map():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute("SELECT id, title FROM questions")
+        result = await cursor.fetchall()
+
+        return {row[0]: row[1] for row in result}
+
+
+async def get_user_email_map():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute("SELECT id, email FROM users")
+        result = await cursor.fetchall()
+
+        return {row[0]: row[1] for row in result}
