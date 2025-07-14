@@ -414,30 +414,18 @@ def save_daily_traces(
 
     s3_key = f"{settings.s3_folder_name}/evals/conversations.json"
 
-    with tempfile.NamedTemporaryFile(
-        mode="wb", suffix=".json", delete=False
-    ) as temp_file:
-        file_bytes = download_file_from_s3_as_bytes(s3_key)
-        temp_file.write(file_bytes)
-        temp_filepath = temp_file.name
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="wb", suffix=".json", delete=False
+        ) as temp_file:
+            file_bytes = download_file_from_s3_as_bytes(s3_key)
+            temp_file.write(file_bytes)
+            temp_filepath = temp_file.name
 
-    conversations = json.loads(open(temp_filepath, "r").read())
-    os.remove(temp_filepath)
-
-    # Create backup with proper file handling
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    ) as temp_file:
-        json.dump(conversations, temp_file)
-        temp_file.flush()  # Ensure all data is written to disk
-        backup_filepath = temp_file.name
-
-    upload_file_to_s3(
-        backup_filepath,
-        s3_key.replace(".json", "_backup.json"),
-        content_type="application/json",
-    )
-    os.remove(backup_filepath)
+        conversations = json.loads(open(temp_filepath, "r").read())
+        os.remove(temp_filepath)
+    except Exception:
+        conversations = []
 
     all_span_ids = set([c["id"] for c in conversations])
     new_count = 0
