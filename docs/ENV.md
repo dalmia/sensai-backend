@@ -23,6 +23,9 @@ The environment the app is running in (staging/production).
 ### SLACK_USER_SIGNUP_WEBHOOK_URL (optional)
 The Slack webhook URL for sending notifications to the user signup channel.
 
+### SLACK_ALERT_WEBHOOK_URL (optional)
+The Slack webhook URL for sending alerts.
+
 ### SLACK_COURSE_CREATED_WEBHOOK_URL (optional)
 The Slack webhook URL for sending notifications about new courses created.
 

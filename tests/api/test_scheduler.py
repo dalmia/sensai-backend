@@ -6,6 +6,7 @@ from src.api.scheduler import (
     check_scheduled_tasks,
     daily_usage_stats,
     daily_traces,
+    check_memory,
     ist_timezone,
 )
 
@@ -95,6 +96,18 @@ class TestScheduledTasks:
         # Verify the traces function was called
         mock_save_traces.assert_called_once()
 
+    @patch("src.api.scheduler.check_memory_and_raise_alert")
+    async def test_check_memory(self, mock_check_memory_alert):
+        """Test the check_memory function."""
+        # check_memory_and_raise_alert is not async, just a regular function
+        mock_check_memory_alert.return_value = None
+
+        # Call the function
+        await check_memory()
+
+        # Verify the memory check function was called
+        mock_check_memory_alert.assert_called_once()
+
 
 class TestSchedulerJobs:
     """Test scheduler job registration."""
@@ -105,7 +118,9 @@ class TestSchedulerJobs:
         jobs = scheduler.get_jobs()
 
         # Verify we have the expected number of jobs
-        assert len(jobs) >= 3  # check_scheduled_tasks, daily_usage_stats, daily_traces
+        assert (
+            len(jobs) >= 4
+        )  # check_scheduled_tasks, daily_usage_stats, daily_traces, check_memory
 
         # Find specific jobs by their function names
         job_names = [job.func.__name__ for job in jobs]
@@ -113,6 +128,7 @@ class TestSchedulerJobs:
         assert "check_scheduled_tasks" in job_names
         assert "daily_usage_stats" in job_names
         assert "daily_traces" in job_names
+        assert "check_memory" in job_names
 
     def test_check_scheduled_tasks_job_config(self):
         """Test check_scheduled_tasks job configuration."""
@@ -158,3 +174,18 @@ class TestSchedulerJobs:
         assert traces_job is not None
         # Check it's a cron job
         assert str(traces_job.trigger).startswith("cron")
+
+    def test_check_memory_job_config(self):
+        """Test check_memory job configuration."""
+        jobs = scheduler.get_jobs()
+
+        # Find the check_memory job
+        memory_job = None
+        for job in jobs:
+            if job.func.__name__ == "check_memory":
+                memory_job = job
+                break
+
+        assert memory_job is not None
+        # Check it's a cron job
+        assert str(memory_job.trigger).startswith("cron")

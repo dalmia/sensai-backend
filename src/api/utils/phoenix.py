@@ -276,7 +276,9 @@ def save_daily_traces(
         return
 
     # Process previous day from 00:00:00 to 23:59:59
-    previous_day = datetime.now() - timedelta(days=1)
+    previous_day = datetime.now(timezone(timedelta(hours=5, minutes=30))) - timedelta(
+        days=1
+    )
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
     print(
@@ -406,50 +408,17 @@ def save_daily_traces(
 
     feedback_traces_for_annotation_df = prepare_feedback_traces_for_annotation(df)
 
-    feedback_conversations = feedback_traces_for_annotation_df.apply(
+    conversations = feedback_traces_for_annotation_df.apply(
         convert_feedback_span_to_conversations, axis=1
     ).values.tolist()
 
     s3_key = f"{settings.s3_folder_name}/evals/conversations.json"
 
-    with tempfile.NamedTemporaryFile(
-        mode="wb", suffix=".json", delete=False
-    ) as temp_file:
-        file_bytes = download_file_from_s3_as_bytes(s3_key)
-        temp_file.write(file_bytes)
-        temp_filepath = temp_file.name
-
-    conversations = json.loads(open(temp_filepath, "r").read())
-    os.remove(temp_filepath)
-
-    # Create backup with proper file handling
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".json", delete=False
-    ) as temp_file:
-        json.dump(conversations, temp_file, indent=4)
-        temp_file.flush()  # Ensure all data is written to disk
-        backup_filepath = temp_file.name
-
-    upload_file_to_s3(
-        backup_filepath,
-        s3_key.replace(".json", "_backup.json"),
-        content_type="application/json",
-    )
-    os.remove(backup_filepath)
-
-    all_span_ids = set([c["id"] for c in conversations])
-    new_count = 0
-
-    for conversation in feedback_conversations:
-        if conversation["id"] not in all_span_ids:
-            new_count += 1
-            conversations.append(conversation)
-
     # Save updated conversations with proper file handling
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False
     ) as temp_file:
-        json.dump(conversations, temp_file, indent=4)
+        json.dump(conversations, temp_file)
         temp_file.flush()  # Ensure all data is written to disk
         final_filepath = temp_file.name
 

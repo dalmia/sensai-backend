@@ -220,3 +220,22 @@ async def send_slack_notification_for_usage_stats(
 
     # Send notification asynchronously
     await send_slack_notification(message, settings.slack_usage_stats_webhook_url)
+
+
+async def send_slack_notification_for_alerts(message: str):
+    """
+    Send Slack notification if there is an alert.
+
+    Args:
+        message: String containing the alert message
+    """
+    # Check if Slack webhook URL is configured
+    if not settings.slack_alert_webhook_url:
+        return
+
+    # To trigger a real @channel mention in Slack, use the special string '<!channel>'
+    # in the message text. Slack will interpret this as an actual @channel mention.
+    message = {"text": f"<!channel> {message}"}
+
+    # Send notification asynchronously
+    await send_slack_notification(message, settings.slack_alert_webhook_url)

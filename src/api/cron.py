@@ -1,7 +1,10 @@
+import subprocess
 from typing import Dict
 from api.db.analytics import get_usage_summary_by_organization
 from api.slack import send_slack_notification_for_usage_stats
 from api.utils.phoenix import get_raw_traces, save_daily_traces
+from api.settings import settings
+from api.slack import send_slack_notification_for_alerts
 
 
 def get_model_summary_stats(filter_period: str) -> Dict[str, int]:
@@ -42,3 +45,32 @@ async def send_usage_summary_stats():
     except Exception as e:
         print(f"Error in get_usage_summary_stats: {e}")
         raise
+
+
+async def check_memory_and_raise_alert():
+    if not settings.slack_alert_webhook_url:
+        return
+
+    def get_available_memory():
+        # Run df -h and parse output
+        result = subprocess.run(["df", "-h"], stdout=subprocess.PIPE, text=True)
+        lines = result.stdout.splitlines()
+
+        for line in lines:
+            if line.startswith("overlay"):
+                parts = line.split()
+                avail_str = parts[3]  # Avail column (e.g. '132G')
+                if avail_str.lower().endswith("g"):
+                    avail_gb = float(avail_str[:-1])
+                    return avail_gb
+
+    avail_gb = get_available_memory()
+
+    if avail_gb is None:
+        return
+
+    if avail_gb < 50:
+        # Send alert if less than 50GB of memory is available
+        await send_slack_notification_for_alerts(
+            f"Disk space low on overlay: Only {int(avail_gb)} GB left!"
+        )
