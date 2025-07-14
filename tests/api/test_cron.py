@@ -239,7 +239,7 @@ class TestCheckMemoryAndRaiseAlert:
 
         # Verify alert was sent
         mock_send_slack.assert_called_once_with(
-            "Disk space low on overlay: Only 30 GB left!"
+            "Disk space low in EC2 instance: Only 30 GB left!"
         )
 
     @patch("src.api.cron.send_slack_notification_for_alerts")
@@ -307,7 +307,7 @@ class TestCheckMemoryAndRaiseAlert:
 
         # Verify alert was sent
         mock_send_slack.assert_called_once_with(
-            "Disk space low on overlay: Only 49 GB left!"
+            "Disk space low in EC2 instance: Only 49 GB left!"
         )
 
     @patch("src.api.cron.send_slack_notification_for_alerts")
@@ -356,7 +356,7 @@ class TestCheckMemoryAndRaiseAlert:
 
         # Verify alert was sent with correct integer conversion
         mock_send_slack.assert_called_once_with(
-            "Disk space low on overlay: Only 45 GB left!"
+            "Disk space low in EC2 instance: Only 45 GB left!"
         )
 
     @patch("src.api.cron.send_slack_notification_for_alerts")
@@ -407,5 +407,5 @@ overlay         200G   50G   150G  25% /other
 
         # Verify alert was sent based on first overlay line (30GB)
         mock_send_slack.assert_called_once_with(
-            "Disk space low on overlay: Only 30 GB left!"
+            "Disk space low in EC2 instance: Only 30 GB left!"
         )

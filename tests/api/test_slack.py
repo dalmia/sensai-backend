@@ -462,7 +462,7 @@ class TestSlackNotificationForAlerts:
         """Test sending alert notification when webhook URL is configured."""
         # Setup
         mock_settings.slack_alert_webhook_url = "https://hooks.slack.com/test"
-        alert_message = "Disk space low on overlay: Only 45 GB left!"
+        alert_message = "Disk space low in EC2 instance: Only 45 GB left!"
 
         # Execute
         await send_slack_notification_for_alerts(alert_message)

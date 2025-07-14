@@ -72,5 +72,5 @@ async def check_memory_and_raise_alert():
     if avail_gb < 50:
         # Send alert if less than 50GB of memory is available
         await send_slack_notification_for_alerts(
-            f"Disk space low on overlay: Only {int(avail_gb)} GB left!"
+            f"Disk space low in EC2 instance: Only {int(avail_gb)} GB left!"
         )
