@@ -1,6 +1,10 @@
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from api.db.task import publish_scheduled_tasks
-from api.cron import send_usage_summary_stats, save_daily_traces
+from api.cron import (
+    send_usage_summary_stats,
+    save_daily_traces,
+    check_memory_and_raise_alert,
+)
 from api.settings import settings
 from datetime import timezone, timedelta
 import asyncio
@@ -31,3 +35,8 @@ async def daily_usage_stats():
 async def daily_traces():
     # Run save_daily_traces in a thread since it's a sync function
     await asyncio.to_thread(save_daily_traces)
+
+
+@scheduler.scheduled_job("cron", hour=23, minute=55, timezone=ist_timezone)
+async def check_memory():
+    await asyncio.to_thread(check_memory_and_raise_alert)

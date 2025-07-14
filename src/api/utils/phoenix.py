@@ -276,7 +276,9 @@ def save_daily_traces(
         return
 
     # Process previous day from 00:00:00 to 23:59:59
-    previous_day = datetime.now() - timedelta(days=1)
+    previous_day = datetime.now(timezone(timedelta(hours=5, minutes=30))) - timedelta(
+        days=1
+    )
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
     print(
@@ -426,7 +428,7 @@ def save_daily_traces(
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False
     ) as temp_file:
-        json.dump(conversations, temp_file, indent=4)
+        json.dump(conversations, temp_file)
         temp_file.flush()  # Ensure all data is written to disk
         backup_filepath = temp_file.name
 
@@ -449,7 +451,7 @@ def save_daily_traces(
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".json", delete=False
     ) as temp_file:
-        json.dump(conversations, temp_file, indent=4)
+        json.dump(conversations, temp_file)
         temp_file.flush()  # Ensure all data is written to disk
         final_filepath = temp_file.name
 
