@@ -9,6 +9,7 @@ from src.api.slack import (
     send_slack_notification_for_new_org,
     send_slack_notification_for_new_course,
     send_slack_notification_for_usage_stats,
+    send_slack_notification_for_alerts,
 )
 
 
@@ -449,3 +450,78 @@ class TestSlackNotificationForUsageStats:
 
         # Check that "+X more" appears for both orgs and models
         assert "+5 more" in message["text"]
+
+
+@pytest.mark.asyncio
+class TestSlackNotificationForAlerts:
+    """Test send_slack_notification_for_alerts function."""
+
+    @patch("src.api.slack.settings")
+    @patch("src.api.slack.send_slack_notification")
+    async def test_send_notification_with_webhook_url(self, mock_send, mock_settings):
+        """Test sending alert notification when webhook URL is configured."""
+        # Setup
+        mock_settings.slack_alert_webhook_url = "https://hooks.slack.com/test"
+        alert_message = "Disk space low on overlay: Only 45 GB left!"
+
+        # Execute
+        await send_slack_notification_for_alerts(alert_message)
+
+        # Verify
+        expected_message = {"text": f"<!channel> {alert_message}"}
+        mock_send.assert_called_once_with(
+            expected_message, "https://hooks.slack.com/test"
+        )
+
+    @patch("src.api.slack.settings")
+    @patch("src.api.slack.send_slack_notification")
+    async def test_send_notification_without_webhook_url(
+        self, mock_send, mock_settings
+    ):
+        """Test not sending notification when webhook URL is not configured."""
+        # Setup
+        mock_settings.slack_alert_webhook_url = None
+        alert_message = "Test alert message"
+
+        # Execute
+        await send_slack_notification_for_alerts(alert_message)
+
+        # Verify
+        mock_send.assert_not_called()
+
+    @patch("src.api.slack.settings")
+    @patch("src.api.slack.send_slack_notification")
+    async def test_send_notification_with_empty_webhook_url(
+        self, mock_send, mock_settings
+    ):
+        """Test not sending notification when webhook URL is empty string."""
+        # Setup
+        mock_settings.slack_alert_webhook_url = ""
+        alert_message = "Test alert message"
+
+        # Execute
+        await send_slack_notification_for_alerts(alert_message)
+
+        # Verify
+        mock_send.assert_not_called()
+
+    @patch("src.api.slack.settings")
+    @patch("src.api.slack.send_slack_notification")
+    async def test_message_format_includes_channel_mention(
+        self, mock_send, mock_settings
+    ):
+        """Test that the message format includes the <!channel> mention."""
+        # Setup
+        mock_settings.slack_alert_webhook_url = "https://hooks.slack.com/test"
+        alert_message = "Critical system alert"
+
+        # Execute
+        await send_slack_notification_for_alerts(alert_message)
+
+        # Verify
+        call_args = mock_send.call_args
+        message = call_args[0][0]
+
+        assert message["text"].startswith("<!channel> ")
+        assert "Critical system alert" in message["text"]
+        assert message["text"] == "<!channel> Critical system alert"
