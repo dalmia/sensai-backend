@@ -39,4 +39,4 @@ async def daily_traces():
 
 @scheduler.scheduled_job("cron", hour=23, minute=55, timezone=ist_timezone)
 async def check_memory():
-    await asyncio.to_thread(check_memory_and_raise_alert)
+    await asyncio.create_task(check_memory_and_raise_alert())

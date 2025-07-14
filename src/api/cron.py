@@ -48,7 +48,7 @@ async def send_usage_summary_stats():
 
 
 async def check_memory_and_raise_alert():
-    if settings.env != "production":
+    if not settings.slack_alert_webhook_url:
         return
 
     def get_available_memory():
@@ -65,6 +65,9 @@ async def check_memory_and_raise_alert():
                     return avail_gb
 
     avail_gb = get_available_memory()
+
+    if avail_gb is None:
+        return
 
     if avail_gb < 50:
         # Send alert if less than 50GB of memory is available

@@ -408,32 +408,11 @@ def save_daily_traces(
 
     feedback_traces_for_annotation_df = prepare_feedback_traces_for_annotation(df)
 
-    feedback_conversations = feedback_traces_for_annotation_df.apply(
+    conversations = feedback_traces_for_annotation_df.apply(
         convert_feedback_span_to_conversations, axis=1
     ).values.tolist()
 
     s3_key = f"{settings.s3_folder_name}/evals/conversations.json"
-
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="wb", suffix=".json", delete=False
-        ) as temp_file:
-            file_bytes = download_file_from_s3_as_bytes(s3_key)
-            temp_file.write(file_bytes)
-            temp_filepath = temp_file.name
-
-        conversations = json.loads(open(temp_filepath, "r").read())
-        os.remove(temp_filepath)
-    except Exception:
-        conversations = []
-
-    all_span_ids = set([c["id"] for c in conversations])
-    new_count = 0
-
-    for conversation in feedback_conversations:
-        if conversation["id"] not in all_span_ids:
-            new_count += 1
-            conversations.append(conversation)
 
     # Save updated conversations with proper file handling
     with tempfile.NamedTemporaryFile(
