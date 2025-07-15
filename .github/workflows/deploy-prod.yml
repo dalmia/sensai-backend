@@ -59,4 +59,4 @@ jobs:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
-            text: "❌ *backend*: Production deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            text: "<!channel> ❌ *backend*: Production deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
