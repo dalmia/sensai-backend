@@ -428,6 +428,6 @@ def save_daily_traces(
     os.remove(final_filepath)
 
     logger.info(
-        f"Uploaded {new_count} new feedback conversations to S3 at key: {s3_key}",
+        f"Uploaded {len(conversations)} new feedback conversations to S3 at key: {s3_key}",
         flush=True,
     )
