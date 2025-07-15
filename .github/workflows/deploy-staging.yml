@@ -45,7 +45,7 @@ jobs:
       - name: Notify Slack on Success
         uses: slackapi/slack-github-action@v2.1.1
         with:
-          webhook: ${{ secrets.SLACK_WEBHOOK_URL }}
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             text: "🚀 *backend*: Staging deployment completed successfully!"
@@ -57,4 +57,4 @@ jobs:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
-            text: "❌ *backend*: Production deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            text: "❌ *backend*: Staging deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

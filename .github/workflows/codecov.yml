@@ -40,3 +40,12 @@ jobs:
           files: ./coverage.xml
           fail_ci_if_error: true
           verbose: true 
+
+      - name: Notify Slack on Failure (main branch only)
+        if: failure() && github.ref == 'refs/heads/main'
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "❌ *backend*: Code coverage workflow failed on main branch! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
