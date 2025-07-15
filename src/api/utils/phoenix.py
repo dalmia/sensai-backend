@@ -8,6 +8,7 @@ import math
 import pandas as pd
 from api.settings import settings
 from api.utils.s3 import upload_file_to_s3, download_file_from_s3_as_bytes
+from api.utils.logging import logger
 
 
 def get_raw_traces(
@@ -215,7 +216,6 @@ def prepare_feedback_traces_for_annotation(df: pd.DataFrame) -> pd.DataFrame:
                         raise e
 
                 if not chat_history:
-                    print("no - Quiz 3")
                     continue
 
                 # Take the last entry and add chat history
@@ -281,7 +281,7 @@ def save_daily_traces(
     )
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
-    print(
+    logger.info(
         f"Processing data for {start_date.strftime('%Y-%m-%d')}",
         flush=True,
     )
@@ -317,7 +317,7 @@ def save_daily_traces(
 
         batch_query_start = batch_start
         while True:
-            print(
+            logger.info(
                 f"Fetching spans from {batch_query_start.strftime('%Y-%m-%d %H:%M:%S')} to {batch_end.strftime('%Y-%m-%d %H:%M:%S')}",
                 flush=True,
             )
@@ -336,7 +336,7 @@ def save_daily_traces(
                 timeout=1200,
                 limit=batch_size,
             )
-            print(f"Received {len(df_batch)} spans", flush=True)
+            logger.info(f"Received {len(df_batch)} spans", flush=True)
 
             if df_batch.empty:
                 break
@@ -344,7 +344,7 @@ def save_daily_traces(
             dfs.append(df_batch)
             count += len(df_batch)
 
-            print("Writing spans to file", flush=True)
+            logger.info("Writing spans to file", flush=True)
 
             # Save this query's dataframe to a temporary local file
             with tempfile.NamedTemporaryFile(
@@ -362,7 +362,9 @@ def save_daily_traces(
             # Clean up temporary file
             os.remove(temp_filepath)
 
-            print(f"Uploaded {len(df_batch)} spans to S3 at key: {s3_key}", flush=True)
+            logger.info(
+                f"Uploaded {len(df_batch)} spans to S3 at key: {s3_key}", flush=True
+            )
 
             # If we got less than batch_size rows, there might be no more data in this batch window
             if len(df_batch) != batch_size:
@@ -399,7 +401,7 @@ def save_daily_traces(
 
         current_time = batch_end + timedelta(microseconds=1)
 
-    print(
+    logger.info(
         f"Total spans fetched: {count}, {sum(len(df) for df in dfs)}",
         flush=True,
     )
@@ -425,7 +427,7 @@ def save_daily_traces(
     upload_file_to_s3(final_filepath, s3_key, content_type="application/json")
     os.remove(final_filepath)
 
-    print(
+    logger.info(
         f"Uploaded {new_count} new feedback conversations to S3 at key: {s3_key}",
         flush=True,
     )
