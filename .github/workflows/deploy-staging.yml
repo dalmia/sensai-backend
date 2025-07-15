@@ -43,19 +43,9 @@ jobs:
             SLACK_USER_SIGNUP_WEBHOOK_URL=${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}
 
       - name: Notify Slack on Success
-        if: success()
-        uses: 8398a7/action-slack@v3
+        uses: slackapi/slack-github-action@v2.1.1
         with:
-          status: success
-          webhook_url: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
-          text: "🚀 Staging deployment completed successfully!"
-          fields: repo,message,commit,author,action,eventName,ref,workflow
-
-      - name: Notify Slack on Failure
-        if: failure()
-        uses: 8398a7/action-slack@v3
-        with:
-          status: failure
-          webhook_url: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
-          text: "❌ Staging deployment failed!"
-          fields: repo,message,commit,author,action,eventName,ref,workflow
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "🚀 *backend*: Staging deployment completed successfully!"
