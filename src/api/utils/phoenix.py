@@ -1,14 +1,15 @@
 import os
 from datetime import datetime, timedelta
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import tempfile
 import json
 import math
 import pandas as pd
 from api.settings import settings
 from api.utils.s3 import upload_file_to_s3, download_file_from_s3_as_bytes
-from api.utils.logging import logger
+from api.utils.logging import setup_logging
+from api.config import log_file_path
 
 
 def get_raw_traces(
@@ -281,9 +282,13 @@ def save_daily_traces(
     )
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
+    logger = setup_logging(
+        log_file_path=log_file_path,
+        enable_console_logging=True,
+    )
+
     logger.info(
         f"Processing data for {start_date.strftime('%Y-%m-%d')}",
-        flush=True,
     )
 
     os.environ["PHOENIX_COLLECTOR_ENDPOINT"] = settings.phoenix_endpoint
@@ -319,7 +324,6 @@ def save_daily_traces(
         while True:
             logger.info(
                 f"Fetching spans from {batch_query_start.strftime('%Y-%m-%d %H:%M:%S')} to {batch_end.strftime('%Y-%m-%d %H:%M:%S')}",
-                flush=True,
             )
 
             q = (
@@ -336,7 +340,7 @@ def save_daily_traces(
                 timeout=1200,
                 limit=batch_size,
             )
-            logger.info(f"Received {len(df_batch)} spans", flush=True)
+            logger.info(f"Received {len(df_batch)} spans")
 
             if df_batch.empty:
                 break
@@ -344,7 +348,7 @@ def save_daily_traces(
             dfs.append(df_batch)
             count += len(df_batch)
 
-            logger.info("Writing spans to file", flush=True)
+            logger.info("Writing spans to file")
 
             # Save this query's dataframe to a temporary local file
             with tempfile.NamedTemporaryFile(
@@ -362,9 +366,7 @@ def save_daily_traces(
             # Clean up temporary file
             os.remove(temp_filepath)
 
-            logger.info(
-                f"Uploaded {len(df_batch)} spans to S3 at key: {s3_key}", flush=True
-            )
+            logger.info(f"Uploaded {len(df_batch)} spans to S3 at key: {s3_key}")
 
             # If we got less than batch_size rows, there might be no more data in this batch window
             if len(df_batch) != batch_size:
@@ -381,18 +383,6 @@ def save_daily_traces(
             if isinstance(last_end_time, str):
                 last_end_time = pd.to_datetime(last_end_time)
 
-            # Ensure timezone consistency - make both timezone-naive for comparison
-            if hasattr(last_end_time, "tz_localize"):
-                # If it's a pandas Timestamp, convert to naive
-                last_end_time = (
-                    last_end_time.tz_localize(None)
-                    if last_end_time.tz is not None
-                    else last_end_time
-                )
-            elif hasattr(last_end_time, "tzinfo") and last_end_time.tzinfo is not None:
-                # If it's a datetime with timezone, convert to naive
-                last_end_time = last_end_time.replace(tzinfo=None)
-
             batch_query_start = last_end_time + timedelta(microseconds=1)
 
             # If the new start is after batch_end, we're done
@@ -403,7 +393,6 @@ def save_daily_traces(
 
     logger.info(
         f"Total spans fetched: {count}, {sum(len(df) for df in dfs)}",
-        flush=True,
     )
 
     df = pd.concat(dfs, ignore_index=True)
@@ -429,5 +418,4 @@ def save_daily_traces(
 
     logger.info(
         f"Uploaded {len(conversations)} new feedback conversations to S3 at key: {s3_key}",
-        flush=True,
     )
