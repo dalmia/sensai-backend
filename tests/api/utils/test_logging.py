@@ -80,8 +80,9 @@ class TestLoggingUtils:
         mock_file_handler.setFormatter.assert_called_once_with(mock_formatter)
 
         # Check that handlers were added to the logger
-        # Note: In the actual code, only the file handler is added, not the console handler
-        mock_logger.addHandler.assert_called_once_with(mock_file_handler)
+        mock_logger.addHandler.assert_has_calls(
+            [call(mock_file_handler), call(mock_console_handler)]
+        )
 
         # Check that the function returns the logger
         assert logger == mock_logger
