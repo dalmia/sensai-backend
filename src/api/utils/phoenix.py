@@ -10,6 +10,7 @@ from api.settings import settings
 from api.utils.s3 import upload_file_to_s3, download_file_from_s3_as_bytes
 from api.utils.logging import setup_logging
 from api.config import log_file_path
+import pytz
 
 
 def get_raw_traces(
@@ -277,9 +278,7 @@ def save_daily_traces(
         return
 
     # Process previous day from 00:00:00 to 23:59:59
-    previous_day = datetime.now(timezone(timedelta(hours=5, minutes=30))) - timedelta(
-        days=1
-    )
+    previous_day = datetime.now(pytz.timezone("Asia/Kolkata")) - timedelta(days=1)
     start_date = previous_day.replace(hour=0, minute=0, second=0, microsecond=0)
 
     logger = setup_logging(
@@ -382,6 +381,11 @@ def save_daily_traces(
             # If end_time is a string, convert to datetime
             if isinstance(last_end_time, str):
                 last_end_time = pd.to_datetime(last_end_time)
+
+            # Convert last_end_time to IST (UTC+5:30)
+            last_end_time = pd.Timestamp(last_end_time).tz_convert(
+                pytz.timezone("Asia/Kolkata")
+            )
 
             batch_query_start = last_end_time + timedelta(microseconds=1)
 
