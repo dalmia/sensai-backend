@@ -100,10 +100,8 @@ class TestSendUsageSummaryStats:
         mock_get_org_stats.assert_any_call("current_year")
 
         # Verify model stats calls for different periods
-        assert mock_get_model_stats.call_count == 3
+        assert mock_get_model_stats.call_count == 1
         mock_get_model_stats.assert_any_call("last_day")
-        mock_get_model_stats.assert_any_call("current_month")
-        mock_get_model_stats.assert_any_call("current_year")
 
         # Verify Slack notification was sent with correct data structure
         mock_send_slack.assert_called_once()
@@ -113,11 +111,15 @@ class TestSendUsageSummaryStats:
         assert len(args) == 3
 
         # Check data structure for each period
-        for period_data in args:
+        for index, period_data in enumerate(args):
             assert "org" in period_data
-            assert "model" in period_data
             assert period_data["org"] == mock_org_data
-            assert period_data["model"] == mock_model_data
+
+            if index == 0:
+                assert "model" in period_data
+                assert period_data["model"] == mock_model_data
+            else:
+                assert "model" not in period_data
 
     @patch("src.api.cron.send_slack_notification_for_usage_stats")
     @patch("src.api.cron.get_model_summary_stats")
@@ -194,9 +196,12 @@ class TestSendUsageSummaryStats:
 
         # Check that all three periods are passed with empty data
         assert len(args) == 3
-        for period_data in args:
+        for index, period_data in enumerate(args):
             assert period_data["org"] == {}
-            assert period_data["model"] == {}
+            if index == 0:
+                assert period_data["model"] == {}
+            else:
+                assert "model" not in period_data
 
 
 @pytest.mark.asyncio

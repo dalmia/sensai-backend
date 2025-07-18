@@ -387,7 +387,6 @@ class TestSlackNotificationForUsageStats:
         message = call_args[0][0]
 
         assert "No usage data" in message["text"]
-        assert "No model data" in message["text"]
 
     @patch("src.api.slack.settings")
     @patch("src.api.slack.send_slack_notification")

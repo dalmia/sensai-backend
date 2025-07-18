@@ -44,20 +44,20 @@ async def check_scheduled_tasks():
 
 
 # Send usage summary stats every day at 11:15 PM IST
-@scheduler.scheduled_job("cron", hour=23, minute=15, timezone=ist_timezone)
-@with_error_reporting("daily_usage_stats")
-async def daily_usage_stats():
-    if not settings.slack_usage_stats_webhook_url:
-        return
+# @scheduler.scheduled_job("cron", hour=23, minute=15, timezone=ist_timezone)
+# @with_error_reporting("daily_usage_stats")
+# async def daily_usage_stats():
+#     if not settings.slack_usage_stats_webhook_url:
+#         return
 
-    await send_usage_summary_stats()
+#     await send_usage_summary_stats()
 
 
-@scheduler.scheduled_job("cron", hour=4, minute=45, timezone=ist_timezone)
-@with_error_reporting("daily_traces")
-async def daily_traces():
-    # Run save_daily_traces in a thread since it's a sync function
-    await asyncio.to_thread(save_daily_traces)
+# @scheduler.scheduled_job("cron", hour=4, minute=45, timezone=ist_timezone)
+# @with_error_reporting("daily_traces")
+# async def daily_traces():
+#     # Run save_daily_traces in a thread since it's a sync function
+#     await asyncio.to_thread(save_daily_traces)
 
 
 @scheduler.scheduled_job("cron", hour=23, minute=55, timezone=ist_timezone)

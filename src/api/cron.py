@@ -30,11 +30,9 @@ async def send_usage_summary_stats():
         }
         current_month_stats = {
             "org": await get_usage_summary_by_organization("current_month"),
-            "model": get_model_summary_stats("current_month"),
         }
         current_year_stats = {
             "org": await get_usage_summary_by_organization("current_year"),
-            "model": get_model_summary_stats("current_year"),
         }
 
         # Send the statistics via Slack webhook

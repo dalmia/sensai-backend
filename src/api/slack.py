@@ -172,9 +172,7 @@ async def send_slack_notification_for_usage_stats(
             org_section += "```\n"
 
         # Model stats column
-        if not model_stats:
-            model_section = "🤖 *Models*: No model data\n"
-        else:
+        if model_stats:
             sorted_models = sorted(
                 model_stats.items(), key=lambda x: x[1], reverse=True
             )
@@ -199,9 +197,11 @@ async def send_slack_notification_for_usage_stats(
 
             model_section += "```\n"
 
-        # Combine both sections side by side conceptually, but Slack doesn't support true columns
-        # So we'll display them sequentially but clearly separated
-        formatted += org_section + "\n" + model_section
+            # Combine both sections side by side conceptually, but Slack doesn't support true columns
+            # So we'll display them sequentially but clearly separated
+            formatted += org_section + "\n" + model_section
+        else:
+            formatted += org_section
 
         return formatted
 
@@ -214,7 +214,9 @@ async def send_slack_notification_for_usage_stats(
 
     message_text = ""
     for period_name, stats in periods:
-        message_text += format_period_stats(stats["org"], stats["model"], period_name)
+        message_text += format_period_stats(
+            stats["org"], stats.get("model", {}), period_name
+        )
 
     message = {"text": message_text}
 
