@@ -391,7 +391,7 @@ class GenerateTaskJobStatus(str, Enum):
 class MilestoneTask(Task):
     ordering: int
     num_questions: int | None
-    is_generating: bool
+    is_generating: Optional[bool] = False
 
 
 class MilestoneTaskWithDetails(MilestoneTask):
@@ -409,12 +409,12 @@ class MilestoneWithTaskDetails(Milestone):
 
 class CourseWithMilestonesAndTasks(Course):
     milestones: List[MilestoneWithTasks]
-    course_generation_status: GenerateCourseJobStatus | None
+    course_generation_status: Optional[GenerateCourseJobStatus] = None
 
 
 class CourseWithMilestonesAndTaskDetails(CourseWithMilestonesAndTasks):
     milestones: List[MilestoneWithTaskDetails]
-    course_generation_status: GenerateCourseJobStatus | None
+    course_generation_status: Optional[GenerateCourseJobStatus] = None
 
 
 class UserCourseRole(str, Enum):
@@ -484,6 +484,7 @@ class PublicAPIChatMessage(ChatMessage):
     task_id: int
     user_email: str
     course_id: int
+    created_at: datetime
 
 
 class Tag(BaseModel):
