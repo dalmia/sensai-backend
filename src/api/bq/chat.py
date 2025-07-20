@@ -31,14 +31,14 @@ async def get_all_chat_history(org_id: int) -> AsyncGenerator[Dict[str, Any], No
                message.response_type, course_task.course_id
         FROM `{settings.bq_project_name}.{settings.bq_dataset_name}.{chat_history_table_name}` message
         INNER JOIN `{settings.bq_project_name}.{settings.bq_dataset_name}.{questions_table_name}` question 
-            ON message.question_id = question.id
+            ON message.question_id = question.id AND question.created_at > TIMESTAMP('2024-01-01 00:00:00')
         INNER JOIN `{settings.bq_project_name}.{settings.bq_dataset_name}.{tasks_table_name}` task 
-            ON question.task_id = task.id
+            ON question.task_id = task.id AND task.created_at > TIMESTAMP('2024-01-01 00:00:00')
         INNER JOIN `{settings.bq_project_name}.{settings.bq_dataset_name}.{users_table_name}` user 
-            ON message.user_id = user.id 
+            ON message.user_id = user.id AND user.created_at > TIMESTAMP('2024-01-01 00:00:00')
         LEFT JOIN `{settings.bq_project_name}.{settings.bq_dataset_name}.{course_tasks_table_name}` course_task 
-            ON task.id = course_task.task_id
-        WHERE task.deleted_at IS NULL AND task.org_id = @org_id AND message.created_at > TIMESTAMP('2024-01-01 00:00:00') AND question.created_at > TIMESTAMP('2024-01-01 00:00:00') AND task.created_at > TIMESTAMP('2024-01-01 00:00:00') AND course_task.created_at > TIMESTAMP('2024-01-01 00:00:00') AND user.created_at > TIMESTAMP('2024-01-01 00:00:00')
+            ON task.id = course_task.task_id AND course_task.created_at > TIMESTAMP('2024-01-01 00:00:00')
+        WHERE task.deleted_at IS NULL AND task.org_id = @org_id AND message.created_at > TIMESTAMP('2024-01-01 00:00:00')
         ORDER BY message.created_at ASC
     """
 

@@ -66,9 +66,22 @@ class TestOrgBQ:
         assert job_config.query_parameters[0].name == "org_id"
         assert job_config.query_parameters[0].value == 123
 
+    @patch("src.api.bq.org.get_bq_client")
+    @patch("src.api.bq.org.settings")
     @pytest.mark.asyncio
-    async def test_get_org_id_from_api_key_invalid_format(self):
+    async def test_get_org_id_from_api_key_invalid_format(
+        self, mock_settings, mock_get_client
+    ):
         """Test API key with invalid format."""
+        # Mock settings to prevent None values causing issues
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+        mock_settings.google_application_credentials = "/path/to/creds.json"
+
+        # Mock the BigQuery client since we're testing early validation
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         with pytest.raises(ValueError, match="Invalid API key"):
             await get_org_id_from_api_key("invalid_format")
 
@@ -160,9 +173,22 @@ class TestOrgBQ:
 
         assert result == 123
 
+    @patch("src.api.bq.org.get_bq_client")
+    @patch("src.api.bq.org.settings")
     @pytest.mark.asyncio
-    async def test_get_org_id_from_api_key_invalid_org_id_type(self):
+    async def test_get_org_id_from_api_key_invalid_org_id_type(
+        self, mock_settings, mock_get_client
+    ):
         """Test API key with non-numeric org ID."""
+        # Mock settings to prevent None values causing issues
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+        mock_settings.google_application_credentials = "/path/to/creds.json"
+
+        # Mock the BigQuery client since we're testing early validation
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
         api_key = "org__invalid_org_id__test_key"
 
         with pytest.raises(ValueError, match="Invalid API key"):

@@ -140,8 +140,8 @@ async def get_task(task_id: int):
                    q.is_feedback_shown, q.title
             FROM `{settings.bq_project_name}.{settings.bq_dataset_name}.{questions_table_name}` q
             LEFT JOIN `{settings.bq_project_name}.{settings.bq_dataset_name}.{question_scorecards_table_name}` qs
-                ON q.id = qs.question_id
-            WHERE q.task_id = @task_id AND q.created_at > TIMESTAMP('2024-01-01 00:00:00') AND qs.created_at > TIMESTAMP('2024-01-01 00:00:00')
+                ON q.id = qs.question_id AND qs.created_at > TIMESTAMP('2024-01-01 00:00:00')
+            WHERE q.task_id = @task_id AND q.created_at > TIMESTAMP('2024-01-01 00:00:00')
             ORDER BY q.position ASC
         """
 

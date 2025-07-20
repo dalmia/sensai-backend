@@ -97,8 +97,8 @@ async def get_course(course_id: int, only_published: bool = True) -> Dict:
              ELSE NULL END) as num_questions,
         FROM `{settings.bq_project_name}.{settings.bq_dataset_name}.{course_tasks_table_name}` ct
         JOIN `{settings.bq_project_name}.{settings.bq_dataset_name}.{tasks_table_name}` t 
-            ON ct.task_id = t.id
-        WHERE ct.course_id = @course_id AND t.deleted_at IS NULL AND t.created_at > TIMESTAMP('2024-01-01 00:00:00') AND ct.created_at > TIMESTAMP('2024-01-01 00:00:00')
+            ON ct.task_id = t.id AND ct.created_at > TIMESTAMP('2024-01-01 00:00:00')
+        WHERE ct.course_id = @course_id AND t.deleted_at IS NULL AND t.created_at > TIMESTAMP('2024-01-01 00:00:00')
         {published_filter}
         ORDER BY ct.milestone_id, ct.ordering
     """
