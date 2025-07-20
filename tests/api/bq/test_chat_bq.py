@@ -39,11 +39,18 @@ class TestChatBQ:
         mock_query_job = MagicMock()
         mock_client.query.return_value = mock_query_job
 
+        # Create mock datetime objects
+        mock_created_at_1 = MagicMock()
+        mock_created_at_1.strftime.return_value = "2024-01-01 12:00:00"
+
+        mock_created_at_2 = MagicMock()
+        mock_created_at_2.strftime.return_value = "2024-01-01 12:01:00"
+
         # Mock the query results
         mock_rows = [
             {
                 "id": 1,
-                "created_at": "2024-01-01 12:00:00",
+                "created_at": mock_created_at_1,
                 "user_id": 101,
                 "user_email": "test@example.com",
                 "question_id": 201,
@@ -55,7 +62,7 @@ class TestChatBQ:
             },
             {
                 "id": 2,
-                "created_at": "2024-01-01 12:01:00",
+                "created_at": mock_created_at_2,
                 "user_id": 102,
                 "user_email": "test2@example.com",
                 "question_id": 202,
@@ -69,7 +76,11 @@ class TestChatBQ:
         mock_query_job.result.return_value = mock_rows
 
         org_id = 123
-        result = await get_all_chat_history(org_id)
+
+        # Collect results from async generator
+        result = []
+        async for message in get_all_chat_history(org_id):
+            result.append(message)
 
         # Verify the query was called with correct parameters
         mock_client.query.assert_called_once()
@@ -96,9 +107,11 @@ class TestChatBQ:
         # Verify the result
         assert len(result) == 2
         assert result[0]["id"] == 1
+        assert result[0]["created_at"] == "2024-01-01 12:00:00"
         assert result[0]["user_email"] == "test@example.com"
         assert result[0]["content"] == "Test message"
         assert result[1]["id"] == 2
+        assert result[1]["created_at"] == "2024-01-01 12:01:00"
         assert result[1]["user_email"] == "test2@example.com"
         assert result[1]["content"] == "Test response"
 
@@ -123,7 +136,11 @@ class TestChatBQ:
         mock_query_job.result.return_value = []
 
         org_id = 123
-        result = await get_all_chat_history(org_id)
+
+        # Collect results from async generator
+        result = []
+        async for message in get_all_chat_history(org_id):
+            result.append(message)
 
         # Verify empty result
         assert result == []
@@ -148,11 +165,15 @@ class TestChatBQ:
         mock_query_job = MagicMock()
         mock_client.query.return_value = mock_query_job
 
+        # Create mock datetime object
+        mock_created_at = MagicMock()
+        mock_created_at.strftime.return_value = "2024-01-01 12:00:00"
+
         # Mock the query results with None values
         mock_rows = [
             {
                 "id": 1,
-                "created_at": "2024-01-01 12:00:00",
+                "created_at": mock_created_at,
                 "user_id": 101,
                 "user_email": "test@example.com",
                 "question_id": 201,
@@ -166,7 +187,11 @@ class TestChatBQ:
         mock_query_job.result.return_value = mock_rows
 
         org_id = 123
-        result = await get_all_chat_history(org_id)
+
+        # Collect results from async generator
+        result = []
+        async for message in get_all_chat_history(org_id):
+            result.append(message)
 
         # Verify the result handles None values
         assert len(result) == 1
@@ -185,7 +210,9 @@ class TestChatBQ:
 
         # The function should let the exception bubble up
         with pytest.raises(Exception, match="BigQuery error"):
-            await get_all_chat_history(org_id)
+            # Try to iterate through the async generator to trigger the exception
+            async for message in get_all_chat_history(org_id):
+                pass
 
     @patch("src.api.bq.chat.bigquery")
     @patch("src.api.bq.chat.settings")

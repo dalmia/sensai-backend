@@ -100,7 +100,6 @@ class TestCourseBQ:
                         {
                             "id": 1,
                             "name": "Test Course",
-                            "course_generation_status": "completed",
                         }
                     ]
                 )
@@ -137,7 +136,6 @@ class TestCourseBQ:
                             "milestone_id": 1,
                             "ordering": 0,
                             "num_questions": None,
-                            "task_generation_status": None,
                         },
                         {
                             "id": 2,
@@ -148,7 +146,6 @@ class TestCourseBQ:
                             "milestone_id": 2,
                             "ordering": 0,
                             "num_questions": 3,
-                            "task_generation_status": GenerateTaskJobStatus.STARTED,
                         },
                     ]
                 )
@@ -159,7 +156,6 @@ class TestCourseBQ:
 
         assert result["id"] == 1
         assert result["name"] == "Test Course"
-        assert result["course_generation_status"] == "completed"
         assert len(result["milestones"]) == 2
 
         # Check first milestone
@@ -177,7 +173,6 @@ class TestCourseBQ:
         assert len(milestone2["tasks"]) == 1
         task2 = milestone2["tasks"][0]
         assert task2["id"] == 2
-        assert task2["is_generating"] is True
         assert task2["num_questions"] == 3
 
     @patch("src.api.bq.course.get_bq_client")
@@ -220,7 +215,6 @@ class TestCourseBQ:
                         {
                             "id": 1,
                             "name": "Test Course",
-                            "course_generation_status": None,
                         }
                     ]
                 )
@@ -240,7 +234,6 @@ class TestCourseBQ:
                             "milestone_id": 1,
                             "ordering": 0,
                             "num_questions": None,
-                            "task_generation_status": None,
                         },
                     ]
                 )
@@ -250,7 +243,6 @@ class TestCourseBQ:
         result = await get_course(1, only_published=False)
 
         assert result["id"] == 1
-        assert result["course_generation_status"] is None
 
         # Verify the tasks query contains no filter for published status
         tasks_query_call = mock_client.query.call_args_list[2]
@@ -280,7 +272,6 @@ class TestCourseBQ:
                         {
                             "id": 1,
                             "name": "Empty Course",
-                            "course_generation_status": "started",
                         }
                     ]
                 )
@@ -319,7 +310,6 @@ class TestCourseBQ:
                         {
                             "id": 1,
                             "name": "Test Course",
-                            "course_generation_status": None,
                         }
                     ]
                 )
@@ -350,7 +340,6 @@ class TestCourseBQ:
                             "milestone_id": 1,
                             "ordering": 0,
                             "num_questions": None,
-                            "task_generation_status": None,
                         }
                     ]
                 )
@@ -361,4 +350,5 @@ class TestCourseBQ:
 
         milestone = result["milestones"][0]
         task = milestone["tasks"][0]
-        assert task["is_generating"] is False  # None status should result in False
+        assert task["id"] == 1
+        assert task["title"] == "Task 1"
