@@ -27,3 +27,4 @@ uploads
 db.sqlite
 evals
 experimental
+gcp.json

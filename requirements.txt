@@ -36,3 +36,4 @@ bugsnag==4.7.1
 arize-phoenix==11.5.0
 arize-phoenix-otel==0.10.3
 openinference-instrumentation-openai==0.1.30
+google-cloud-bigquery==3.35.0

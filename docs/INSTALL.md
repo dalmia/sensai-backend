@@ -36,6 +36,7 @@
   ```
   cd src; python startup.py
   ```
+
 - Running the backend api locally
     ```
     cd src; uvicorn api.main:app --reload --port 8001
@@ -43,12 +44,15 @@
 
     The api will be hosted on http://localhost:8001.
     The docs will be available on http://localhost:8001/docs
+
 - Running the public api locally
     ```
     cd src; uvicorn api.main:app --port 8002
     ```
     The api will be hosted on http://localhost:8002.
     The docs will be available on http://localhost:8002/docs
+  
+The public API fetches data from BigQuery. To run the public API locally, you need to set up the BigQuery credentials in the `.env` file.
 
 ### Additional steps for contributors
 - Set up `pre-commit` hooks. `pre-commit` should already be installed while installing requirements from the `requirements-dev.txt` file.

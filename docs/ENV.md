@@ -37,3 +37,12 @@ The endpoint for the self-hosted Phoenix instance. This is only used for local d
 
 ### PHOENIX_API_KEY (optional)
 The API key for accessing the Phoenix API for a secure self-hosted instance.
+
+### GOOGLE_APPLICATION_CREDENTIALS (optional)
+The absolute path to the GCP service account credentials file.
+
+### BQ_PROJECT_NAME (optional)
+The name of the BigQuery project to use for storing data.
+
+### BQ_DATASET_NAME (optional)
+The name of the BigQuery dataset to use for storing data.
