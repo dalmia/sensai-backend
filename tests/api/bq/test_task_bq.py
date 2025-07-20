@@ -239,3 +239,307 @@ class TestTaskBQ:
         result = await get_task(1)
 
         assert result is None
+
+    @patch("src.api.bq.task.get_basic_task_details")
+    @patch("src.api.bq.task.get_bq_client")
+    @patch("src.api.bq.task.settings")
+    @pytest.mark.asyncio
+    async def test_get_task_learning_material_success(
+        self, mock_settings, mock_get_client, mock_get_basic
+    ):
+        """Test get_task for learning material task type with blocks."""
+        # Mock basic task details
+        mock_get_basic.return_value = {
+            "id": 1,
+            "title": "Learning Material Task",
+            "type": "learning_material",  # Use string value instead of enum
+            "status": "published",
+            "org_id": 123,
+            "scheduled_publish_at": "2024-01-01 12:00:00",
+        }
+
+        # Mock BigQuery client
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_query_job = MagicMock()
+        mock_client.query.return_value = mock_query_job
+
+        mock_rows = [{"blocks": '["block1", "block2", "block3"]'}]
+        mock_query_job.result.return_value = mock_rows
+
+        result = await get_task(1)
+
+        assert result["id"] == 1
+        assert result["title"] == "Learning Material Task"
+        assert result["type"] == "learning_material"
+        assert result["blocks"] == ["block1", "block2", "block3"]
+
+        # Verify query was called correctly
+        mock_client.query.assert_called_once()
+        call_args = mock_client.query.call_args
+        query = call_args[0][0]
+        assert "SELECT blocks" in query
+        assert "test_project.test_dataset" in query
+
+    @patch("src.api.bq.task.get_basic_task_details")
+    @patch("src.api.bq.task.get_bq_client")
+    @patch("src.api.bq.task.settings")
+    @pytest.mark.asyncio
+    async def test_get_task_learning_material_null_blocks(
+        self, mock_settings, mock_get_client, mock_get_basic
+    ):
+        """Test get_task for learning material task type with null blocks."""
+        # Mock basic task details
+        mock_get_basic.return_value = {
+            "id": 1,
+            "title": "Learning Material Task",
+            "type": "learning_material",  # Use string value instead of enum
+            "status": "published",
+            "org_id": 123,
+            "scheduled_publish_at": "2024-01-01 12:00:00",
+        }
+
+        # Mock BigQuery client
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_query_job = MagicMock()
+        mock_client.query.return_value = mock_query_job
+
+        mock_rows = [{"blocks": None}]
+        mock_query_job.result.return_value = mock_rows
+
+        result = await get_task(1)
+
+        assert result["id"] == 1
+        assert result["blocks"] == []
+
+    @patch("src.api.bq.task.get_basic_task_details")
+    @patch("src.api.bq.task.get_bq_client")
+    @patch("src.api.bq.task.settings")
+    @pytest.mark.asyncio
+    async def test_get_task_learning_material_no_rows(
+        self, mock_settings, mock_get_client, mock_get_basic
+    ):
+        """Test get_task for learning material task type with no rows returned."""
+        # Mock basic task details
+        mock_get_basic.return_value = {
+            "id": 1,
+            "title": "Learning Material Task",
+            "type": "learning_material",  # Use string value instead of enum
+            "status": "published",
+            "org_id": 123,
+            "scheduled_publish_at": "2024-01-01 12:00:00",
+        }
+
+        # Mock BigQuery client
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_query_job = MagicMock()
+        mock_client.query.return_value = mock_query_job
+
+        # No rows returned
+        mock_query_job.result.return_value = []
+
+        result = await get_task(1)
+
+        assert result["id"] == 1
+        assert "blocks" not in result  # blocks key should not be added if no rows
+
+    @patch("src.api.bq.task.get_basic_task_details")
+    @patch("src.api.bq.task.get_bq_client")
+    @patch("src.api.bq.task.get_scorecard")
+    @patch("src.api.bq.task.settings")
+    @pytest.mark.asyncio
+    async def test_get_task_quiz_with_questions_and_scorecards(
+        self, mock_settings, mock_get_scorecard, mock_get_client, mock_get_basic
+    ):
+        """Test get_task for quiz task type with questions and scorecards."""
+        # Mock basic task details
+        mock_get_basic.return_value = {
+            "id": 1,
+            "title": "Quiz Task",
+            "type": "quiz",  # Use string value instead of enum
+            "status": "published",
+            "org_id": 123,
+            "scheduled_publish_at": "2024-01-01 12:00:00",
+        }
+
+        # Mock BigQuery client
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_query_job = MagicMock()
+        mock_client.query.return_value = mock_query_job
+
+        mock_questions = [
+            {
+                "id": 1,
+                "type": "multiple_choice",
+                "blocks": '["question1"]',
+                "answer": '["answer1"]',
+                "input_type": "radio",
+                "response_type": "exam",
+                "scorecard_id": 10,
+                "context": '{"type": "context"}',
+                "coding_language": '["python"]',
+                "max_attempts": 3,
+                "is_feedback_shown": True,
+                "title": "Question 1",
+            },
+            {
+                "id": 2,
+                "type": "text",
+                "blocks": '["question2"]',
+                "answer": None,
+                "input_type": "text",
+                "response_type": "practice",
+                "scorecard_id": None,
+                "context": None,
+                "coding_language": None,
+                "max_attempts": None,
+                "is_feedback_shown": False,
+                "title": "Question 2",
+            },
+        ]
+        mock_query_job.result.return_value = mock_questions
+
+        # Mock scorecard
+        mock_scorecard = {
+            "id": 10,
+            "title": "Test Scorecard",
+            "criteria": {"max_score": 10},
+            "status": "published",
+        }
+        mock_get_scorecard.return_value = mock_scorecard
+
+        result = await get_task(1)
+
+        assert result["id"] == 1
+        assert result["title"] == "Quiz Task"
+        assert result["type"] == "quiz"
+        assert len(result["questions"]) == 2
+
+        # Check first question with scorecard
+        q1 = result["questions"][0]
+        assert q1["id"] == 1
+        assert q1["scorecard_id"] == 10
+        assert q1["scorecard"] == mock_scorecard
+        assert q1["blocks"] == ["question1"]
+        assert q1["answer"] == ["answer1"]
+
+        # Check second question without scorecard
+        q2 = result["questions"][1]
+        assert q2["id"] == 2
+        assert q2["scorecard_id"] is None
+        assert (
+            "scorecard" not in q2
+        )  # scorecard key should not be added if scorecard_id is None
+        assert q2["blocks"] == ["question2"]
+        assert q2["answer"] is None
+
+        # Verify scorecard was only called once for the question that had scorecard_id
+        mock_get_scorecard.assert_called_once_with(10)
+
+    @patch("src.api.bq.task.get_basic_task_details")
+    @patch("src.api.bq.task.get_bq_client")
+    @patch("src.api.bq.task.settings")
+    @pytest.mark.asyncio
+    async def test_get_task_quiz_no_questions(
+        self, mock_settings, mock_get_client, mock_get_basic
+    ):
+        """Test get_task for quiz task type with no questions."""
+        # Mock basic task details
+        mock_get_basic.return_value = {
+            "id": 1,
+            "title": "Quiz Task",
+            "type": "quiz",  # Use string value instead of enum
+            "status": "published",
+            "org_id": 123,
+            "scheduled_publish_at": "2024-01-01 12:00:00",
+        }
+
+        # Mock BigQuery client
+        mock_settings.bq_project_name = "test_project"
+        mock_settings.bq_dataset_name = "test_dataset"
+
+        mock_client = MagicMock()
+        mock_get_client.return_value = mock_client
+
+        mock_query_job = MagicMock()
+        mock_client.query.return_value = mock_query_job
+
+        # No questions returned
+        mock_query_job.result.return_value = []
+
+        result = await get_task(1)
+
+        assert result["id"] == 1
+        assert result["title"] == "Quiz Task"
+        assert result["type"] == "quiz"
+        assert result["questions"] == []
+
+    @patch("src.api.bq.task.get_basic_task_details")
+    @pytest.mark.asyncio
+    async def test_get_task_other_task_type(self, mock_get_basic):
+        """Test get_task for task type that is neither LEARNING_MATERIAL nor QUIZ."""
+        # Mock basic task details with some other type
+        mock_get_basic.return_value = {
+            "id": 1,
+            "title": "Other Task",
+            "type": "other_type",
+            "status": "published",
+            "org_id": 123,
+            "scheduled_publish_at": "2024-01-01 12:00:00",
+        }
+
+        result = await get_task(1)
+
+        # Should return the basic task details without additional processing
+        assert result["id"] == 1
+        assert result["title"] == "Other Task"
+        assert result["type"] == "other_type"
+        assert "blocks" not in result
+        assert "questions" not in result
+
+    def test_convert_question_with_actual_function_call(self):
+        """Test to ensure actual function calls are tracked for coverage."""
+        # Import the actual function to ensure it's loaded for coverage
+        from src.api.bq.task import convert_question_bq_to_dict
+
+        question = {
+            "id": 1,
+            "type": "multiple_choice",
+            "blocks": '["block1"]',
+            "answer": '["answer1"]',
+            "input_type": "radio",
+            "response_type": "exam",
+            "scorecard_id": 123,
+            "context": '{"type": "context"}',
+            "coding_language": '["python"]',
+            "max_attempts": 3,
+            "is_feedback_shown": True,
+            "title": "Test Question",
+        }
+
+        # Call the actual function
+        result = convert_question_bq_to_dict(question)
+
+        assert result["id"] == 1
+        assert result["blocks"] == ["block1"]
+        assert result["answer"] == ["answer1"]
+        assert result["scorecard_id"] == 123
