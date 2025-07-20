@@ -64,6 +64,8 @@ class TestGetAllChatHistory:
         """Test successful chat history retrieval."""
         # Setup mocks
         mock_validate.return_value = None  # Successful validation
+
+        # Mock chat data
         mock_chat_data = [
             {
                 "id": 1,
@@ -78,7 +80,13 @@ class TestGetAllChatHistory:
                 "course_id": 123,
             }
         ]
-        mock_get_chat_history.return_value = mock_chat_data
+
+        # Create an async generator that yields the mock data
+        async def mock_async_generator(org_id):
+            for message in mock_chat_data:
+                yield message
+
+        mock_get_chat_history.return_value = mock_async_generator(123)
 
         # Make request
         response = client.get(
@@ -87,7 +95,10 @@ class TestGetAllChatHistory:
 
         # Assertions
         assert response.status_code == 200
-        assert response.json() == mock_chat_data
+        # For streaming response, we need to check the content
+        response_content = response.content.decode("utf-8")
+        expected_line = '{"id": 1, "created_at": "2023-01-01T00:00:00Z", "user_id": 123, "question_id": 456, "role": "user", "content": "Hello", "response_type": "text", "task_id": 789, "user_email": "test@example.com", "course_id": 123}\n'
+        assert expected_line in response_content
 
     @patch("src.api.public.validate_api_key")
     def test_get_all_chat_history_invalid_api_key(self, mock_validate):
@@ -209,7 +220,9 @@ class TestGetTasksForCourse:
         assert len(result["milestones"][0]["tasks"]) == 2
         assert "blocks" in result["milestones"][0]["tasks"][0]
         assert "questions" in result["milestones"][0]["tasks"][1]
-        assert result["milestones"][0]["tasks"][1]["questions"][0]["title"] == "question"
+        assert (
+            result["milestones"][0]["tasks"][1]["questions"][0]["title"] == "question"
+        )
 
     @patch("src.api.public.get_org_id_from_api_key")
     def test_get_tasks_for_course_invalid_api_key(self, mock_get_org_id):

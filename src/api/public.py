@@ -1,19 +1,21 @@
 from typing import Annotated, Dict, List, Optional, Tuple
 from fastapi import FastAPI, Body, Header, HTTPException, Depends
+from fastapi.responses import StreamingResponse
+import json
 from api.models import (
     PublicAPIChatMessage,
     CourseWithMilestonesAndTaskDetails,
     TaskType,
 )
-from api.db.chat import (
+from api.bq.chat import (
     get_all_chat_history as get_all_chat_history_from_db,
 )
-from api.db.course import (
+from api.bq.course import (
     get_course as get_course_from_db,
     get_course_org_id,
 )
-from api.db.task import get_task as get_task_from_db
-from api.db.org import get_org_id_from_api_key
+from api.bq.task import get_task as get_task_from_db
+from api.bq.org import get_org_id_from_api_key
 
 
 app = FastAPI()
@@ -38,17 +40,33 @@ async def validate_api_key(api_key: str, org_id: int) -> None:
         raise HTTPException(status_code=403, detail="Invalid API key")
 
 
-@app.get(
-    "/chat_history",
-    response_model=List[PublicAPIChatMessage],
-)
+async def generate_chat_history_stream(org_id: int):
+    """
+    Generator function that yields chat history messages as JSON lines.
+    Each line contains a single chat message in JSON format.
+    """
+    async for message in get_all_chat_history_from_db(org_id):
+        # Convert the message to JSON and add a newline for streaming
+        yield json.dumps(message) + "\n"
+
+
+@app.get("/chat_history")
 async def get_all_chat_history(
     org_id: int,
     api_key: str = Header(...),
-) -> List[PublicAPIChatMessage]:
+) -> StreamingResponse:
+    """
+    Stream chat history messages one by one instead of loading all into memory.
+    Returns JSONL format (JSON Lines) where each line is a chat message.
+    """
     # Validate the API key for the given org_id
     await validate_api_key(api_key=api_key, org_id=org_id)
-    return await get_all_chat_history_from_db(org_id)
+
+    return StreamingResponse(
+        generate_chat_history_stream(org_id),
+        media_type="application/x-ndjson",
+        headers={"Content-Disposition": "attachment; filename=chat_history.jsonl"},
+    )
 
 
 @app.get(

@@ -43,7 +43,10 @@ jobs:
             SLACK_ALERT_WEBHOOK_URL=${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
             PHOENIX_ENDPOINT=${{ secrets.PHOENIX_ENDPOINT }}
             PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY }}
-
+            GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
+            BQ_PROJECT_NAME=${{ secrets.BQ_PROJECT_NAME }}
+            BQ_DATASET_NAME=${{ secrets.BQ_DATASET_NAME }}
+          
       - name: Notify Slack on Success
         uses: slackapi/slack-github-action@v2.1.1
         with:

@@ -14,6 +14,11 @@ if os.path.exists(env_path):
 
 class Settings(BaseSettings):
     google_client_id: str | None = None
+
+    google_application_credentials: str | None = None
+    bq_project_name: str | None = None
+    bq_dataset_name: str | None = None
+
     openai_api_key: str | None = None
     s3_bucket_name: str | None = None  # only relevant when running the code remotely
     s3_folder_name: str | None = None  # only relevant when running the code remotely
