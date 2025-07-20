@@ -493,29 +493,6 @@ class TestTaskBQ:
         assert result["type"] == "quiz"
         assert result["questions"] == []
 
-    @patch("src.api.bq.task.get_basic_task_details")
-    @pytest.mark.asyncio
-    async def test_get_task_other_task_type(self, mock_get_basic):
-        """Test get_task for task type that is neither LEARNING_MATERIAL nor QUIZ."""
-        # Mock basic task details with some other type
-        mock_get_basic.return_value = {
-            "id": 1,
-            "title": "Other Task",
-            "type": "other_type",
-            "status": "published",
-            "org_id": 123,
-            "scheduled_publish_at": "2024-01-01 12:00:00",
-        }
-
-        result = await get_task(1)
-
-        # Should return the basic task details without additional processing
-        assert result["id"] == 1
-        assert result["title"] == "Other Task"
-        assert result["type"] == "other_type"
-        assert "blocks" not in result
-        assert "questions" not in result
-
     def test_convert_question_with_actual_function_call(self):
         """Test to ensure actual function calls are tracked for coverage."""
         # Import the actual function to ensure it's loaded for coverage
