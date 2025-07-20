@@ -4,6 +4,12 @@ on:
   workflow_dispatch:
     branches:
       - main
+    inputs:
+      deploy:
+        description: 'Whether to deploy to the instance'
+        required: false
+        default: 'false'
+        type: boolean
 
 jobs:
   build-and-push:
@@ -61,3 +67,14 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             text: "<!channel> ❌ *backend*: Staging deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Deploy to staging server
+        if: ${{ inputs.deploy == true }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d

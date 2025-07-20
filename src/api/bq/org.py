@@ -18,7 +18,7 @@ async def get_org_id_from_api_key(api_key: str) -> int:
 
     api_key_parts = api_key.split("__")
 
-    if len(api_key_parts) != 3:
+    if len(api_key_parts) < 3:
         raise ValueError("Invalid API key")
 
     try:
