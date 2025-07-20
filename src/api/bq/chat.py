@@ -52,7 +52,7 @@ async def get_all_chat_history(org_id: int) -> AsyncGenerator[Dict[str, Any], No
     for row in query_job.result():
         yield {
             "id": row["id"],
-            "created_at": row["created_at"],
+            "created_at": row["created_at"].strftime("%Y-%m-%d %H:%M:%S"),
             "user_id": row["user_id"],
             "user_email": row["user_email"],
             "question_id": row["question_id"],
