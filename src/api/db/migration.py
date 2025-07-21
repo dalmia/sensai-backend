@@ -11,7 +11,30 @@ from api.db.course import (
 )
 from api.models import TaskStatus, TaskType, QuestionType, TaskAIResponseType
 from api.utils.db import get_new_db_connection
-from api.config import questions_table_name
+from api.config import (
+    questions_table_name,
+    organizations_table_name,
+    org_api_keys_table_name,
+    users_table_name,
+    user_organizations_table_name,
+    cohorts_table_name,
+    user_cohorts_table_name,
+    batches_table_name,
+    user_batches_table_name,
+    course_tasks_table_name,
+    course_milestones_table_name,
+    milestones_table_name,
+    courses_table_name,
+    course_cohorts_table_name,
+    tasks_table_name,
+    scorecards_table_name,
+    question_scorecards_table_name,
+    chat_history_table_name,
+    task_completions_table_name,
+    course_generation_jobs_table_name,
+    task_generation_jobs_table_name,
+    code_drafts_table_name,
+)
 
 
 def convert_content_to_blocks(content: str) -> List[Dict]:
@@ -237,3 +260,86 @@ async def get_user_email_map():
         result = await cursor.fetchall()
 
         return {row[0]: row[1] for row in result}
+
+
+async def remove_openai_columns_from_organizations():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Check if 'openai_api_key' column exists before dropping
+        await cursor.execute(f"PRAGMA table_info({organizations_table_name})")
+        columns = [col[1] for col in await cursor.fetchall()]
+        if "openai_api_key" in columns:
+            await cursor.execute(
+                f"ALTER TABLE {organizations_table_name} DROP COLUMN openai_api_key"
+            )
+        if "openai_free_trial" in columns:
+            await cursor.execute(
+                f"ALTER TABLE {organizations_table_name} DROP COLUMN openai_free_trial"
+            )
+
+
+async def add_missing_timestamp_columns():
+    """Add missing timestamp columns to existing tables"""
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # List of tables and their missing columns
+        tables_to_update = [
+            (organizations_table_name, ["deleted_at"]),
+            (org_api_keys_table_name, ["deleted_at"]),
+            (users_table_name, ["updated_at", "deleted_at"]),
+            (user_organizations_table_name, ["updated_at", "deleted_at"]),
+            (cohorts_table_name, ["created_at", "updated_at", "deleted_at"]),
+            (user_cohorts_table_name, ["updated_at", "deleted_at"]),
+            (batches_table_name, ["updated_at", "deleted_at"]),
+            (user_batches_table_name, ["created_at", "updated_at", "deleted_at"]),
+            (course_tasks_table_name, ["updated_at", "deleted_at"]),
+            (course_milestones_table_name, ["updated_at", "deleted_at"]),
+            (milestones_table_name, ["created_at", "updated_at", "deleted_at"]),
+            (courses_table_name, ["updated_at", "deleted_at"]),
+            (course_cohorts_table_name, ["updated_at", "deleted_at"]),
+            (tasks_table_name, ["updated_at"]),
+            (questions_table_name, ["updated_at"]),
+            (scorecards_table_name, ["updated_at", "deleted_at"]),
+            (question_scorecards_table_name, ["updated_at", "deleted_at"]),
+            (chat_history_table_name, ["updated_at", "deleted_at"]),
+            (task_completions_table_name, ["updated_at", "deleted_at"]),
+            (course_generation_jobs_table_name, ["updated_at", "deleted_at"]),
+            (task_generation_jobs_table_name, ["updated_at", "deleted_at"]),
+            (code_drafts_table_name, ["created_at", "deleted_at"]),
+        ]
+
+        for table_name, columns_to_add in tables_to_update:
+            # Check if table exists
+            await cursor.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+                (table_name,),
+            )
+            table_exists = await cursor.fetchone()
+
+            if not table_exists:
+                continue
+
+            # Get existing columns
+            await cursor.execute(f"PRAGMA table_info({table_name})")
+            existing_columns = [col[1] for col in await cursor.fetchall()]
+
+            # Add missing columns
+            for column in columns_to_add:
+                if column not in existing_columns:
+                    if column in ["created_at", "updated_at"]:
+                        await cursor.execute(
+                            f"ALTER TABLE {table_name} ADD COLUMN {column} DATETIME DEFAULT CURRENT_TIMESTAMP"
+                        )
+                    elif column == "deleted_at":
+                        await cursor.execute(
+                            f"ALTER TABLE {table_name} ADD COLUMN {column} DATETIME"
+                        )
+
+        await conn.commit()
+
+
+async def run_migrations():
+    await remove_openai_columns_from_organizations()
+    await add_missing_timestamp_columns()

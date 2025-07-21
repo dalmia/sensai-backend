@@ -135,8 +135,6 @@ def convert_org_db_to_dict(org: Tuple):
         "slug": org[1],
         "name": org[2],
         "logo_color": org[3],
-        "openai_api_key": org[5],
-        "openai_free_trial": org[6],
     }
 
 
@@ -312,22 +310,6 @@ async def update_org(org_id: int, org_name: str):
     await execute_db_operation(
         f"UPDATE {organizations_table_name} SET name = ? WHERE id = ?",
         (org_name, org_id),
-    )
-
-
-async def update_org_openai_api_key(
-    org_id: int, encrypted_openai_api_key: str, is_free_trial: bool
-):
-    await execute_db_operation(
-        f"UPDATE {organizations_table_name} SET openai_api_key = ?, openai_free_trial = ? WHERE id = ?",
-        (encrypted_openai_api_key, is_free_trial, org_id),
-    )
-
-
-async def clear_org_openai_api_key(org_id: int):
-    await execute_db_operation(
-        f"UPDATE {organizations_table_name} SET openai_api_key = NULL WHERE id = ?",
-        (org_id,),
     )
 
 
