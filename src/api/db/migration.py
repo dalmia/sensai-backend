@@ -286,8 +286,8 @@ async def add_missing_timestamp_columns():
 
         # List of tables and their missing columns
         tables_to_update = [
-            (organizations_table_name, ["deleted_at"]),
-            (org_api_keys_table_name, ["deleted_at"]),
+            (organizations_table_name, ["updated_at", "deleted_at"]),
+            (org_api_keys_table_name, ["updated_at", "deleted_at"]),
             (users_table_name, ["updated_at", "deleted_at"]),
             (user_organizations_table_name, ["updated_at", "deleted_at"]),
             (cohorts_table_name, ["created_at", "updated_at", "deleted_at"]),
@@ -311,6 +311,7 @@ async def add_missing_timestamp_columns():
         ]
 
         for table_name, columns_to_add in tables_to_update:
+            print(table_name)
             # Check if table exists
             await cursor.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -325,17 +326,106 @@ async def add_missing_timestamp_columns():
             await cursor.execute(f"PRAGMA table_info({table_name})")
             existing_columns = [col[1] for col in await cursor.fetchall()]
 
-            # Add missing columns
+            # Add missing columns first (without setting values)
+            columns_added = []
             for column in columns_to_add:
                 if column not in existing_columns:
-                    if column in ["created_at", "updated_at"]:
-                        await cursor.execute(
-                            f"ALTER TABLE {table_name} ADD COLUMN {column} DATETIME DEFAULT CURRENT_TIMESTAMP"
-                        )
-                    elif column == "deleted_at":
-                        await cursor.execute(
-                            f"ALTER TABLE {table_name} ADD COLUMN {column} DATETIME"
-                        )
+                    await cursor.execute(
+                        f"ALTER TABLE {table_name} ADD COLUMN {column} DATETIME"
+                    )
+                    columns_added.append(column)
+
+            # Now update the timestamp columns with appropriate values
+            # Handle created_at first
+            if "created_at" in columns_added:
+                # Check if updated_at column already exists in the table
+                await cursor.execute(f"PRAGMA table_info({table_name})")
+                current_columns = [col[1] for col in await cursor.fetchall()]
+
+                if "updated_at" in current_columns:
+                    # Set created_at to existing updated_at if updated_at exists
+                    await cursor.execute(
+                        f"UPDATE {table_name} SET created_at = updated_at WHERE created_at IS NULL AND updated_at IS NOT NULL"
+                    )
+                    # For records where updated_at is also NULL, use current timestamp
+                    await cursor.execute(
+                        f"UPDATE {table_name} SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
+                    )
+                else:
+                    # Otherwise set to current timestamp
+                    await cursor.execute(
+                        f"UPDATE {table_name} SET created_at = CURRENT_TIMESTAMP WHERE created_at IS NULL"
+                    )
+
+            # Handle updated_at second (after created_at is set)
+            if "updated_at" in columns_added:
+                # Check if created_at column exists in the table
+                await cursor.execute(f"PRAGMA table_info({table_name})")
+                current_columns = [col[1] for col in await cursor.fetchall()]
+
+                if "created_at" in current_columns:
+                    # Set updated_at to created_at if created_at exists
+                    await cursor.execute(
+                        f"UPDATE {table_name} SET updated_at = created_at WHERE updated_at IS NULL"
+                    )
+                else:
+                    # Otherwise set to current timestamp
+                    await cursor.execute(
+                        f"UPDATE {table_name} SET updated_at = CURRENT_TIMESTAMP WHERE updated_at IS NULL"
+                    )
+
+            # Create triggers for automatic timestamp management on future operations
+            if "created_at" in columns_added:
+                # Trigger to set created_at on INSERT
+                trigger_name = f"set_created_at_{table_name}"
+                await cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+                await cursor.execute(
+                    f"""
+                    CREATE TRIGGER {trigger_name}
+                    AFTER INSERT ON {table_name}
+                    FOR EACH ROW
+                    WHEN NEW.created_at IS NULL
+                    BEGIN
+                        UPDATE {table_name} 
+                        SET created_at = CURRENT_TIMESTAMP 
+                        WHERE rowid = NEW.rowid;
+                    END
+                """
+                )
+
+            if "updated_at" in columns_added:
+                # Trigger to set updated_at on INSERT
+                insert_trigger_name = f"set_updated_at_insert_{table_name}"
+                await cursor.execute(f"DROP TRIGGER IF EXISTS {insert_trigger_name}")
+                await cursor.execute(
+                    f"""
+                    CREATE TRIGGER {insert_trigger_name}
+                    AFTER INSERT ON {table_name}
+                    FOR EACH ROW
+                    WHEN NEW.updated_at IS NULL
+                    BEGIN
+                        UPDATE {table_name} 
+                        SET updated_at = CURRENT_TIMESTAMP 
+                        WHERE rowid = NEW.rowid;
+                    END
+                """
+                )
+
+                # Trigger to set updated_at on UPDATE
+                update_trigger_name = f"set_updated_at_update_{table_name}"
+                await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
+                await cursor.execute(
+                    f"""
+                    CREATE TRIGGER {update_trigger_name}
+                    AFTER UPDATE ON {table_name}
+                    FOR EACH ROW
+                    BEGIN
+                        UPDATE {table_name} 
+                        SET updated_at = CURRENT_TIMESTAMP 
+                        WHERE rowid = NEW.rowid;
+                    END
+                """
+                )
 
         await conn.commit()
 

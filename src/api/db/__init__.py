@@ -30,6 +30,7 @@ from api.config import (
     org_api_keys_table_name,
     code_drafts_table_name,
 )
+from api.db.migration import run_migrations
 
 
 async def create_organizations_table(cursor):
@@ -556,18 +557,8 @@ async def init_db():
         cursor = await conn.cursor()
 
         if exists(sqlite_db_path):
-            if not await check_table_exists(batches_table_name, cursor):
-                await create_batches_table(cursor)
-
-            await conn.commit()
-
-    # Add missing timestamp columns to existing tables (outside the connection context)
-    if exists(sqlite_db_path):
-        await add_missing_timestamp_columns()
-        return
-
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
+            await run_migrations()
+            return
 
         try:
             await create_organizations_table(cursor)
