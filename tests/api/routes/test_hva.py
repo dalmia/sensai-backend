@@ -13,35 +13,6 @@ client = TestClient(app)
 class TestHvaRoutes:
     """Test HVA route endpoints."""
 
-    @patch("src.api.routes.hva.get_hva_openai_api_key_from_db")
-    def test_get_hva_openai_api_key_success(self, mock_get_hva_openai_api_key):
-        """Test successful HVA OpenAI API key retrieval."""
-        # Setup mock
-        mock_api_key = "test-api-key-12345"
-        mock_get_hva_openai_api_key.return_value = mock_api_key
-
-        # Make request
-        response = client.get("/hva/openai_key")
-
-        # Assertions
-        assert response.status_code == 200
-        assert response.json() == mock_api_key
-        mock_get_hva_openai_api_key.assert_called_once()
-
-    @patch("src.api.routes.hva.get_hva_openai_api_key_from_db")
-    def test_get_hva_openai_api_key_not_found(self, mock_get_hva_openai_api_key):
-        """Test HVA OpenAI API key retrieval when key doesn't exist."""
-        # Setup mock
-        mock_get_hva_openai_api_key.return_value = None
-
-        # Make request
-        response = client.get("/hva/openai_key")
-
-        # Assertions
-        assert response.status_code == 200
-        assert response.json() is None
-        mock_get_hva_openai_api_key.assert_called_once()
-
     @patch("src.api.routes.hva.is_user_hva_learner_from_db")
     def test_is_user_hva_learner_true(self, mock_is_user_hva_learner):
         """Test user is HVA learner check returning True."""

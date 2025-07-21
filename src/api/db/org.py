@@ -202,11 +202,6 @@ async def is_user_hva_learner(user_id: int) -> bool:
     return num_hva_users_matching_user_id > 0
 
 
-async def get_hva_openai_api_key() -> str:
-    org_details = await get_org_by_id(await get_hva_org_id())
-    return org_details["openai_api_key"]
-
-
 async def add_users_to_org_by_email(
     org_id: int,
     emails: List[str],

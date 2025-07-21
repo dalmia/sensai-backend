@@ -712,7 +712,7 @@ async def _fetch_organizations_from_sqlite() -> List[Dict[str, Any]]:
 
         await cursor.execute(
             f"""
-            SELECT id, slug, name, default_logo_color, created_at, openai_api_key, openai_free_trial 
+            SELECT id, slug, name, default_logo_color, created_at 
             FROM {organizations_table_name}
             ORDER BY id
         """
@@ -730,8 +730,6 @@ async def _fetch_organizations_from_sqlite() -> List[Dict[str, Any]]:
                     "name": row[2],
                     "default_logo_color": row[3],
                     "created_at": row[4],
-                    "openai_api_key": row[5],
-                    "openai_free_trial": row[6],
                 }
             )
 
