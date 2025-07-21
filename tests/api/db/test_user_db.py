@@ -179,15 +179,11 @@ class TestUserDatabaseOperations:
                 "id": 1,
                 "name": "Org 1",
                 "role": "admin",
-                "openai_api_key": "sk-key1",
-                "openai_free_trial": True,
             },
             {
                 "id": 2,
                 "name": "Org 2",
                 "role": "member",
-                "openai_api_key": "sk-key2",
-                "openai_free_trial": False,
             },
         ]
 

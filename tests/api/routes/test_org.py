@@ -239,42 +239,6 @@ async def test_update_org_success(client, mock_db):
 
 
 @pytest.mark.asyncio
-async def test_update_org_openai_api_key_success(client, mock_db):
-    """
-    Test updating organization OpenAI API key successfully
-    """
-    with patch(
-        "api.routes.org.update_org_openai_api_key_in_db"
-    ) as mock_update_key, patch("api.routes.org.get_new_db_connection") as mock_db_conn:
-        # Setup connection mock
-        conn_mock = AsyncMock()
-        cursor_mock = mock_db["cursor"]
-        conn_mock.cursor.return_value = cursor_mock
-        mock_db_conn.return_value.__aenter__.return_value = conn_mock
-
-        # Setup request data
-        request_data = {
-            "encrypted_openai_api_key": "encrypted_key_value",
-            "is_free_trial": False,
-        }
-
-        # Mock update success
-        mock_update_key.return_value = None
-
-        # Make request
-        response = client.put("/organizations/123/openai_api_key", json=request_data)
-
-        # Verify response
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"success": True}
-
-        # Verify mock called correctly
-        mock_update_key.assert_called_with(
-            123, request_data["encrypted_openai_api_key"], request_data["is_free_trial"]
-        )
-
-
-@pytest.mark.asyncio
 async def test_add_users_to_org_by_email_success(client, mock_db):
     """
     Test adding users to organization by email successfully

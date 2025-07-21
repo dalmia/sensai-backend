@@ -6,7 +6,6 @@ from api.db.org import (
     create_organization_with_user,
     get_org_by_id as get_org_by_id_from_db,
     update_org as update_org_in_db,
-    update_org_openai_api_key as update_org_openai_api_key_in_db,
     add_users_to_org_by_email as add_users_to_org_by_email_in_db,
     remove_members_from_org as remove_members_from_org_from_db,
     get_org_members as get_org_members_from_db,
@@ -65,14 +64,6 @@ async def get_org_by_slug(slug: str) -> Dict:
 @router.put("/{org_id}")
 async def update_org(org_id: int, request: UpdateOrgRequest):
     await update_org_in_db(org_id, request.name)
-    return {"success": True}
-
-
-@router.put("/{org_id}/openai_api_key")
-async def update_org_openai_api_key(org_id: int, request: UpdateOrgOpenaiApiKeyRequest):
-    await update_org_openai_api_key_in_db(
-        org_id, request.encrypted_openai_api_key, request.is_free_trial
-    )
     return {"success": True}
 
 

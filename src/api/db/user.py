@@ -31,7 +31,7 @@ async def update_user_email(email_1: str, email_2: str) -> None:
 
 async def get_user_organizations(user_id: int):
     user_organizations = await execute_db_operation(
-        f"""SELECT uo.org_id, o.name, uo.role, o.openai_api_key, o.openai_free_trial
+        f"""SELECT uo.org_id, o.name, uo.role
         FROM {user_organizations_table_name} uo
         JOIN organizations o ON uo.org_id = o.id 
         WHERE uo.user_id = ? ORDER BY uo.id DESC""",
@@ -44,8 +44,6 @@ async def get_user_organizations(user_id: int):
             "id": user_organization[0],
             "name": user_organization[1],
             "role": user_organization[2],
-            "openai_api_key": user_organization[3],
-            "openai_free_trial": user_organization[4],
         }
         for user_organization in user_organizations
     ]

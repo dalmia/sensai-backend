@@ -20,6 +20,7 @@ from src.api.db import (
     create_course_generation_jobs_table,
     create_task_generation_jobs_table,
     create_code_drafts_table,
+    create_batches_table,
     init_db,
     delete_useless_tables,
 )
@@ -260,6 +261,19 @@ class TestTableCreationFunctions:
 
         assert any("CREATE TABLE IF NOT EXISTS code_drafts" in call for call in calls)
 
+    async def test_create_batches_table(self):
+        """Test creating batches table."""
+        mock_cursor = AsyncMock()
+
+        await create_batches_table(mock_cursor)
+
+        # Should execute 2 CREATE TABLE and 3 CREATE INDEX statements
+        assert mock_cursor.execute.call_count == 5
+        calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+
+        assert any("CREATE TABLE IF NOT EXISTS batches" in call for call in calls)
+        assert any("CREATE TABLE IF NOT EXISTS user_batches" in call for call in calls)
+
 
 @pytest.mark.asyncio
 class TestDatabaseInitialization:
@@ -270,12 +284,10 @@ class TestDatabaseInitialization:
     @patch("src.api.db.os.path.exists")
     @patch("src.api.db.os.makedirs")
     @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
     @patch("src.api.db.set_db_defaults")
     async def test_init_db_creates_database_directory(
         self,
         mock_set_defaults,
-        mock_check_table,
         mock_get_conn,
         mock_makedirs,
         mock_path_exists,
@@ -289,7 +301,6 @@ class TestDatabaseInitialization:
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__aenter__.return_value = mock_conn
         mock_get_conn.return_value = mock_conn
-        mock_check_table.return_value = False
 
         await init_db()
 
@@ -300,12 +311,10 @@ class TestDatabaseInitialization:
     @patch("src.api.db.os.path.exists")
     @patch("src.api.db.os.makedirs")
     @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
     @patch("src.api.db.set_db_defaults")
     async def test_init_db_skips_directory_creation_if_exists(
         self,
         mock_set_defaults,
-        mock_check_table,
         mock_get_conn,
         mock_makedirs,
         mock_path_exists,
@@ -319,7 +328,6 @@ class TestDatabaseInitialization:
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__aenter__.return_value = mock_conn
         mock_get_conn.return_value = mock_conn
-        mock_check_table.return_value = False
 
         await init_db()
 
@@ -329,12 +337,10 @@ class TestDatabaseInitialization:
     @patch("src.api.db.exists")
     @patch("src.api.db.os.path.exists")
     @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
     @patch("src.api.db.set_db_defaults")
     async def test_init_db_creates_all_tables(
         self,
         mock_set_defaults,
-        mock_check_table,
         mock_get_conn,
         mock_path_exists,
         mock_exists,
@@ -347,11 +353,11 @@ class TestDatabaseInitialization:
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__aenter__.return_value = mock_conn
         mock_get_conn.return_value = mock_conn
-        mock_check_table.return_value = False
 
         await init_db()
 
         # Verify that cursor.execute was called multiple times (for all table creations)
+        # With the new create_batches_table, we now have one more table
         assert mock_cursor.execute.call_count > 20  # We have many tables to create
         mock_conn.commit.assert_called_once()
 
@@ -359,12 +365,10 @@ class TestDatabaseInitialization:
     @patch("src.api.db.exists")
     @patch("src.api.db.os.path.exists")
     @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
     @patch("src.api.db.set_db_defaults")
     async def test_init_db_sets_defaults(
         self,
         mock_set_defaults,
-        mock_check_table,
         mock_get_conn,
         mock_path_exists,
         mock_exists,
@@ -377,7 +381,6 @@ class TestDatabaseInitialization:
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__aenter__.return_value = mock_conn
         mock_get_conn.return_value = mock_conn
-        mock_check_table.return_value = False
 
         await init_db()
 
@@ -387,31 +390,34 @@ class TestDatabaseInitialization:
     @patch("src.api.db.exists")
     @patch("src.api.db.os.path.exists")
     @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
+    @patch("src.api.db.run_migrations")
     @patch("src.api.db.set_db_defaults")
     async def test_init_db_existing_db_with_all_tables(
         self,
         mock_set_defaults,
-        mock_check_table,
+        mock_run_migrations,
         mock_get_conn,
         mock_path_exists,
         mock_exists,
     ):
-        """Test that init_db does nothing when database and all tables exist."""
+        """Test that init_db calls run_migrations when database exists."""
         mock_exists.return_value = True  # Database exists
         mock_path_exists.return_value = True  # Directory exists
-        mock_check_table.return_value = True  # code_drafts table exists
         mock_cursor = AsyncMock()
         mock_conn = AsyncMock()
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__aenter__.return_value = mock_conn
         mock_get_conn.return_value = mock_conn
+        mock_run_migrations.return_value = None
 
         await init_db()
 
-        # Should only commit, no table creation
+        # Should call run_migrations when database exists
+        mock_run_migrations.assert_called_once()
+        # Should not execute any table creation commands
         mock_cursor.execute.assert_not_called()
-        mock_conn.commit.assert_called_once()
+        # Should not commit when returning early after migrations
+        mock_conn.commit.assert_not_called()
         # Should not set defaults when database already exists
         mock_set_defaults.assert_not_called()
 
@@ -419,14 +425,12 @@ class TestDatabaseInitialization:
     @patch("src.api.db.exists")
     @patch("src.api.db.os.path.exists")
     @patch("src.api.db.get_new_db_connection")
-    @patch("src.api.db.check_table_exists")
     @patch("src.api.db.set_db_defaults")
     @patch("src.api.db.os.remove")
     async def test_init_db_exception_handling_removes_db(
         self,
         mock_remove,
         mock_set_defaults,
-        mock_check_table,
         mock_get_conn,
         mock_path_exists,
         mock_exists,
@@ -439,7 +443,6 @@ class TestDatabaseInitialization:
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__aenter__.return_value = mock_conn
         mock_get_conn.return_value = mock_conn
-        mock_check_table.return_value = False
 
         # Make cursor.execute raise an exception
         test_exception = Exception("Database error")

@@ -114,8 +114,6 @@ def mock_db():
     ) as get_org_by_slug_mock, patch(
         "api.routes.org.update_org_in_db"
     ) as update_org_mock, patch(
-        "api.routes.org.update_org_openai_api_key_in_db"
-    ) as update_org_api_key_mock, patch(
         "api.routes.org.add_users_to_org_by_email_in_db"
     ) as add_users_to_org_mock, patch(
         "api.routes.org.remove_members_from_org_from_db"
@@ -155,7 +153,6 @@ def mock_db():
         db_mocks["get_org_by_id"] = get_org_by_id_mock
         db_mocks["get_org_by_slug"] = get_org_by_slug_mock
         db_mocks["update_org"] = update_org_mock
-        db_mocks["update_org_api_key"] = update_org_api_key_mock
         db_mocks["add_users_to_org"] = add_users_to_org_mock
         db_mocks["remove_members"] = remove_members_mock
         db_mocks["get_org_members"] = get_org_members_mock
