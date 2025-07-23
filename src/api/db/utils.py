@@ -53,11 +53,16 @@ def construct_description_from_blocks(
 
     description = ""
     indent = "    " * nesting_level  # 4 spaces per nesting level
+    numbered_list_counter = 1  # Counter for numbered list items
 
     for block in blocks:
         block_type = block.get("type", "")
         content = block.get("content", [])
         children = block.get("children", [])
+
+        # Reset counter if we encounter a non-numbered list item after being in a numbered list
+        if block_type != "numberedListItem" and numbered_list_counter > 1:
+            numbered_list_counter = 1
 
         # Process based on block type
         if block_type == "paragraph":
@@ -99,10 +104,12 @@ def construct_description_from_blocks(
                 for text_obj in content:
                     if isinstance(text_obj, dict) and "text" in text_obj:
                         item_text += text_obj["text"]
+
                 if item_text:
                     # Use proper list marker based on parent list type
                     if block_type == "numberedListItem":
-                        marker = "1. "
+                        marker = f"{numbered_list_counter}. "
+                        numbered_list_counter += 1
                     elif block_type == "checkListItem":
                         marker = "- [ ] "
                     elif block_type == "bulletListItem":
