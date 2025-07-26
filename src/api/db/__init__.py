@@ -29,6 +29,7 @@ from api.config import (
     task_generation_jobs_table_name,
     org_api_keys_table_name,
     code_drafts_table_name,
+    integrations_table_name,
 )
 from api.db.migration import run_migrations
 
@@ -318,6 +319,29 @@ async def create_course_cohorts_table(cursor):
     )
 
 
+async def create_integrations_table(cursor):
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {integrations_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                integration_type TEXT NOT NULL,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                expires_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX idx_integration_user_id ON {integrations_table_name} (user_id)"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
+    )
+
+
 async def create_tasks_table(cursor):
     await cursor.execute(
         f"""CREATE TABLE IF NOT EXISTS {tasks_table_name} (
@@ -600,6 +624,8 @@ async def init_db():
             await create_code_drafts_table(cursor)
 
             await create_batches_table(cursor)
+
+            await create_integrations_table(cursor)
 
             await conn.commit()
 

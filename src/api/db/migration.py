@@ -34,6 +34,7 @@ from api.config import (
     course_generation_jobs_table_name,
     task_generation_jobs_table_name,
     code_drafts_table_name,
+    integrations_table_name,
 )
 
 
@@ -433,3 +434,40 @@ async def add_missing_timestamp_columns():
 async def run_migrations():
     await remove_openai_columns_from_organizations()
     await add_missing_timestamp_columns()
+
+
+async def create_integrations_table_migration():
+    """
+    Migration: Creates the integrations table if it doesn't exist.
+    """
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+        
+        # Check if integrations table already exists
+        await cursor.execute(f"PRAGMA table_info({integrations_table_name})")
+        columns = [col[1] for col in await cursor.fetchall()]
+        
+        if not columns:  # Table doesn't exist
+            await cursor.execute(
+                f"""CREATE TABLE {integrations_table_name} (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    integration_type TEXT NOT NULL,
+                    access_token TEXT NOT NULL,
+                    refresh_token TEXT,
+                    expires_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
+                )"""
+            )
+            
+            # Create indexes
+            await cursor.execute(
+                f"""CREATE INDEX idx_integration_user_id ON {integrations_table_name} (user_id)"""
+            )
+
+            await cursor.execute(
+                f"""CREATE INDEX idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
+            )
+            
+            await conn.commit()
