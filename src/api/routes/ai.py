@@ -905,6 +905,7 @@ def task_generation_schemas():
         )
 
     class Question(BaseModel):
+        question_title: str = Field(description="The title of the question")
         question_type: Literal["objective", "subjective", "coding"] = Field(
             description='The type of question; "objective" means that the question has a fixed correct answer and the learner\'s response must precisely match it. "subjective" means that the question is subjective, with no fixed correct answer. "coding" - a specific type of "objective" question for programming questions that require one to write code.'
         )

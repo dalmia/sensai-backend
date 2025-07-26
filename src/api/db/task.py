@@ -944,6 +944,7 @@ async def add_generated_quiz(task_id: int, task_details: Dict):
             question["scorecard"] = None
         question["scorecard_id"] = None
         question["coding_languages"] = question.get("coding_languages", None)
+        question["title"] = question.pop("question_title")
 
     await update_draft_quiz(
         task_id,
