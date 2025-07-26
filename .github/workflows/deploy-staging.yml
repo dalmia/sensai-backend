@@ -51,6 +51,18 @@ jobs:
             BQ_PROJECT_NAME=${{ secrets.BQ_PROJECT_NAME }}
             BQ_DATASET_NAME=${{ secrets.BQ_DATASET_NAME }}
 
+      - name: Deploy to staging server
+        if: ${{ inputs.deploy == true }}
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d
+      
+
       - name: Notify Slack on Success
         uses: slackapi/slack-github-action@v2.1.1
         with:
@@ -67,14 +79,3 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             text: "<!channel> ❌ *backend*: Staging deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-
-      - name: Deploy to staging server
-        if: ${{ inputs.deploy == true }}
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.SSH_HOST }}
-          username: ${{ secrets.SSH_USERNAME }}
-          key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
-          script: |
-            sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d

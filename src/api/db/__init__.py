@@ -31,6 +31,7 @@ from api.config import (
     code_drafts_table_name,
     integrations_table_name,
 )
+from api.db.migration import run_migrations
 
 
 async def create_organizations_table(cursor):
@@ -41,8 +42,8 @@ async def create_organizations_table(cursor):
                 name TEXT NOT NULL,
                 default_logo_color TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                openai_api_key TEXT,
-                openai_free_trial BOOLEAN
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME
             )"""
     )
 
@@ -58,6 +59,8 @@ async def create_org_api_keys_table(cursor):
                 org_id INTEGER NOT NULL,
                 hashed_key TEXT NOT NULL UNIQUE,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
             )"""
     )
@@ -80,7 +83,9 @@ async def create_users_table(cursor):
                 middle_name TEXT,
                 last_name TEXT,
                 default_dp_color TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME
             )"""
     )
 
@@ -93,6 +98,8 @@ async def create_user_organizations_table(cursor):
                 org_id INTEGER NOT NULL,
                 role TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(user_id, org_id),
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
@@ -115,6 +122,9 @@ async def create_cohort_tables(cursor):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL,
                 org_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
             )"""
     )
@@ -131,6 +141,8 @@ async def create_cohort_tables(cursor):
                 cohort_id INTEGER NOT NULL,
                 role TEXT NOT NULL,
                 joined_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(user_id, cohort_id),
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (cohort_id) REFERENCES {cohorts_table_name}(id) ON DELETE CASCADE
@@ -153,6 +165,8 @@ async def create_batches_table(cursor):
                 name TEXT NOT NULL,
                 cohort_id INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (cohort_id) REFERENCES {cohorts_table_name}(id) ON DELETE CASCADE
             )"""
     )
@@ -166,6 +180,9 @@ async def create_batches_table(cursor):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 user_id INTEGER NOT NULL,
                 batch_id INTEGER NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(user_id, batch_id),
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (batch_id) REFERENCES {batches_table_name}(id) ON DELETE CASCADE
@@ -189,6 +206,8 @@ async def create_course_tasks_table(cursor):
                 course_id INTEGER NOT NULL,
                 ordering INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 milestone_id INTEGER,
                 UNIQUE(task_id, course_id),
                 FOREIGN KEY (task_id) REFERENCES {tasks_table_name}(id) ON DELETE CASCADE,
@@ -218,6 +237,8 @@ async def create_course_milestones_table(cursor):
                 milestone_id INTEGER,
                 ordering INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(course_id, milestone_id),
                 FOREIGN KEY (course_id) REFERENCES {courses_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (milestone_id) REFERENCES {milestones_table_name}(id) ON DELETE CASCADE
@@ -240,6 +261,9 @@ async def create_milestones_table(cursor):
                 org_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 color TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
             )"""
     )
@@ -256,6 +280,8 @@ async def create_courses_table(cursor):
                 org_id INTEGER NOT NULL,
                 name TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
             )"""
     )
@@ -276,6 +302,8 @@ async def create_course_cohorts_table(cursor):
                 frequency_unit TEXT,
                 publish_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(course_id, cohort_id),
                 FOREIGN KEY (course_id) REFERENCES {courses_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (cohort_id) REFERENCES {cohorts_table_name}(id) ON DELETE CASCADE
@@ -324,6 +352,7 @@ async def create_tasks_table(cursor):
                     title TEXT NOT NULL,
                     status TEXT NOT NULL,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     deleted_at DATETIME,
                     scheduled_publish_at DATETIME,
                     FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
@@ -349,6 +378,7 @@ async def create_questions_table(cursor):
                 response_type TEXT NOT NULL,
                 position INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 deleted_at DATETIME,
                 max_attempts INTEGER,
                 is_feedback_shown BOOLEAN NOT NULL,
@@ -371,6 +401,8 @@ async def create_scorecards_table(cursor):
                 title TEXT NOT NULL,
                 criteria TEXT NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 status TEXT,
                 FOREIGN KEY (org_id) REFERENCES {organizations_table_name}(id) ON DELETE CASCADE
             )"""
@@ -388,6 +420,8 @@ async def create_question_scorecards_table(cursor):
                 question_id INTEGER NOT NULL,
                 scorecard_id INTEGER NOT NULL,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (question_id) REFERENCES {questions_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (scorecard_id) REFERENCES {scorecards_table_name}(id) ON DELETE CASCADE,
                 UNIQUE(question_id, scorecard_id)
@@ -414,6 +448,8 @@ async def create_chat_history_table(cursor):
                     content TEXT,
                     response_type TEXT,
                     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    deleted_at DATETIME,
                     FOREIGN KEY (question_id) REFERENCES {questions_table_name}(id),
                     FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
                 )"""
@@ -436,6 +472,8 @@ async def create_task_completion_table(cursor):
                 task_id INTEGER,
                 question_id INTEGER,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (task_id) REFERENCES {tasks_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (question_id) REFERENCES {questions_table_name}(id) ON DELETE CASCADE,
@@ -466,6 +504,8 @@ async def create_course_generation_jobs_table(cursor):
                 status TEXT NOT NULL,
                 job_details TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (course_id) REFERENCES {courses_table_name}(id) ON DELETE CASCADE
             )"""
     )
@@ -485,6 +525,8 @@ async def create_task_generation_jobs_table(cursor):
                 status TEXT NOT NULL,
                 job_details TEXT,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 FOREIGN KEY (task_id) REFERENCES {tasks_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (course_id) REFERENCES {courses_table_name}(id) ON DELETE CASCADE
             )"""
@@ -506,7 +548,9 @@ async def create_code_drafts_table(cursor):
                 user_id INTEGER NOT NULL,
                 question_id INTEGER NOT NULL,
                 code TEXT NOT NULL,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(user_id, question_id),
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE,
                 FOREIGN KEY (question_id) REFERENCES {questions_table_name}(id) ON DELETE CASCADE
@@ -537,10 +581,7 @@ async def init_db():
         cursor = await conn.cursor()
 
         if exists(sqlite_db_path):
-            if not await check_table_exists(batches_table_name, cursor):
-                await create_batches_table(cursor)
-
-            await conn.commit()
+            await run_migrations()
             return
 
         try:

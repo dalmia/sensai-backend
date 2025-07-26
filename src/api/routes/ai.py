@@ -447,7 +447,7 @@ async def ai_response_for_question(request: AIChatRequest):
                         model=model,
                         messages=messages,
                         response_model=Output,
-                        max_completion_tokens=4096,
+                        max_completion_tokens=8192,
                     )
                     # Process the async generator
                     async for chunk in stream:

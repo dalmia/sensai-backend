@@ -15,15 +15,12 @@ from src.api.db.org import (
     get_hva_org_id,
     get_hva_cohort_ids,
     is_user_hva_learner,
-    get_hva_openai_api_key,
     add_users_to_org_by_email,
     remove_members_from_org,
     convert_user_organization_db_to_dict,
     get_org_members,
     drop_user_organizations_table,
     drop_organizations_table,
-    update_org_openai_api_key,
-    clear_org_openai_api_key,
     add_user_to_org_by_user_id,
 )
 
@@ -129,8 +126,6 @@ class TestOrganizationOperations:
             "Test Organization",  # name
             "#FF5733",  # logo_color
             "2023-01-01 12:00:00",  # created_at
-            "sk-test123",  # openai_api_key
-            True,  # openai_free_trial
         )
         mock_execute.return_value = mock_org_tuple
 
@@ -141,8 +136,6 @@ class TestOrganizationOperations:
             "slug": "test-org",
             "name": "Test Organization",
             "logo_color": "#FF5733",
-            "openai_api_key": "sk-test123",
-            "openai_free_trial": True,
         }
 
         assert result == expected
@@ -168,8 +161,6 @@ class TestOrganizationOperations:
             "Test Organization",  # name
             "#FF5733",  # logo_color
             "2023-01-01 12:00:00",  # created_at
-            "sk-test123",  # openai_api_key
-            False,  # openai_free_trial
         )
         mock_execute.return_value = mock_org_tuple
 
@@ -180,8 +171,6 @@ class TestOrganizationOperations:
             "slug": "test-org",
             "name": "Test Organization",
             "logo_color": "#FF5733",
-            "openai_api_key": "sk-test123",
-            "openai_free_trial": False,
         }
 
         assert result == expected
@@ -337,18 +326,6 @@ class TestOrganizationOperations:
 
         assert result is False
 
-    @patch("src.api.db.org.get_hva_org_id")
-    @patch("src.api.db.org.get_org_by_id")
-    async def test_get_hva_openai_api_key(self, mock_get_org, mock_get_hva_org):
-        """Test getting HVA OpenAI API key."""
-        mock_get_hva_org.return_value = 456
-        mock_get_org.return_value = {"openai_api_key": "sk-hva-key"}
-
-        result = await get_hva_openai_api_key()
-
-        assert result == "sk-hva-key"
-        mock_get_org.assert_called_once_with(456)
-
     @patch("src.api.db.org.get_org_by_id")
     @patch("src.api.db.org.get_new_db_connection")
     @patch("src.api.db.org.insert_or_return_user")
@@ -433,25 +410,6 @@ class TestOrganizationOperations:
 
         assert result == expected
 
-    @patch("src.api.db.org.execute_db_operation")
-    async def test_update_org_openai_api_key(self, mock_execute):
-        """Test updating org OpenAI API key."""
-        await update_org_openai_api_key(1, "encrypted_key", True)
-
-        mock_execute.assert_called_once_with(
-            "UPDATE organizations SET openai_api_key = ?, openai_free_trial = ? WHERE id = ?",
-            ("encrypted_key", True, 1),
-        )
-
-    @patch("src.api.db.org.execute_db_operation")
-    async def test_clear_org_openai_api_key(self, mock_execute):
-        """Test clearing org OpenAI API key."""
-        await clear_org_openai_api_key(1)
-
-        mock_execute.assert_called_once_with(
-            "UPDATE organizations SET openai_api_key = NULL WHERE id = ?", (1,)
-        )
-
     async def test_add_user_to_org_by_user_id(self):
         """Test adding user to org by user ID."""
         mock_cursor = AsyncMock()
@@ -489,15 +447,13 @@ class TestOrganizationUtilityFunctions:
 
     def test_convert_org_db_to_dict_complete(self):
         """Test converting complete organization tuple to dictionary."""
-        # Tuple order: (id, slug, name, logo_color, created_at, openai_api_key, openai_free_trial)
+        # Tuple order: (id, slug, name, logo_color, created_at)
         org_tuple = (
             1,  # id
             "test-org",  # slug
             "Test Organization",  # name
             "#FF5733",  # logo_color
             "2023-01-01 12:00:00",  # created_at
-            "sk-test123",  # openai_api_key
-            True,  # openai_free_trial
         )
 
         result = convert_org_db_to_dict(org_tuple)
@@ -507,8 +463,6 @@ class TestOrganizationUtilityFunctions:
             "slug": "test-org",
             "name": "Test Organization",
             "logo_color": "#FF5733",
-            "openai_api_key": "sk-test123",
-            "openai_free_trial": True,
         }
 
         assert result == expected
@@ -520,15 +474,13 @@ class TestOrganizationUtilityFunctions:
 
     def test_convert_org_db_to_dict_extended(self):
         """Test organization conversion with extended tuple."""
-        # Tuple order: (id, slug, name, logo_color, created_at, openai_api_key, openai_free_trial)
+        # Tuple order: (id, slug, name, logo_color, created_at)
         org_tuple = (
             1,  # id
             "test-org",  # slug
             "Test Org",  # name
             "#000000",  # logo_color
             "2024-01-01 12:00:00",  # created_at
-            "encrypted_key",  # openai_api_key
-            True,  # openai_free_trial
         )
 
         result = convert_org_db_to_dict(org_tuple)
@@ -539,8 +491,8 @@ class TestOrganizationUtilityFunctions:
 
     def test_convert_org_db_to_dict_minimal(self):
         """Test organization conversion with minimal data."""
-        # Tuple order: (id, slug, name, logo_color, created_at, openai_api_key, openai_free_trial)
-        org_tuple = (1, "test-org", "Test Org", None, None, None, False)
+        # Tuple order: (id, slug, name, logo_color, created_at)
+        org_tuple = (1, "test-org", "Test Org", None, None)
 
         result = convert_org_db_to_dict(org_tuple)
 
