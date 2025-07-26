@@ -175,7 +175,7 @@ async def delete_message(message_id: int):
 
 async def update_message_timestamp(message_id: int, new_timestamp: datetime):
     await execute_db_operation(
-        f"UPDATE {chat_history_table_name} SET timestamp = ? WHERE id = ?",
+        f"UPDATE {chat_history_table_name} SET created_at = ? WHERE id = ?",
         (new_timestamp, message_id),
     )
 
