@@ -789,6 +789,7 @@ class TestTaskOperations:
             "details": {
                 "questions": [
                     {
+                        "question_title": "Question 1",
                         "question_type": "multiple_choice",
                         "blocks": [{"type": "text", "content": "Question?"}],
                         "correct_answer": [{"type": "text", "content": "Answer"}],
@@ -819,6 +820,7 @@ class TestTaskOperations:
             "details": {
                 "questions": [
                     {
+                        "question_title": "Question 1",
                         "question_type": "multiple_choice",
                         "blocks": [{"type": "text", "content": "Question?"}],
                         "correct_answer": [{"type": "text", "content": "Answer"}],
@@ -831,6 +833,7 @@ class TestTaskOperations:
                         },
                     },
                     {
+                        "question_title": "Question 2",
                         "question_type": "open_ended",
                         "blocks": [{"type": "text", "content": "Another Question?"}],
                         "correct_answer": None,
@@ -873,6 +876,7 @@ class TestTaskOperations:
             "details": {
                 "questions": [
                     {
+                        "question_title": "Question 1",
                         "question_type": "multiple_choice",
                         "blocks": [{"type": "text", "content": "Question?"}],
                         "correct_answer": [{"type": "text", "content": "Answer"}],
@@ -945,7 +949,11 @@ class TestTaskOperations:
         question_with_new_scorecard = MockQuestion(id=1, scorecard_id=456)
         questions = [question_with_new_scorecard]
 
-        mock_task = {"id": 1, "title": "Test Quiz", "questions": [question_with_new_scorecard.model_dump()]}
+        mock_task = {
+            "id": 1,
+            "title": "Test Quiz",
+            "questions": [question_with_new_scorecard.model_dump()],
+        }
         mock_get_task.return_value = mock_task
 
         result = await update_published_quiz(1, "Test Quiz", questions, datetime.now())
@@ -977,6 +985,7 @@ class TestTaskOperations:
             "details": {
                 "questions": [
                     {
+                        "question_title": "Question 1",
                         "question_type": "multiple_choice",
                         "blocks": [{"type": "text", "content": "Question 1?"}],
                         "correct_answer": [{"type": "text", "content": "Answer 1"}],
@@ -989,6 +998,7 @@ class TestTaskOperations:
                         },
                     },
                     {
+                        "question_title": "Question 2",
                         "question_type": "open_ended",
                         "blocks": [{"type": "text", "content": "Question 2?"}],
                         "correct_answer": None,
@@ -998,6 +1008,7 @@ class TestTaskOperations:
                         # No scorecard field - should be set to None
                     },
                     {
+                        "question_title": "Question 3",
                         "question_type": "coding",
                         "blocks": [{"type": "text", "content": "Question 3?"}],
                         "correct_answer": [{"type": "text", "content": "Answer 3"}],
@@ -1487,7 +1498,6 @@ class TestTaskDuplication:
 
         assert result == mock_task
 
-
     @patch("src.api.db.task.execute_db_operation")
     async def test_publish_scheduled_tasks_empty(self, mock_execute):
         """Test publishing scheduled tasks when none exist."""
@@ -1617,8 +1627,12 @@ class TestTaskDuplication:
 
         pydantic_question = MockQuestion()
         questions = [pydantic_question]  # This will trigger the model_dump() call
-        
-        mock_task = {"id": 1, "title": "Test Quiz", "questions": [pydantic_question.model_dump()]}
+
+        mock_task = {
+            "id": 1,
+            "title": "Test Quiz",
+            "questions": [pydantic_question.model_dump()],
+        }
         mock_get_task.return_value = mock_task
 
         result = await update_draft_quiz(
@@ -1707,4 +1721,3 @@ class TestTaskDuplication:
 
         assert result is not None
         assert result["questions"][0]["title"] == "question"
-
