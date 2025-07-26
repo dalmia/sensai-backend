@@ -388,27 +388,40 @@ def get_user_streak_from_usage_dates(user_usage_dates: List[str]) -> int:
 async def get_user_streak(user_id: int, cohort_id: int):
     user_usage_dates = await execute_db_operation(
         f"""
-    SELECT MAX(datetime(created_at, '+5 hours', '+30 minutes')) as created_at
-    FROM {chat_history_table_name}
-    WHERE user_id = ? AND question_id IN (SELECT id FROM {questions_table_name} WHERE task_id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)))
-    GROUP BY DATE(datetime(created_at, '+5 hours', '+30 minutes'))
-    
-    UNION
-    
-    SELECT MAX(datetime(created_at, '+5 hours', '+30 minutes')) as created_at
-    FROM {task_completions_table_name}
-    WHERE user_id = ? AND task_id IN (
-        SELECT task_id FROM {course_tasks_table_name} 
-        WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)
+    WITH user_activity_dates AS (
+        SELECT MAX(datetime(created_at, '+5 hours', '+30 minutes')) as activity_date
+        FROM {chat_history_table_name}
+        WHERE user_id = ? AND question_id IN (
+            SELECT id FROM {questions_table_name} WHERE task_id IN (
+                SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (
+                    SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?
+                )
+            )
+        )
+
+        UNION
+
+        SELECT MAX(datetime(created_at, '+5 hours', '+30 minutes')) as activity_date
+        FROM {task_completions_table_name}
+        WHERE user_id = ? AND task_id IN (
+            SELECT task_id FROM {course_tasks_table_name} 
+            WHERE course_id IN (
+                SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?
+            )
+        )
     )
-    GROUP BY DATE(datetime(created_at, '+5 hours', '+30 minutes'))
-    
-    ORDER BY created_at DESC
+    SELECT activity_date
+    FROM user_activity_dates
+    ORDER BY activity_date DESC
     """,
         (user_id, cohort_id, user_id, cohort_id),
         fetch_all=True,
     )
 
+    # import ipdb
+
+    # ipdb.set_trace()
+
     return get_user_streak_from_usage_dates(
-        [date_str for date_str, in user_usage_dates]
+        [date_str for date_str, in user_usage_dates if date_str]
     )

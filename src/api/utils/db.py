@@ -17,6 +17,7 @@ async def get_new_db_connection():
     try:
         conn = await aiosqlite.connect(sqlite_db_path)
         await conn.execute("PRAGMA synchronous=NORMAL;")
+        await conn.execute("PRAGMA cache_size = -10240;")  # Set cache size to 10 MB
         await conn.set_trace_callback(trace_callback)
         yield conn
     except Exception as e:

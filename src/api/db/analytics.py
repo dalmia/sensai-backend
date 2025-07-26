@@ -287,91 +287,124 @@ async def get_cohort_streaks(
     view: LeaderboardViewType = LeaderboardViewType.ALL_TIME,
     batch_id: int | None = None,
 ):
-    # Build date filter based on duration
-    date_filter = ""
+    from collections import defaultdict
+
+
+# Assume get_user_streak_from_usage_dates and other dependencies are defined elsewhere
+# from .utils import get_user_streak_from_usage_dates
+
+
+async def get_streaks_for_cohort(
+    cohort_id: int,
+    view: str,  # Using a string for LeaderboardViewType for this example
+    batch_id: int | None = None,
+):
+    """
+    Calculates the activity streak for all learners in a cohort, with optional
+    filtering by time and batch.
+
+    This function uses an optimized CTE-based query to ensure high performance.
+    """
+    # --- 1. Build Dynamic and Optimized Filter Conditions ---
+
+    # We will build SQL strings for our WHERE clauses
+    date_filter_sql = ""
     if view == LeaderboardViewType.WEEKLY:
-        date_filter = "AND DATE(datetime(timestamp, '+5 hours', '+30 minutes')) > DATE('now', 'weekday 0', '-7 days')"
+        # This is "SARGable" - it allows SQLite to use an index on created_at.
+        date_filter_sql = "AND created_at >= datetime('now', 'weekday 0', '-7 days')"
     elif view == LeaderboardViewType.MONTHLY:
-        date_filter = "AND strftime('%Y-%m', datetime(timestamp, '+5 hours', '+30 minutes')) = strftime('%Y-%m', 'now')"
+        # This range-based check is also SARGable and highly efficient.
+        date_filter_sql = "AND created_at >= date('now', 'start of month')"
+
+    # Prepare for dynamic joins based on batch_id
+    user_filter_joins = ""
+    params = [cohort_id, cohort_id, cohort_id]  # Start with the base params for the CTE
 
     if batch_id is not None:
-        user_filter_subquery = f"""
-            SELECT uc.user_id
-            FROM {user_cohorts_table_name} uc
-            JOIN {user_batches_table_name} ub ON uc.user_id = ub.user_id
-            WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner'
-        """
-        params = (cohort_id, cohort_id, cohort_id, batch_id)
-    else:
-        user_filter_subquery = f"SELECT user_id FROM {user_cohorts_table_name} WHERE cohort_id = ? and role = 'learner'"
-        params = (cohort_id, cohort_id, cohort_id)
+        # Instead of a subquery, we will add a JOIN. This is much more efficient.
+        user_filter_joins = (
+            f"JOIN {user_batches_table_name} ub ON uad.user_id = ub.user_id"
+        )
+        # The final WHERE clause will filter on batch_id
+        params.append(batch_id)
 
-    usage_per_user = await execute_db_operation(
-        f"""
-    SELECT 
-        u.id,
+    # --- 2. Construct the Final, Optimized Query ---
+
+    # This query uses a CTE to efficiently gather all unique activity dates.
+    # It incorporates the dynamic filters we just built.
+    query = f"""
+    WITH user_activity_dates AS (
+        -- Get unique dates from chat history for the cohort
+        SELECT ch.user_id, DATE(datetime(ch.created_at, '+5 hours', '+30 minutes')) as activity_date
+        FROM {chat_history_table_name} ch
+        WHERE ch.user_id IN (SELECT user_id FROM {user_cohorts_table_name} WHERE cohort_id = ?)
+          {date_filter_sql.replace('created_at', 'ch.created_at')} -- Apply date filter here
+
+        UNION  -- UNION automatically handles uniqueness, giving us distinct dates
+
+        -- Get unique dates from task completions for the cohort
+        SELECT tc.user_id, DATE(datetime(tc.created_at, '+5 hours', '+30 minutes')) as activity_date
+        FROM {task_completions_table_name} tc
+        WHERE tc.user_id IN (SELECT user_id FROM {user_cohorts_table_name} WHERE cohort_id = ?)
+          {date_filter_sql.replace('created_at', 'tc.created_at')} -- Apply date filter here
+    )
+    -- Final selection to get user info and apply batch filtering
+    SELECT
+        uad.user_id,
+        uad.activity_date,
         u.email,
         u.first_name,
         u.middle_name,
-        u.last_name,
-        GROUP_CONCAT(t.created_at) as created_ats
-    FROM {users_table_name} u
-    LEFT JOIN (
-        -- Chat history interactions
-        SELECT user_id, MAX(datetime(created_at, '+5 hours', '+30 minutes')) as created_at
-        FROM {chat_history_table_name}
-        WHERE 1=1 {date_filter} AND question_id IN (SELECT id FROM {questions_table_name} WHERE task_id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)))
-        GROUP BY user_id, DATE(datetime(created_at, '+5 hours', '+30 minutes'))
-        
-        UNION
-        
-        -- Task completions
-        SELECT user_id, MAX(datetime(created_at, '+5 hours', '+30 minutes')) as created_at
-        FROM {task_completions_table_name}
-        WHERE 1=1 {date_filter} AND task_id IN (
-            SELECT task_id FROM {course_tasks_table_name} 
-            WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)
-        )
-        GROUP BY user_id, DATE(datetime(created_at, '+5 hours', '+30 minutes'))
-        
-        ORDER BY created_at DESC, user_id
-    ) t ON u.id = t.user_id
-    WHERE u.id IN (
-        {user_filter_subquery}
-    )
-    GROUP BY u.id, u.email, u.first_name, u.middle_name, u.last_name
-    """,
-        params,
+        u.last_name
+    FROM user_activity_dates uad
+    JOIN {users_table_name} u ON u.id = uad.user_id
+    JOIN {user_cohorts_table_name} uc ON uad.user_id = uc.user_id AND uc.role = 'learner'
+    {user_filter_joins} -- Add the JOIN for batch filtering if needed
+    WHERE uc.cohort_id = ?
+      {'AND ub.batch_id = ?' if batch_id is not None else ''}
+    ORDER BY uad.user_id, uad.activity_date ASC;
+    """
+
+    # --- 3. Execute the Query ---
+
+    usage_per_user = await execute_db_operation(
+        query,
+        tuple(params),  # Convert list to tuple for the database driver
         fetch_all=True,
     )
 
-    streaks = []
+    # --- 4. Process the Results in Python (Your existing logic is excellent) ---
 
+    if not usage_per_user:
+        return []
+
+    user_dates = defaultdict(list)
+    user_info = {}
     for (
         user_id,
+        activity_date,
         user_email,
         user_first_name,
         user_middle_name,
         user_last_name,
-        user_usage_dates_str,
     ) in usage_per_user:
+        user_dates[user_id].append(activity_date)
+        if user_id not in user_info:
+            user_info[user_id] = {
+                "id": user_id,
+                "email": user_email,
+                "first_name": user_first_name,
+                "middle_name": user_middle_name,
+                "last_name": user_last_name,
+            }
 
-        if user_usage_dates_str:
-            user_usage_dates = user_usage_dates_str.split(",")
-            user_usage_dates = sorted(user_usage_dates, reverse=True)
-            streak_count = len(get_user_streak_from_usage_dates(user_usage_dates))
-        else:
-            streak_count = 0
-
+    streaks = []
+    for user_id, dates in user_dates.items():
+        # The query already sorted the dates for us
+        streak_count = len(get_user_streak_from_usage_dates(dates)) if dates else 0
         streaks.append(
             {
-                "user": {
-                    "id": user_id,
-                    "email": user_email,
-                    "first_name": user_first_name,
-                    "middle_name": user_middle_name,
-                    "last_name": user_last_name,
-                },
+                "user": user_info[user_id],
                 "streak_count": streak_count,
             }
         )
