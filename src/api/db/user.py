@@ -19,7 +19,8 @@ from api.config import (
 from api.slack import send_slack_notification_for_new_user
 from api.models import UserCohort
 from api.utils import generate_random_color, get_date_from_str
-from api.utils.db import execute_db_operation, get_new_db_connection
+from api.utils.db import execute_db_operation
+from aiocache import cached, SimpleMemoryCache
 
 
 async def update_user_email(email_1: str, email_2: str) -> None:
@@ -268,6 +269,7 @@ async def get_user_cohorts(user_id: int) -> List[Dict]:
     ]
 
 
+@cached(ttl=30, cache=SimpleMemoryCache)
 async def get_user_active_in_last_n_days(user_id: int, n: int, cohort_id: int):
     activity_per_day = await execute_db_operation(
         f"""
@@ -385,6 +387,7 @@ def get_user_streak_from_usage_dates(user_usage_dates: List[str]) -> int:
     return current_streak
 
 
+@cached(ttl=30, cache=SimpleMemoryCache)
 async def get_user_streak(user_id: int, cohort_id: int):
     user_usage_dates = await execute_db_operation(
         f"""
