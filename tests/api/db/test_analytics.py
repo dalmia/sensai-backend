@@ -10,6 +10,17 @@ from api.db.analytics import (
 from api.models import LeaderboardViewType, TaskType, TaskStatus
 
 
+@pytest.fixture(autouse=True)
+async def clear_analytics_cache():
+    """Clear cache after each test to prevent test interference."""
+    yield
+    # Clear caches for cached functions
+    if hasattr(get_cohort_completion, "cache"):
+        await get_cohort_completion.cache.clear()
+    if hasattr(get_cohort_streaks, "cache"):
+        await get_cohort_streaks.cache.clear()
+
+
 class TestGetUsageSummaryByOrganization:
     """Test suite for get_usage_summary_by_organization function."""
 

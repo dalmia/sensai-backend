@@ -21,6 +21,17 @@ from src.api.db.user import (
 )
 
 
+@pytest.fixture(autouse=True)
+async def clear_user_cache():
+    """Clear cache after each test to prevent test interference."""
+    yield
+    # Clear caches for cached functions
+    if hasattr(get_user_active_in_last_n_days, "cache"):
+        await get_user_active_in_last_n_days.cache.clear()
+    if hasattr(get_user_streak, "cache"):
+        await get_user_streak.cache.clear()
+
+
 class TestUserUtilityFunctions:
     """Test utility functions for converting user database tuples to dictionaries."""
 
@@ -354,16 +365,13 @@ class TestUserDatabaseOperations:
 class TestUserInsertOperations:
     """Test user insertion and update operations."""
 
-    @patch("src.api.db.user.get_new_db_connection")
     @patch("src.api.db.user.generate_random_color")
     @patch("src.api.db.user.send_slack_notification_for_new_user")
-    async def test_insert_or_return_user_new_user(
-        self, mock_slack, mock_color, mock_db_conn
-    ):
+    async def test_insert_or_return_user_new_user(self, mock_slack, mock_color):
         """Test inserting a new user."""
         mock_color.return_value = "#FF5733"
 
-        # Mock database connection and cursor
+        # Mock database cursor
         mock_cursor = AsyncMock()
         mock_cursor.fetchone.side_effect = [
             None,  # User doesn't exist
@@ -377,10 +385,6 @@ class TestUserInsertOperations:
                 "2023-01-01 12:00:00",
             ),
         ]
-        mock_conn_instance = AsyncMock()
-        mock_conn_instance.cursor.return_value = mock_cursor
-        mock_conn_instance.__aenter__.return_value = mock_conn_instance
-        mock_db_conn.return_value = mock_conn_instance
 
         result = await insert_or_return_user(
             mock_cursor, "new@example.com", "New User", "User"
@@ -399,10 +403,9 @@ class TestUserInsertOperations:
         assert result == expected
         mock_slack.assert_called_once()
 
-    @patch("src.api.db.user.get_new_db_connection")
-    async def test_insert_or_return_user_existing_user(self, mock_db_conn):
+    async def test_insert_or_return_user_existing_user(self):
         """Test returning existing user."""
-        # Mock database connection and cursor
+        # Mock database cursor
         mock_cursor = AsyncMock()
         mock_cursor.fetchone.return_value = (
             1,

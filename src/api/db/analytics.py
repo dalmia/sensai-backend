@@ -15,6 +15,7 @@ from api.config import (
 )
 from api.models import LeaderboardViewType, TaskType, TaskStatus
 from api.db.user import get_user_streak_from_usage_dates
+from aiocache import cached, SimpleMemoryCache
 
 
 async def get_usage_summary_by_organization(
@@ -65,6 +66,7 @@ async def get_usage_summary_by_organization(
     ]
 
 
+@cached(ttl=30, cache=SimpleMemoryCache)
 async def get_cohort_completion(
     cohort_id: int, user_ids: List[int], course_id: int = None
 ):
@@ -282,6 +284,7 @@ async def get_cohort_course_attempt_data(cohort_learner_ids: List[int], course_i
     return {user_id: dict(courses) for user_id, courses in result.items()}
 
 
+@cached(ttl=30, cache=SimpleMemoryCache)
 async def get_cohort_streaks(
     cohort_id: int,
     view: LeaderboardViewType = LeaderboardViewType.ALL_TIME,
