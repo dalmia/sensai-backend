@@ -442,32 +442,61 @@ async def create_integrations_table_migration():
     """
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-        
-        # Check if integrations table already exists
-        await cursor.execute(f"PRAGMA table_info({integrations_table_name})")
-        columns = [col[1] for col in await cursor.fetchall()]
-        
-        if not columns:  # Table doesn't exist
-            await cursor.execute(
-                f"""CREATE TABLE {integrations_table_name} (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    user_id INTEGER NOT NULL,
-                    integration_type TEXT NOT NULL,
-                    access_token TEXT NOT NULL,
-                    refresh_token TEXT,
-                    expires_at DATETIME,
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
-                )"""
-            )
-            
-            # Create indexes
-            await cursor.execute(
-                f"""CREATE INDEX idx_integration_user_id ON {integrations_table_name} (user_id)"""
-            )
+        await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {integrations_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                integration_type TEXT NOT NULL,
+                access_token TEXT NOT NULL,
+                refresh_token TEXT,
+                expires_at DATETIME,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, integration_type),
+                FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
+            )"""
+        )
 
-            await cursor.execute(
-                f"""CREATE INDEX idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
-            )
-            
-            await conn.commit()
+        await cursor.execute(
+            f"""CREATE INDEX idx_integration_user_id ON {integrations_table_name} (user_id)"""
+        )
+
+        await cursor.execute(
+            f"""CREATE INDEX idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
+        )
+        
+        # Create triggers for automatic timestamp management
+        # Trigger to set updated_at on INSERT
+        insert_trigger_name = f"set_updated_at_insert_{integrations_table_name}"
+        await cursor.execute(f"DROP TRIGGER IF EXISTS {insert_trigger_name}")
+        await cursor.execute(
+            f"""
+            CREATE TRIGGER {insert_trigger_name}
+            AFTER INSERT ON {integrations_table_name}
+            FOR EACH ROW
+            WHEN NEW.updated_at IS NULL
+            BEGIN
+                UPDATE {integrations_table_name} 
+                SET updated_at = CURRENT_TIMESTAMP 
+                WHERE rowid = NEW.rowid;
+            END
+        """
+        )
+
+        # Trigger to set updated_at on UPDATE
+        update_trigger_name = f"set_updated_at_update_{integrations_table_name}"
+        await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
+        await cursor.execute(
+            f"""
+            CREATE TRIGGER {update_trigger_name}
+            AFTER UPDATE ON {integrations_table_name}
+            FOR EACH ROW
+            BEGIN
+                UPDATE {integrations_table_name} 
+                SET updated_at = CURRENT_TIMESTAMP 
+                WHERE rowid = NEW.rowid;
+            END
+        """
+        )
+        
+        await conn.commit()

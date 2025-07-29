@@ -329,6 +329,8 @@ async def create_integrations_table(cursor):
                 refresh_token TEXT,
                 expires_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(user_id, integration_type),
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
             )"""
     )
