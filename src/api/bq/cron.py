@@ -39,6 +39,7 @@ async def sync_org_api_keys_to_bigquery():
     """
     try:
         logger.info("Starting sync of org_api_keys table to BigQuery")
+        print("Starting sync of org_api_keys table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_org_api_keys_from_sqlite()
@@ -64,9 +65,11 @@ async def sync_org_api_keys_to_bigquery():
             logger.info("No data to insert into BigQuery org_api_keys table")
 
         logger.info("Successfully completed sync of org_api_keys table to BigQuery")
+        print("Org API Keys sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing org_api_keys table to BigQuery: {str(e)}")
+        print(f"Org API Keys sync failed: {str(e)}")
         raise
 
 
@@ -80,6 +83,7 @@ async def sync_courses_to_bigquery():
     """
     try:
         logger.info("Starting sync of courses table to BigQuery")
+        print("Starting sync of courses table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_courses_from_sqlite()
@@ -103,9 +107,11 @@ async def sync_courses_to_bigquery():
             logger.info("No data to insert into BigQuery courses table")
 
         logger.info("Successfully completed sync of courses table to BigQuery")
+        print("Courses sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing courses table to BigQuery: {str(e)}")
+        print(f"Courses sync failed: {str(e)}")
         raise
 
 
@@ -119,6 +125,7 @@ async def sync_milestones_to_bigquery():
     """
     try:
         logger.info("Starting sync of milestones table to BigQuery")
+        print("Starting sync of milestones table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_milestones_from_sqlite()
@@ -142,9 +149,11 @@ async def sync_milestones_to_bigquery():
             logger.info("No data to insert into BigQuery milestones table")
 
         logger.info("Successfully completed sync of milestones table to BigQuery")
+        print("Milestones sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing milestones table to BigQuery: {str(e)}")
+        print(f"Milestones sync failed: {str(e)}")
         raise
 
 
@@ -158,6 +167,7 @@ async def sync_course_tasks_to_bigquery():
     """
     try:
         logger.info("Starting sync of course_tasks table to BigQuery")
+        print("Starting sync of course_tasks table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_course_tasks_from_sqlite()
@@ -183,9 +193,11 @@ async def sync_course_tasks_to_bigquery():
             logger.info("No data to insert into BigQuery course_tasks table")
 
         logger.info("Successfully completed sync of course_tasks table to BigQuery")
+        print("Course Tasks sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing course_tasks table to BigQuery: {str(e)}")
+        print(f"Course Tasks sync failed: {str(e)}")
         raise
 
 
@@ -199,6 +211,7 @@ async def sync_course_milestones_to_bigquery():
     """
     try:
         logger.info("Starting sync of course_milestones table to BigQuery")
+        print("Starting sync of course_milestones table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_course_milestones_from_sqlite()
@@ -228,9 +241,11 @@ async def sync_course_milestones_to_bigquery():
         logger.info(
             "Successfully completed sync of course_milestones table to BigQuery"
         )
+        print("Course Milestones sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing course_milestones table to BigQuery: {str(e)}")
+        print(f"Course Milestones sync failed: {str(e)}")
         raise
 
 
@@ -244,6 +259,7 @@ async def sync_organizations_to_bigquery():
     """
     try:
         logger.info("Starting sync of organizations table to BigQuery")
+        print("Starting sync of organizations table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_organizations_from_sqlite()
@@ -269,9 +285,11 @@ async def sync_organizations_to_bigquery():
             logger.info("No data to insert into BigQuery organizations table")
 
         logger.info("Successfully completed sync of organizations table to BigQuery")
+        print("Organizations sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing organizations table to BigQuery: {str(e)}")
+        print(f"Organizations sync failed: {str(e)}")
         raise
 
 
@@ -285,6 +303,7 @@ async def sync_scorecards_to_bigquery():
     """
     try:
         logger.info("Starting sync of scorecards table to BigQuery")
+        print("Starting sync of scorecards table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_scorecards_from_sqlite()
@@ -308,9 +327,11 @@ async def sync_scorecards_to_bigquery():
             logger.info("No data to insert into BigQuery scorecards table")
 
         logger.info("Successfully completed sync of scorecards table to BigQuery")
+        print("Scorecards sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing scorecards table to BigQuery: {str(e)}")
+        print(f"Scorecards sync failed: {str(e)}")
         raise
 
 
@@ -324,6 +345,7 @@ async def sync_question_scorecards_to_bigquery():
     """
     try:
         logger.info("Starting sync of question_scorecards table to BigQuery")
+        print("Starting sync of question_scorecards table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_question_scorecards_from_sqlite()
@@ -353,9 +375,11 @@ async def sync_question_scorecards_to_bigquery():
         logger.info(
             "Successfully completed sync of question_scorecards table to BigQuery"
         )
+        print("Question Scorecards sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing question_scorecards table to BigQuery: {str(e)}")
+        print(f"Question Scorecards sync failed: {str(e)}")
         raise
 
 
@@ -369,6 +393,7 @@ async def sync_task_completions_to_bigquery():
     """
     try:
         logger.info("Starting sync of task_completions table to BigQuery")
+        print("Starting sync of task_completions table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_task_completions_from_sqlite()
@@ -394,9 +419,11 @@ async def sync_task_completions_to_bigquery():
             logger.info("No data to insert into BigQuery task_completions table")
 
         logger.info("Successfully completed sync of task_completions table to BigQuery")
+        print("Task Completions sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing task_completions table to BigQuery: {str(e)}")
+        print(f"Task Completions sync failed: {str(e)}")
         raise
 
 
@@ -410,6 +437,7 @@ async def sync_chat_history_to_bigquery():
     """
     try:
         logger.info("Starting sync of chat_history table to BigQuery")
+        print("Starting sync of chat_history table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_chat_history_from_sqlite()
@@ -435,9 +463,11 @@ async def sync_chat_history_to_bigquery():
             logger.info("No data to insert into BigQuery chat_history table")
 
         logger.info("Successfully completed sync of chat_history table to BigQuery")
+        print("Chat History sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing chat_history table to BigQuery: {str(e)}")
+        print(f"Chat History sync failed: {str(e)}")
         raise
 
 
@@ -451,6 +481,7 @@ async def sync_users_to_bigquery():
     """
     try:
         logger.info("Starting sync of users table to BigQuery")
+        print("Starting sync of users table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_users_from_sqlite()
@@ -476,9 +507,11 @@ async def sync_users_to_bigquery():
             logger.info("No data to insert into BigQuery users table")
 
         logger.info("Successfully completed sync of users table to BigQuery")
+        print("Users sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing users table to BigQuery: {str(e)}")
+        print(f"Users sync failed: {str(e)}")
         raise
 
 
@@ -492,6 +525,7 @@ async def sync_tasks_to_bigquery():
     """
     try:
         logger.info("Starting sync of tasks table to BigQuery")
+        print("Starting sync of tasks table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_tasks_from_sqlite()
@@ -517,9 +551,11 @@ async def sync_tasks_to_bigquery():
             logger.info("No data to insert into BigQuery tasks table")
 
         logger.info("Successfully completed sync of tasks table to BigQuery")
+        print("Tasks sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing tasks table to BigQuery: {str(e)}")
+        print(f"Tasks sync failed: {str(e)}")
         raise
 
 
@@ -533,6 +569,7 @@ async def sync_questions_to_bigquery():
     """
     try:
         logger.info("Starting sync of questions table to BigQuery")
+        print("Starting sync of questions table to BigQuery")
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_questions_from_sqlite()
@@ -556,9 +593,11 @@ async def sync_questions_to_bigquery():
             logger.info("No data to insert into BigQuery questions table")
 
         logger.info("Successfully completed sync of questions table to BigQuery")
+        print("Questions sync completed successfully!")
 
     except Exception as e:
         logger.error(f"Error syncing questions table to BigQuery: {str(e)}")
+        print(f"Questions sync failed: {str(e)}")
         raise
 
 
@@ -1016,175 +1055,6 @@ def _insert_data_to_bq_table(
 
 
 # Example usage / test function
-async def run_org_api_keys_sync():
-    """
-    Example function to demonstrate how to run the org_api_keys sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_org_api_keys_to_bigquery()
-        print("Org API Keys sync completed successfully!")
-    except Exception as e:
-        print(f"Org API Keys sync failed: {str(e)}")
-        raise
-
-
-async def run_courses_sync():
-    """
-    Example function to demonstrate how to run the courses sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_courses_to_bigquery()
-        print("Courses sync completed successfully!")
-    except Exception as e:
-        print(f"Courses sync failed: {str(e)}")
-        raise
-
-
-async def run_milestones_sync():
-    """
-    Example function to demonstrate how to run the milestones sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_milestones_to_bigquery()
-        print("Milestones sync completed successfully!")
-    except Exception as e:
-        print(f"Milestones sync failed: {str(e)}")
-        raise
-
-
-async def run_course_tasks_sync():
-    """
-    Example function to demonstrate how to run the course_tasks sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_course_tasks_to_bigquery()
-        print("Course Tasks sync completed successfully!")
-    except Exception as e:
-        print(f"Course Tasks sync failed: {str(e)}")
-        raise
-
-
-async def run_course_milestones_sync():
-    """
-    Example function to demonstrate how to run the course_milestones sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_course_milestones_to_bigquery()
-        print("Course Milestones sync completed successfully!")
-    except Exception as e:
-        print(f"Course Milestones sync failed: {str(e)}")
-        raise
-
-
-async def run_organizations_sync():
-    """
-    Example function to demonstrate how to run the organizations sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_organizations_to_bigquery()
-        print("Organizations sync completed successfully!")
-    except Exception as e:
-        print(f"Organizations sync failed: {str(e)}")
-        raise
-
-
-async def run_scorecards_sync():
-    """
-    Example function to demonstrate how to run the scorecards sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_scorecards_to_bigquery()
-        print("Scorecards sync completed successfully!")
-    except Exception as e:
-        print(f"Scorecards sync failed: {str(e)}")
-        raise
-
-
-async def run_question_scorecards_sync():
-    """
-    Example function to demonstrate how to run the question_scorecards sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_question_scorecards_to_bigquery()
-        print("Question Scorecards sync completed successfully!")
-    except Exception as e:
-        print(f"Question Scorecards sync failed: {str(e)}")
-        raise
-
-
-async def run_task_completions_sync():
-    """
-    Example function to demonstrate how to run the task_completions sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_task_completions_to_bigquery()
-        print("Task Completions sync completed successfully!")
-    except Exception as e:
-        print(f"Task Completions sync failed: {str(e)}")
-        raise
-
-
-async def run_chat_history_sync():
-    """
-    Example function to demonstrate how to run the chat_history sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_chat_history_to_bigquery()
-        print("Chat History sync completed successfully!")
-    except Exception as e:
-        print(f"Chat History sync failed: {str(e)}")
-        raise
-
-
-async def run_users_sync():
-    """
-    Example function to demonstrate how to run the users sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_users_to_bigquery()
-        print("Users sync completed successfully!")
-    except Exception as e:
-        print(f"Users sync failed: {str(e)}")
-        raise
-
-
-async def run_tasks_sync():
-    """
-    Example function to demonstrate how to run the tasks sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_tasks_to_bigquery()
-        print("Tasks sync completed successfully!")
-    except Exception as e:
-        print(f"Tasks sync failed: {str(e)}")
-        raise
-
-
-async def run_questions_sync():
-    """
-    Example function to demonstrate how to run the questions sync.
-    This can be called from a cron job or manually for testing.
-    """
-    try:
-        await sync_questions_to_bigquery()
-        print("Questions sync completed successfully!")
-    except Exception as e:
-        print(f"Questions sync failed: {str(e)}")
-        raise
-
-
 async def run_all_syncs():
     """
     Run all table syncs in sequence.
@@ -1214,20 +1084,5 @@ async def run_all_syncs():
 if __name__ == "__main__":
     import asyncio
 
-    # Run individual syncs
-    # asyncio.run(run_org_api_keys_sync())
-    # asyncio.run(run_courses_sync())
-    # asyncio.run(run_milestones_sync())
-    # asyncio.run(run_course_tasks_sync())
-    # asyncio.run(run_course_milestones_sync())
-    # asyncio.run(run_organizations_sync())
-    # asyncio.run(run_scorecards_sync())
-    # asyncio.run(run_question_scorecards_sync())
-    # asyncio.run(run_task_completions_sync())
-    # asyncio.run(run_chat_history_sync())
-    # asyncio.run(run_users_sync())
-    # asyncio.run(run_tasks_sync())
-    # asyncio.run(run_questions_sync())
-
-    # Or run all syncs at once
+    # Run all syncs at once
     asyncio.run(run_all_syncs())
