@@ -278,7 +278,7 @@ class TestChatMessageOperations:
         await update_message_timestamp(1, new_timestamp)
 
         mock_execute.assert_called_once_with(
-            "UPDATE chat_history SET timestamp = ? WHERE id = ?", (new_timestamp, 1)
+            "UPDATE chat_history SET created_at = ? WHERE id = ?", (new_timestamp, 1)
         )
 
     @patch("src.api.db.chat.execute_db_operation")

@@ -714,3 +714,25 @@ async def delete_useless_tables():
                 )
 
         await conn.commit()
+
+
+async def mark_all_task_generation_jobs_as_failed():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute(
+            f"UPDATE {task_generation_jobs_table_name} SET status = 'failed' WHERE status = 'started'"
+        )
+
+        await conn.commit()
+
+
+async def mark_all_course_generation_jobs_as_failed():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute(
+            f"UPDATE {course_generation_jobs_table_name} SET status = 'failed' WHERE status = 'pending'"
+        )
+
+        await conn.commit()
