@@ -434,6 +434,7 @@ async def add_missing_timestamp_columns():
 async def run_migrations():
     await remove_openai_columns_from_organizations()
     await add_missing_timestamp_columns()
+    await create_integrations_table_migration()
 
 
 async def create_integrations_table_migration():
