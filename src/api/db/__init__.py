@@ -344,7 +344,6 @@ async def create_integrations_table(cursor):
     )
     
     update_trigger_name = f"set_updated_at_update_{integrations_table_name}"
-    await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
     await cursor.execute(
         f"""
             CREATE TRIGGER {update_trigger_name}
