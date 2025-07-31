@@ -445,38 +445,4 @@ async def create_integrations_table_migration():
         from api.db import create_integrations_table
         await create_integrations_table(cursor)
         
-        # Create triggers for automatic timestamp management
-        # Trigger to set updated_at on INSERT
-        insert_trigger_name = f"set_updated_at_insert_{integrations_table_name}"
-        await cursor.execute(f"DROP TRIGGER IF EXISTS {insert_trigger_name}")
-        await cursor.execute(
-            f"""
-            CREATE TRIGGER {insert_trigger_name}
-            AFTER INSERT ON {integrations_table_name}
-            FOR EACH ROW
-            WHEN NEW.updated_at IS NULL
-            BEGIN
-                UPDATE {integrations_table_name} 
-                SET updated_at = CURRENT_TIMESTAMP 
-                WHERE rowid = NEW.rowid;
-            END
-        """
-        )
-
-        # Trigger to set updated_at on UPDATE
-        update_trigger_name = f"set_updated_at_update_{integrations_table_name}"
-        await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
-        await cursor.execute(
-            f"""
-            CREATE TRIGGER {update_trigger_name}
-            AFTER UPDATE ON {integrations_table_name}
-            FOR EACH ROW
-            BEGIN
-                UPDATE {integrations_table_name} 
-                SET updated_at = CURRENT_TIMESTAMP 
-                WHERE rowid = NEW.rowid;
-            END
-        """
-        )
-        
         await conn.commit()

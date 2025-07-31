@@ -342,6 +342,21 @@ async def create_integrations_table(cursor):
     await cursor.execute(
         f"""CREATE INDEX idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
     )
+    
+    update_trigger_name = f"set_updated_at_update_{integrations_table_name}"
+    await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
+    await cursor.execute(
+        f"""
+            CREATE TRIGGER {update_trigger_name}
+            AFTER UPDATE ON {integrations_table_name}
+            FOR EACH ROW
+            BEGIN
+                UPDATE {integrations_table_name} 
+                SET updated_at = CURRENT_TIMESTAMP 
+                WHERE rowid = NEW.rowid;
+            END
+        """
+        )
 
 
 async def create_tasks_table(cursor):
