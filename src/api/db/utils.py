@@ -35,6 +35,131 @@ def convert_blocks_to_right_format(blocks: List[Dict]) -> List[Dict]:
     return blocks
 
 
+def extract_text_from_notion_blocks(blocks: List[Dict]) -> str:
+    """
+    Extracts all text content from Notion blocks without media content.
+    
+    Args:
+        blocks: A list of Notion block dictionaries
+        
+    Returns:
+        A formatted string containing all text content from the blocks
+    """
+    if not blocks:
+        return ""
+    
+    text_content = []
+    
+    for block in blocks:
+        block_type = block.get("type", "")
+        
+        # Handle different Notion block types
+        if block_type == "paragraph":
+            rich_text = block.get("paragraph", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(text)
+                
+        elif block_type == "heading_1":
+            rich_text = block.get("heading_1", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"# {text}")
+                
+        elif block_type == "heading_2":
+            rich_text = block.get("heading_2", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"## {text}")
+                
+        elif block_type == "heading_3":
+            rich_text = block.get("heading_3", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"### {text}")
+                
+        elif block_type == "bulleted_list_item":
+            rich_text = block.get("bulleted_list_item", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"- {text}")
+                
+        elif block_type == "numbered_list_item":
+            rich_text = block.get("numbered_list_item", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"1. {text}")
+                
+        elif block_type == "to_do":
+            rich_text = block.get("to_do", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            checked = block.get("to_do", {}).get("checked", False)
+            if text:
+                checkbox = "[x]" if checked else "[ ]"
+                text_content.append(f"{checkbox} {text}")
+                
+        elif block_type == "toggle":
+            rich_text = block.get("toggle", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"▶ {text}")
+                
+        elif block_type == "quote":
+            rich_text = block.get("quote", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                text_content.append(f"> {text}")
+                
+        elif block_type == "callout":
+            rich_text = block.get("callout", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            if text:
+                icon = block.get("callout", {}).get("icon", {}).get("emoji", "💡")
+                text_content.append(f"{icon} {text}")
+                
+        elif block_type == "code":
+            rich_text = block.get("code", {}).get("rich_text", [])
+            text = "".join([item.get("plain_text", "") for item in rich_text])
+            language = block.get("code", {}).get("language", "")
+            if text:
+                text_content.append(f"```{language}\n{text}\n```")
+                
+        elif block_type == "divider":
+            text_content.append("---")
+            
+        elif block_type == "table_of_contents":
+            text_content.append("[Table of Contents]")
+            
+        elif block_type == "breadcrumb":
+            text_content.append("[Breadcrumb]")
+            
+        elif block_type == "column_list":
+            # Handle column content recursively
+            children = block.get("children", [])
+            if children:
+                child_text = extract_text_from_notion_blocks(children)
+                if child_text:
+                    text_content.append(child_text)
+                    
+        elif block_type == "column":
+            # Handle column content recursively
+            children = block.get("children", [])
+            if children:
+                child_text = extract_text_from_notion_blocks(children)
+                if child_text:
+                    text_content.append(child_text)
+        
+        # Handle any other block types that might have children
+        elif "children" in block:
+            children = block.get("children", [])
+            if children:
+                child_text = extract_text_from_notion_blocks(children)
+                if child_text:
+                    text_content.append(child_text)
+    
+    return "\n".join(text_content)
+
+
 def construct_description_from_blocks(
     blocks: List[Dict], nesting_level: int = 0
 ) -> str:

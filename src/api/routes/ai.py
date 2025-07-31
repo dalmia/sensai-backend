@@ -50,7 +50,7 @@ from api.db.course import (
     add_milestone_to_course,
 )
 from api.db.chat import get_question_chat_history_for_user
-from api.db.utils import construct_description_from_blocks
+from api.db.utils import construct_description_from_blocks, extract_text_from_notion_blocks
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
@@ -173,7 +173,21 @@ async def ai_response_for_question(request: AIChatRequest):
 
         chat_history = request.chat_history
 
-        reference_material = construct_description_from_blocks(task["blocks"])
+        print("task: ", task)
+
+        # Check if this is a Notion integration block
+        if task["blocks"] and len(task["blocks"]) > 0:
+            first_block = task["blocks"][0]
+            if first_block.get("type") == "integration" and first_block.get("props", {}).get("integration_type") == "notion":
+                # Use Notion-specific extraction for Notion blocks
+                notion_blocks = first_block.get("props", {}).get("blocks", [])
+                reference_material = extract_text_from_notion_blocks(notion_blocks)
+            else:
+                # Use regular block extraction for other block types
+                reference_material = construct_description_from_blocks(task["blocks"])
+        else:
+            reference_material = construct_description_from_blocks(task["blocks"])
+            
         question_details = f"""Reference Material:\n```\n{reference_material}\n```"""
     else:
         metadata["type"] = "quiz"
