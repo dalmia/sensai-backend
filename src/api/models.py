@@ -743,3 +743,25 @@ class CodeDraft(BaseModel):
 
 class DuplicateCourseRequest(BaseModel):
     org_id: int
+
+
+class Integration(BaseModel):
+    id: int
+    user_id: int
+    integration_type: str
+    access_token: str
+    refresh_token: str | None = None
+    expires_at: datetime | None = None
+    created_at: datetime | None = None
+
+class CreateIntegrationRequest(BaseModel):
+    user_id: int
+    integration_type: str
+    access_token: str
+    refresh_token: str | None = None
+    expires_at: datetime | None = None
+
+class UpdateIntegrationRequest(BaseModel):
+    access_token: str | None = None
+    refresh_token: str | None = None
+    expires_at: datetime | None = None

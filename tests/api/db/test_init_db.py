@@ -23,6 +23,7 @@ from src.api.db import (
     create_batches_table,
     init_db,
     delete_useless_tables,
+    create_integrations_table,
 )
 
 
@@ -273,6 +274,21 @@ class TestTableCreationFunctions:
 
         assert any("CREATE TABLE IF NOT EXISTS batches" in call for call in calls)
         assert any("CREATE TABLE IF NOT EXISTS user_batches" in call for call in calls)
+
+    async def test_create_integrations_table(self):
+        """Test creating integrations table."""
+        mock_cursor = AsyncMock()
+
+        await create_integrations_table(mock_cursor)
+
+        # Should execute CREATE TABLE, 2 CREATE INDEX statements, and CREATE TRIGGER
+        assert mock_cursor.execute.call_count == 4
+        calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+
+        assert any("CREATE TABLE IF NOT EXISTS integrations" in call for call in calls)
+        assert any("CREATE INDEX idx_integration_user_id" in call for call in calls)
+        assert any("CREATE INDEX idx_integration_integration_type" in call for call in calls)
+        assert any("CREATE TRIGGER" in call for call in calls)
 
 
 @pytest.mark.asyncio
