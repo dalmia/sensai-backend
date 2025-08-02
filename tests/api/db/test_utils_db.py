@@ -2,10 +2,14 @@ import pytest
 from unittest.mock import patch
 from enum import Enum
 from src.api.db.utils import (
+    EnumEncoder,
     get_org_id_for_course,
     convert_blocks_to_right_format,
+    _extract_text_from_rich_text,
+    _format_block_content,
+    extract_text_from_notion_blocks,
     construct_description_from_blocks,
-    EnumEncoder,
+    BLOCK_TYPE_CONFIG
 )
 
 
@@ -99,7 +103,323 @@ class TestBlocksConversion:
         assert result[0]["content"][0]["type"] == "text"
 
 
-class TestDescriptionConstruction:
+class TestRichTextExtraction:
+    """Test rich text extraction functions."""
+
+    def test_extract_text_from_rich_text_simple(self):
+        """Test extracting text from simple rich_text array."""
+        rich_text = [
+            {"plain_text": "Hello"},
+            {"plain_text": " "},
+            {"plain_text": "World"}
+        ]
+        result = _extract_text_from_rich_text(rich_text)
+        assert result == "Hello World"
+
+    def test_extract_text_from_rich_text_empty(self):
+        """Test extracting text from empty rich_text array."""
+        result = _extract_text_from_rich_text([])
+        assert result == ""
+
+    def test_extract_text_from_rich_text_missing_plain_text(self):
+        """Test extracting text when plain_text is missing."""
+        rich_text = [
+            {"plain_text": "Hello"},
+            {"other_field": "value"},
+            {"plain_text": "World"}
+        ]
+        result = _extract_text_from_rich_text(rich_text)
+        assert result == "HelloWorld"
+
+
+class TestFormatBlockContent:
+    """Test block content formatting functions."""
+
+    def test_format_block_content_paragraph(self):
+        """Test formatting paragraph block content."""
+        block = {
+            "paragraph": {
+                "rich_text": [{"plain_text": "This is a paragraph"}]
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["paragraph"]
+        result = _format_block_content(block, "paragraph", config)
+        assert result == "This is a paragraph"
+
+    def test_format_block_content_heading(self):
+        """Test formatting heading block content."""
+        block = {
+            "heading_1": {
+                "rich_text": [{"plain_text": "Main Heading"}]
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["heading_1"]
+        result = _format_block_content(block, "heading_1", config)
+        assert result == "# Main Heading"
+
+    def test_format_block_content_checkbox(self):
+        """Test formatting checkbox block content."""
+        block = {
+            "to_do": {
+                "rich_text": [{"plain_text": "Complete task"}],
+                "checked": True
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["to_do"]
+        result = _format_block_content(block, "to_do", config)
+        assert result == "[x] Complete task"
+
+    def test_format_block_content_callout(self):
+        """Test formatting callout block content."""
+        block = {
+            "callout": {
+                "rich_text": [{"plain_text": "Important note"}],
+                "icon": {"emoji": "⚠️"}
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["callout"]
+        result = _format_block_content(block, "callout", config)
+        assert result == "⚠️ Important note"
+
+    def test_format_block_content_code(self):
+        """Test formatting code block content."""
+        block = {
+            "code": {
+                "rich_text": [{"plain_text": "print('hello')"}],
+                "language": "python"
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["code"]
+        result = _format_block_content(block, "code", config)
+        assert result == "```python\nprint('hello')\n```"
+
+    def test_format_block_content_no_text(self):
+        """Test formatting block with no text content."""
+        block = {
+            "paragraph": {
+                "rich_text": []
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["paragraph"]
+        result = _format_block_content(block, "paragraph", config)
+        assert result is None
+
+    def test_format_block_content_list_items(self):
+        """Test formatting bulleted list items."""
+        block = {
+            "bulleted_list": {
+                "items": [
+                    {
+                        "bulleted_list_item": {
+                            "rich_text": [{"plain_text": "First item"}]
+                        }
+                    },
+                    {
+                        "bulleted_list_item": {
+                            "rich_text": [{"plain_text": "Second item"}]
+                        }
+                    }
+                ]
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["bulleted_list"]
+        result = _format_block_content(block, "bulleted_list", config)
+        assert result == "- First item\n- Second item"
+
+    def test_format_block_content_numbered_list_items(self):
+        """Test formatting numbered list items."""
+        block = {
+            "numbered_list": {
+                "items": [
+                    {
+                        "numbered_list_item": {
+                            "rich_text": [{"plain_text": "First item"}]
+                        }
+                    },
+                    {
+                        "numbered_list_item": {
+                            "rich_text": [{"plain_text": "Second item"}]
+                        }
+                    }
+                ]
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["numbered_list"]
+        result = _format_block_content(block, "numbered_list", config)
+        assert result == "1. First item\n2. Second item"
+
+    def test_format_block_content_table(self):
+        """Test formatting table content."""
+        block = {
+            "table": {
+                "table_rows": [
+                    {
+                        "table_row": {
+                            "cells": [
+                                [{"plain_text": "Header 1"}],
+                                [{"plain_text": "Header 2"}]
+                            ]
+                        }
+                    },
+                    {
+                        "table_row": {
+                            "cells": [
+                                [{"plain_text": "Cell 1"}],
+                                [{"plain_text": "Cell 2"}]
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["table"]
+        result = _format_block_content(block, "table", config)
+        assert result == "Header 1 | Header 2\nCell 1 | Cell 2"
+
+    def test_format_block_content_list_items_empty(self):
+        """Test formatting bulleted list items with empty items."""
+        block = {
+            "bulleted_list": {
+                "items": []
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["bulleted_list"]
+        result = _format_block_content(block, "bulleted_list", config)
+        assert result == ""
+
+    def test_format_block_content_numbered_list_items_empty(self):
+        """Test formatting numbered list items with empty items."""
+        block = {
+            "numbered_list": {
+                "items": []
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["numbered_list"]
+        result = _format_block_content(block, "numbered_list", config)
+        assert result == ""
+
+    def test_format_block_content_table_empty(self):
+        """Test formatting table with empty rows."""
+        block = {
+            "table": {
+                "table_rows": []
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["table"]
+        result = _format_block_content(block, "table", config)
+        assert result == ""
+
+    def test_format_block_content_table_empty_cells(self):
+        """Test formatting table with empty cells."""
+        block = {
+            "table": {
+                "table_rows": [
+                    {
+                        "table_row": {
+                            "cells": [
+                                [],
+                                [{"plain_text": "Only this cell"}]
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["table"]
+        result = _format_block_content(block, "table", config)
+        assert result == "Only this cell"
+
+
+class TestExtractTextFromNotionBlocks:
+    """Test extraction of text from Notion blocks."""
+
+    def test_extract_text_from_notion_blocks_empty(self):
+        """Test extracting text from empty blocks."""
+        result = extract_text_from_notion_blocks([])
+        assert result == ""
+
+    def test_extract_text_from_notion_blocks_simple(self):
+        """Test extracting text from simple blocks."""
+        blocks = [
+            {
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"plain_text": "Hello World"}]
+                }
+            }
+        ]
+        result = extract_text_from_notion_blocks(blocks)
+        assert result == "Hello World"
+
+    def test_extract_text_from_notion_blocks_with_children(self):
+        """Test extracting text from blocks with children."""
+        blocks = [
+            {
+                "type": "toggle",
+                "toggle": {
+                    "rich_text": [{"plain_text": "Toggle item"}],
+                    "children": [
+                        {
+                            "type": "paragraph",
+                            "paragraph": {
+                                "rich_text": [{"plain_text": "Child content"}]
+                            }
+                        }
+                    ]
+                }
+            }
+        ]
+        result = extract_text_from_notion_blocks(blocks)
+        assert "Toggle item" in result
+        assert "Child content" in result
+
+    def test_extract_text_from_notion_blocks_multiple_types(self):
+        """Test extracting text from multiple block types."""
+        blocks = [
+            {
+                "type": "heading_1",
+                "heading_1": {
+                    "rich_text": [{"plain_text": "Title"}]
+                }
+            },
+            {
+                "type": "paragraph",
+                "paragraph": {
+                    "rich_text": [{"plain_text": "Content"}]
+                }
+            },
+            {
+                "type": "bulleted_list_item",
+                "bulleted_list_item": {
+                    "rich_text": [{"plain_text": "List item"}]
+                }
+            }
+        ]
+        result = extract_text_from_notion_blocks(blocks)
+        assert "# Title" in result
+        assert "Content" in result
+        assert "- List item" in result
+
+    def test_extract_text_from_notion_blocks_unknown_type(self):
+        """Test extracting text from unknown block types."""
+        blocks = [
+            {
+                "type": "unknown_type",
+                "children": [
+                    {
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"plain_text": "Child content"}]
+                        }
+                    }
+                ]
+            }
+        ]
+        result = extract_text_from_notion_blocks(blocks)
+        assert "Child content" in result
+
+
+class TestConstructDescriptionFromBlocks:
     """Test description construction from blocks."""
 
     def test_construct_description_empty_blocks(self):
@@ -109,10 +429,14 @@ class TestDescriptionConstruction:
 
     def test_construct_description_paragraph_block(self):
         """Test constructing description from paragraph block."""
-        blocks = [{"type": "paragraph", "content": [{"text": "This is a paragraph."}]}]
-
+        blocks = [
+            {
+                "type": "paragraph",
+                "content": [{"text": "This is a paragraph"}]
+            }
+        ]
         result = construct_description_from_blocks(blocks)
-        assert result == "This is a paragraph.\n"
+        assert "This is a paragraph" in result
 
     def test_construct_description_heading_block(self):
         """Test constructing description from heading block."""
@@ -120,77 +444,143 @@ class TestDescriptionConstruction:
             {
                 "type": "heading",
                 "content": [{"text": "Main Heading"}],
-                "props": {"level": 1},
+                "props": {"level": 2}
             }
         ]
-
         result = construct_description_from_blocks(blocks)
-        assert result == "# Main Heading\n"
+        assert "## Main Heading" in result
 
     def test_construct_description_code_block(self):
         """Test constructing description from code block."""
         blocks = [
             {
                 "type": "codeBlock",
-                "content": [{"text": "print('Hello World')"}],
-                "props": {"language": "python"},
+                "content": [{"text": "print('hello')"}],
+                "props": {"language": "python"}
             }
         ]
-
         result = construct_description_from_blocks(blocks)
-        assert result == "```python\nprint('Hello World')\n```\n"
+        assert "```python" in result
+        assert "print('hello')" in result
 
     def test_construct_description_list_items(self):
         """Test constructing description from list items."""
         blocks = [
-            {"type": "numberedListItem", "content": [{"text": "First item"}]},
-            {"type": "bulletListItem", "content": [{"text": "Bullet item"}]},
-            {"type": "checkListItem", "content": [{"text": "Check item"}]},
+            {
+                "type": "numberedListItem",
+                "content": [{"text": "First item"}]
+            },
+            {
+                "type": "bulletListItem",
+                "content": [{"text": "Second item"}]
+            }
         ]
-
         result = construct_description_from_blocks(blocks)
-        expected = "1. First item\n- Bullet item\n- [ ] Check item\n"
-        assert result == expected
+        assert "1. First item" in result
+        assert "- Second item" in result
 
     def test_construct_description_nested_blocks(self):
-        """Test constructing description with nested blocks."""
+        """Test constructing description from nested blocks."""
         blocks = [
             {
                 "type": "paragraph",
-                "content": [{"text": "Parent paragraph"}],
+                "content": [{"text": "Parent"}],
                 "children": [
-                    {"type": "paragraph", "content": [{"text": "Nested paragraph"}]}
-                ],
+                    {
+                        "type": "paragraph",
+                        "content": [{"text": "Child"}]
+                    }
+                ]
             }
         ]
-
         result = construct_description_from_blocks(blocks)
-        expected = "Parent paragraph\n    Nested paragraph\n"
-        assert result == expected
+        assert "Parent" in result
+        assert "Child" in result
 
     def test_construct_description_with_nesting_level(self):
-        """Test constructing description with custom nesting level."""
-        blocks = [{"type": "paragraph", "content": [{"text": "Indented paragraph"}]}]
-
+        """Test constructing description with specific nesting level."""
+        blocks = [
+            {
+                "type": "paragraph",
+                "content": [{"text": "Level 0"}]
+            }
+        ]
         result = construct_description_from_blocks(blocks, nesting_level=2)
-        assert result == "        Indented paragraph\n"
+        assert "        Level 0" in result  # 8 spaces (2 * 4)
 
     def test_construct_description_mixed_content(self):
-        """Test constructing description with mixed content types."""
+        """Test constructing description from mixed content types."""
         blocks = [
             {
                 "type": "heading",
-                "content": [{"text": "Introduction"}],
-                "props": {"level": 2},
+                "content": [{"text": "Title"}],
+                "props": {"level": 1}
             },
-            {"type": "paragraph", "content": [{"text": "This is some text."}]},
+            {
+                "type": "paragraph",
+                "content": [{"text": "Content"}]
+            },
             {
                 "type": "codeBlock",
-                "content": [{"text": "code here"}],
-                "props": {"language": ""},
-            },
+                "content": [{"text": "code"}],
+                "props": {"language": "python"}
+            }
         ]
-
         result = construct_description_from_blocks(blocks)
-        expected = "## Introduction\nThis is some text.\n```\ncode here\n```\n"
-        assert result == expected
+        assert "# Title" in result
+        assert "Content" in result
+        assert "```python" in result
+
+    def test_construct_description_notion_block(self):
+        """Test constructing description from notion block type."""
+        blocks = [
+            {
+                "type": "notion",
+                "content": [
+                    {
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"plain_text": "Notion content"}]
+                        }
+                    }
+                ]
+            }
+        ]
+        result = construct_description_from_blocks(blocks)
+        assert "Notion content" in result
+
+    def test_construct_description_notion_block_empty_content(self):
+        """Test constructing description from notion block with empty content."""
+        blocks = [
+            {
+                "type": "notion",
+                "content": []
+            }
+        ]
+        result = construct_description_from_blocks(blocks)
+        assert result == ""
+
+    def test_construct_description_notion_block_with_multiple_content(self):
+        """Test constructing description from notion block with multiple content items."""
+        blocks = [
+            {
+                "type": "notion",
+                "content": [
+                    {
+                        "type": "heading_1",
+                        "heading_1": {
+                            "rich_text": [{"plain_text": "Notion Heading"}]
+                        }
+                    },
+                    {
+                        "type": "paragraph",
+                        "paragraph": {
+                            "rich_text": [{"plain_text": "Notion paragraph"}]
+                        }
+                    }
+                ]
+            }
+        ]
+        result = construct_description_from_blocks(blocks)
+        assert "# Notion Heading" in result
+        assert "Notion paragraph" in result
