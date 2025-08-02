@@ -328,8 +328,10 @@ class TestDatabaseInitialization:
     @patch("src.api.db.os.makedirs")
     @patch("src.api.db.get_new_db_connection")
     @patch("src.api.db.set_db_defaults")
+    @patch("src.api.db.run_migrations")
     async def test_init_db_skips_directory_creation_if_exists(
         self,
+        mock_run_migrations,
         mock_set_defaults,
         mock_get_conn,
         mock_makedirs,
@@ -348,6 +350,7 @@ class TestDatabaseInitialization:
         await init_db()
 
         mock_makedirs.assert_not_called()
+        mock_run_migrations.assert_called_once()
 
     @patch("src.api.db.sqlite_db_path", "/test/path/test.db")
     @patch("src.api.db.exists")
