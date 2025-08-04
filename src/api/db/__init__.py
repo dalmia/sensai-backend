@@ -336,14 +336,15 @@ async def create_integrations_table(cursor):
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_integration_user_id ON {integrations_table_name} (user_id)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_integration_user_id ON {integrations_table_name} (user_id)"""
     )
 
     await cursor.execute(
-        f"""CREATE INDEX idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
+        f"""CREATE INDEX IF NOT EXISTS idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
     )
     
     update_trigger_name = f"set_updated_at_update_{integrations_table_name}"
+    await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
     await cursor.execute(
         f"""
             CREATE TRIGGER {update_trigger_name}

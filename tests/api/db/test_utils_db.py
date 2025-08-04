@@ -479,6 +479,17 @@ class TestConstructDescriptionFromBlocks:
         assert "1. First item" in result
         assert "- Second item" in result
 
+    def test_construct_description_checklist_item(self):
+        """Test constructing description from checklist item."""
+        blocks = [
+            {
+                "type": "checkListItem",
+                "content": [{"text": "Checklist item"}]
+            }
+        ]
+        result = construct_description_from_blocks(blocks)
+        assert "- [ ] Checklist item" in result
+
     def test_construct_description_nested_blocks(self):
         """Test constructing description from nested blocks."""
         blocks = [
