@@ -24,6 +24,8 @@ from src.api.db import (
     init_db,
     delete_useless_tables,
     create_integrations_table,
+    mark_all_task_generation_jobs_as_failed,
+    mark_all_course_generation_jobs_as_failed,
 )
 
 
@@ -492,3 +494,50 @@ class TestDatabaseInitialization:
         assert mock_cursor.execute.call_count >= 8  # At least 8 DROP TABLE statements
         calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
         assert any("DROP TABLE" in call for call in calls)
+
+
+@pytest.mark.asyncio
+class TestJobStatusUpdateFunctions:
+    """Test job status update functions."""
+
+    @patch("src.api.db.get_new_db_connection")
+    async def test_mark_all_task_generation_jobs_as_failed(self, mock_get_conn):
+        """Test marking all task generation jobs as failed."""
+        mock_cursor = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__aenter__.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
+
+        await mark_all_task_generation_jobs_as_failed()
+
+        # Should execute UPDATE statement and commit
+        mock_cursor.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
+
+        # Check the SQL query
+        call_args = mock_cursor.execute.call_args[0][0]
+        assert "UPDATE task_generation_jobs" in call_args
+        assert "SET status = 'failed'" in call_args
+        assert "WHERE status = 'started'" in call_args
+
+    @patch("src.api.db.get_new_db_connection")
+    async def test_mark_all_course_generation_jobs_as_failed(self, mock_get_conn):
+        """Test marking all course generation jobs as failed."""
+        mock_cursor = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__aenter__.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
+
+        await mark_all_course_generation_jobs_as_failed()
+
+        # Should execute UPDATE statement and commit
+        mock_cursor.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
+
+        # Check the SQL query
+        call_args = mock_cursor.execute.call_args[0][0]
+        assert "UPDATE course_generation_jobs" in call_args
+        assert "SET status = 'failed'" in call_args
+        assert "WHERE status = 'pending'" in call_args
