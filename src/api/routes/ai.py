@@ -50,7 +50,7 @@ from api.db.course import (
     add_milestone_to_course,
 )
 from api.db.chat import get_question_chat_history_for_user
-from api.db.utils import construct_description_from_blocks, extract_text_from_notion_blocks
+from api.db.utils import construct_description_from_blocks
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
