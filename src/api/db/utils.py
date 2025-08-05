@@ -1,8 +1,74 @@
-from typing import List, Dict
+from typing import List, Dict, Optional
 import json
 from enum import Enum
 from api.config import courses_table_name
 from api.utils.db import execute_db_operation
+
+
+# Configuration for different integration block types
+BLOCK_TYPE_CONFIG = {
+    "paragraph": {
+        "has_children": False
+    },
+    "heading_1": {
+        "prefix": "# ",
+        "has_children": False
+    },
+    "heading_2": {
+        "prefix": "## ",
+        "has_children": False
+    },
+    "heading_3": {
+        "prefix": "### ",
+        "has_children": False
+    },
+    "bulleted_list_item": {
+        "prefix": "- ",
+        "has_children": False
+    },
+    "numbered_list_item": {
+        "prefix": "1. ",
+        "has_children": False
+    },
+    "to_do": {
+        "has_children": False,
+        "custom_formatter": "checkbox"
+    },
+    "toggle": {
+        "prefix": "▶ ",
+        "has_children": True
+    },
+    "quote": {
+        "prefix": "> ",
+        "has_children": True
+    },
+    "callout": {
+        "has_children": True,
+        "custom_formatter": "callout"
+    },
+    "code": {
+        "has_children": False,
+        "custom_formatter": "code"
+    },
+    "bulleted_list": {
+        "has_children": False,
+        "custom_formatter": "list_items"
+    },
+    "numbered_list": {
+        "has_children": False,
+        "custom_formatter": "numbered_list_items"
+    },
+    "table": {
+        "has_children": False,
+        "custom_formatter": "table"
+    },
+    "column_list": {
+        "has_children": True
+    },
+    "column": {
+        "has_children": True
+    }
+}
 
 
 class EnumEncoder(json.JSONEncoder):
@@ -35,11 +101,144 @@ def convert_blocks_to_right_format(blocks: List[Dict]) -> List[Dict]:
     return blocks
 
 
+def _extract_text_from_rich_text(rich_text: List[Dict]) -> str:
+    """
+    Helper function to extract plain text from rich_text array.
+    
+    Args:
+        rich_text: List of rich text objects
+        
+    Returns:
+        Concatenated plain text from all rich text objects
+    """
+    return "".join([item.get("plain_text", "") for item in rich_text])
+
+
+def _format_block_content(block: Dict, block_type: str, config: Dict) -> Optional[str]:
+    """
+    Generic function to format block content based on configuration.
+    
+    Args:
+        block: The block dictionary
+        block_type: Type of the block
+        config: Configuration for the block type
+        
+    Returns:
+        Formatted text content or None if no content
+    """
+    # Handle custom formatters first (they don't rely on main rich_text)
+    custom_formatter = config.get("custom_formatter")
+    
+    if custom_formatter == "list_items":
+        items = block.get(block_type, {}).get("items", [])
+        formatted_items = []
+        for item in items:
+            item_text = _extract_text_from_rich_text(item.get("bulleted_list_item", {}).get("rich_text", []))
+            if item_text:
+                formatted_items.append(f"- {item_text}")
+        return "\n".join(formatted_items)
+    
+    elif custom_formatter == "numbered_list_items":
+        items = block.get(block_type, {}).get("items", [])
+        formatted_items = []
+        for i, item in enumerate(items, 1):
+            item_text = _extract_text_from_rich_text(item.get("numbered_list_item", {}).get("rich_text", []))
+            if item_text:
+                formatted_items.append(f"{i}. {item_text}")
+        return "\n".join(formatted_items)
+    
+    elif custom_formatter == "table":
+        table_rows = block.get(block_type, {}).get("table_rows", [])
+        formatted_rows = []
+        for row in table_rows:
+            cells = row.get("table_row", {}).get("cells", [])
+            row_text = []
+            for cell in cells:
+                cell_text = _extract_text_from_rich_text(cell)
+                if cell_text:
+                    row_text.append(cell_text)
+            if row_text:
+                formatted_rows.append(" | ".join(row_text))
+        return "\n".join(formatted_rows)
+    
+    # Get rich text from the block for other formatters
+    rich_text = block.get(block_type, {}).get("rich_text", [])
+    text = _extract_text_from_rich_text(rich_text)
+    
+    if not text:
+        return None
+    
+    # Handle other custom formatters
+    if custom_formatter == "checkbox":
+        checked = block.get(block_type, {}).get("checked", False)
+        checkbox = "[x]" if checked else "[ ]"
+        return f"{checkbox} {text}"
+    
+    elif custom_formatter == "callout":
+        icon = block.get(block_type, {}).get("icon", {}).get("emoji", "💡")
+        return f"{icon} {text}"
+    
+    elif custom_formatter == "code":
+        language = block.get(block_type, {}).get("language", "")
+        return f"```{language}\n{text}\n```"
+    
+    # Default formatting
+    prefix = config.get("prefix", "")
+    return f"{prefix}{text}"
+
+
+def extract_text_from_notion_blocks(blocks: List[Dict]) -> str:
+    """
+    Extracts all text content from Notion blocks without media content.
+    
+    Args:
+        blocks: A list of Notion block dictionaries
+        
+    Returns:
+        A formatted string containing all text content from the blocks
+    """
+    if not blocks:
+        return ""
+    
+    text_content = []
+    
+    for block in blocks:
+        block_type = block.get("type", "")
+        config = BLOCK_TYPE_CONFIG.get(block_type, {})
+        
+        # Helper function to process children with indentation
+        def process_children(children: List[Dict]) -> None:
+            if children:
+                child_text = extract_text_from_notion_blocks(children)
+                if child_text:
+                    child_lines = child_text.split('\n')
+                    indented_child = '\n'.join([f"  {line}" for line in child_lines if line.strip()])
+                    text_content.append(indented_child)
+        
+        # Handle block content
+        if block_type in BLOCK_TYPE_CONFIG:
+            formatted_text = _format_block_content(block, block_type, config)
+            if formatted_text:
+                text_content.append(formatted_text)
+            
+            # Process children if the block type supports it
+            if config.get("has_children", False):
+                children = block.get(block_type, {}).get("children", [])
+                process_children(children)
+        
+        # Handle any other block types that might have children
+        elif "children" in block:
+            process_children(block.get("children", []))
+    
+    return "\n".join(text_content)
+
+
 def construct_description_from_blocks(
     blocks: List[Dict], nesting_level: int = 0
 ) -> str:
     """
     Constructs a textual description from a tree of block data.
+    Handles both regular blocks and integration blocks.
 
     Args:
         blocks: A list of block dictionaries, potentially with nested children
@@ -59,6 +258,12 @@ def construct_description_from_blocks(
         block_type = block.get("type", "")
         content = block.get("content", [])
         children = block.get("children", [])
+
+        # Handle integration blocks
+        if block_type == "notion":
+            if content:
+                description += extract_text_from_notion_blocks(content)
+            continue
 
         # Reset counter if we encounter a non-numbered list item after being in a numbered list
         if block_type != "numberedListItem" and numbered_list_counter > 1:

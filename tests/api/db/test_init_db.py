@@ -24,6 +24,8 @@ from src.api.db import (
     init_db,
     delete_useless_tables,
     create_integrations_table,
+    mark_all_task_generation_jobs_as_failed,
+    mark_all_course_generation_jobs_as_failed,
 )
 
 
@@ -281,14 +283,15 @@ class TestTableCreationFunctions:
 
         await create_integrations_table(mock_cursor)
 
-        # Should execute CREATE TABLE, 2 CREATE INDEX statements, and CREATE TRIGGER
-        assert mock_cursor.execute.call_count == 4
+        # Should execute CREATE TABLE, 2 CREATE INDEX statements, DROP TRIGGER, and CREATE TRIGGER
+        assert mock_cursor.execute.call_count == 5
         calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
 
         assert any("CREATE TABLE IF NOT EXISTS integrations" in call for call in calls)
-        assert any("CREATE INDEX idx_integration_user_id" in call for call in calls)
-        assert any("CREATE INDEX idx_integration_integration_type" in call for call in calls)
-        assert any("CREATE TRIGGER" in call for call in calls)
+        assert any("CREATE INDEX IF NOT EXISTS idx_integration_user_id" in call for call in calls)
+        assert any("CREATE INDEX IF NOT EXISTS idx_integration_integration_type" in call for call in calls)
+        assert any("DROP TRIGGER IF EXISTS set_updated_at_update_integrations" in call for call in calls)
+        assert any("CREATE TRIGGER set_updated_at_update_integrations" in call for call in calls)
 
 
 @pytest.mark.asyncio
@@ -328,8 +331,10 @@ class TestDatabaseInitialization:
     @patch("src.api.db.os.makedirs")
     @patch("src.api.db.get_new_db_connection")
     @patch("src.api.db.set_db_defaults")
+    @patch("src.api.db.run_migrations")
     async def test_init_db_skips_directory_creation_if_exists(
         self,
+        mock_run_migrations,
         mock_set_defaults,
         mock_get_conn,
         mock_makedirs,
@@ -348,6 +353,7 @@ class TestDatabaseInitialization:
         await init_db()
 
         mock_makedirs.assert_not_called()
+        mock_run_migrations.assert_called_once()
 
     @patch("src.api.db.sqlite_db_path", "/test/path/test.db")
     @patch("src.api.db.exists")
@@ -488,3 +494,50 @@ class TestDatabaseInitialization:
         assert mock_cursor.execute.call_count >= 8  # At least 8 DROP TABLE statements
         calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
         assert any("DROP TABLE" in call for call in calls)
+
+
+@pytest.mark.asyncio
+class TestJobStatusUpdateFunctions:
+    """Test job status update functions."""
+
+    @patch("src.api.db.get_new_db_connection")
+    async def test_mark_all_task_generation_jobs_as_failed(self, mock_get_conn):
+        """Test marking all task generation jobs as failed."""
+        mock_cursor = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__aenter__.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
+
+        await mark_all_task_generation_jobs_as_failed()
+
+        # Should execute UPDATE statement and commit
+        mock_cursor.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
+
+        # Check the SQL query
+        call_args = mock_cursor.execute.call_args[0][0]
+        assert "UPDATE task_generation_jobs" in call_args
+        assert "SET status = 'failed'" in call_args
+        assert "WHERE status = 'started'" in call_args
+
+    @patch("src.api.db.get_new_db_connection")
+    async def test_mark_all_course_generation_jobs_as_failed(self, mock_get_conn):
+        """Test marking all course generation jobs as failed."""
+        mock_cursor = AsyncMock()
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__aenter__.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
+
+        await mark_all_course_generation_jobs_as_failed()
+
+        # Should execute UPDATE statement and commit
+        mock_cursor.execute.assert_called_once()
+        mock_conn.commit.assert_called_once()
+
+        # Check the SQL query
+        call_args = mock_cursor.execute.call_args[0][0]
+        assert "UPDATE course_generation_jobs" in call_args
+        assert "SET status = 'failed'" in call_args
+        assert "WHERE status = 'pending'" in call_args
