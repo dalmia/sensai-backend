@@ -66,5 +66,6 @@ uncategorized_milestone_color = "#808080"
 openai_plan_to_model_name = {
     "text": "gpt-5-2025-08-07",
     "text-mini": "gpt-5-mini-2025-08-07",
+    "text-nano": "gpt-5-nano-2025-08-07",
     "audio": "gpt-4o-audio-preview-2024-12-17",
 }

@@ -1,7 +1,6 @@
 from typing import Dict, List, Literal, Optional, Type, Optional, Generator, Iterable
 import backoff
 import openai
-import instructor
 from openai import OpenAI
 from pydantic import BaseModel, create_model
 from pydantic.fields import FieldInfo
@@ -34,36 +33,7 @@ def validate_openai_api_key(openai_api_key: str) -> bool:
         return None
 
 
-# @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
-async def run_llm_with_instructor(
-    api_key: str,
-    model: str,
-    messages: List,
-    response_model: BaseModel,
-    max_completion_tokens: int,
-    reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None,
-):
-    client = instructor.from_openai(openai.AsyncOpenAI(api_key=api_key))
-
-    model_kwargs = {}
-
-    if not is_reasoning_model(model):
-        model_kwargs["temperature"] = 0
-    else:
-        if reasoning_effort:
-            model_kwargs["reasoning_effort"] = reasoning_effort
-
-    return await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_model=response_model,
-        max_completion_tokens=max_completion_tokens,
-        store=True,
-        **model_kwargs,
-    )
-
-
-# @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
+@backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
 async def run_llm_with_openai(
     api_key: str,
     model: str,
@@ -96,39 +66,6 @@ async def run_llm_with_openai(
     return response.output[1].content[0].parsed
 
 
-# @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
-async def stream_llm_with_instructor(
-    api_key: str,
-    model: str,
-    messages: List,
-    response_model: BaseModel,
-    max_completion_tokens: int,
-    reasoning_effort: Optional[Literal["minimal", "low", "medium", "high"]] = None,
-    **kwargs,
-):
-    client = instructor.from_openai(openai.AsyncOpenAI(api_key=api_key))
-
-    model_kwargs = {}
-
-    if not is_reasoning_model(model):
-        model_kwargs["temperature"] = 0
-    else:
-        if reasoning_effort:
-            model_kwargs["reasoning_effort"] = reasoning_effort
-
-    model_kwargs.update(kwargs)
-
-    return client.chat.completions.create_partial(
-        model=model,
-        messages=messages,
-        response_model=response_model,
-        stream=True,
-        max_completion_tokens=max_completion_tokens,
-        store=True,
-        **model_kwargs,
-    )
-
-
 # This function takes any Pydantic model and creates a new one
 # where all fields are optional, allowing for partial data.
 def create_partial_model(model: Type[BaseModel]) -> Type[BaseModel]:
@@ -147,7 +84,7 @@ def create_partial_model(model: Type[BaseModel]) -> Type[BaseModel]:
     return create_model(f"Partial{model.__name__}", **new_fields)
 
 
-# @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
+@backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
 async def stream_llm_with_openai(
     api_key: str,
     model: str,
@@ -203,6 +140,6 @@ async def stream_llm_with_openai(
                         parsed_data, strict=False
                     )
                     yield partial_obj
-                except jiter.JiterException:
+                except:
                     # The buffer isn't a valid partial JSON object yet, so we wait for more chunks.
                     continue

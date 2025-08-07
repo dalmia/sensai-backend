@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, Literal, AsyncGenerator
 import json
-import instructor
 import openai
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
@@ -279,7 +278,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 ):
                     system_prompt = f"""You are a very good communicator.\n\nYou will receive:\n- A Reference Material\n- Conversation history with a student\n- The student's latest query/message.\n\nYour role: You need to rewrite the student's latest query/message by taking the reference material and the conversation history into consideration so that the query becomes more specific, detailed and clear, reflecting the actual intent of the student."""
 
-                    model = openai_plan_to_model_name["text-mini"]
+                    model = openai_plan_to_model_name["text-nano"]
 
                     messages = [
                         {"role": "system", "content": system_prompt}
@@ -339,7 +338,7 @@ async def ai_response_for_question(request: AIChatRequest):
                     ):
                         router_output = await run_llm_with_openai(
                             api_key=settings.openai_api_key,
-                            model=openai_plan_to_model_name["text-mini"],
+                            model=openai_plan_to_model_name["text-nano"],
                             messages=messages,
                             response_model=Output,
                             max_completion_tokens=4096,
@@ -549,7 +548,7 @@ The final output should be a JSON in the following format:
 
     output = await run_llm_with_openai(
         api_key=settings.openai_api_key,
-        model=openai_plan_to_model_name["text-mini"],
+        model=openai_plan_to_model_name["text-nano"],
         messages=messages,
         response_model=Output,
         max_completion_tokens=16000,
@@ -711,7 +710,7 @@ Do not include the type of task in the name of the task."""
 
     stream = stream_llm_with_openai(
         api_key=settings.openai_api_key,
-        model=openai_plan_to_model_name["text"],
+        model=openai_plan_to_model_name["text-mini"],
         messages=messages,
         response_model=Output,
         max_completion_tokens=16000,
@@ -987,7 +986,6 @@ The final output should be a JSON in the following format:
 
 
 async def generate_course_task(
-    client,
     task: Dict,
     concept: Dict,
     file_id: str,
@@ -998,7 +996,7 @@ async def generate_course_task(
 
     system_prompt = get_system_prompt_for_task_generation(task["type"])
 
-    model = openai_plan_to_model_name["text"]
+    model = openai_plan_to_model_name["text-mini"]
 
     generation_prompt = f"""Concept details:
 
@@ -1030,12 +1028,12 @@ Task to generate:
         LearningMaterial if task["type"] == TaskType.LEARNING_MATERIAL else Quiz
     )
 
-    output = await client.chat.completions.create(
+    output = await run_llm_with_openai(
+        api_key=settings.openai_api_key,
         model=model,
         messages=messages,
         response_model=response_model,
         max_completion_tokens=16000,
-        store=True,
     )
 
     task["details"] = output.model_dump(exclude_none=True)
@@ -1077,12 +1075,6 @@ async def generate_course_tasks(
 ):
     job_details = await get_course_generation_job_details(job_uuid)
 
-    client = instructor.from_openai(
-        openai.AsyncOpenAI(
-            api_key=settings.openai_api_key,
-        )
-    )
-
     # Create a list to hold all task coroutines
     tasks = []
 
@@ -1103,7 +1095,6 @@ async def generate_course_tasks(
                 # Add task to the list instead of adding to background_tasks
                 tasks.append(
                     generate_course_task(
-                        client,
                         task,
                         concept,
                         job_details["openai_file_id"],
@@ -1165,16 +1156,9 @@ async def resume_pending_task_generation_jobs():
 
     tasks = []
 
-    client = instructor.from_openai(
-        openai.AsyncOpenAI(
-            api_key=settings.openai_api_key,
-        )
-    )
-
     for job in incomplete_course_jobs:
         tasks.append(
             generate_course_task(
-                client,
                 job["job_details"]["task"],
                 job["job_details"]["concept"],
                 job["job_details"]["openai_file_id"],
