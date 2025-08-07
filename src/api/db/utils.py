@@ -129,8 +129,13 @@ def _format_block_content(block: Dict, block_type: str, config: Dict) -> Optiona
     # Handle custom formatters first (they don't rely on main rich_text)
     custom_formatter = config.get("custom_formatter")
     
+    # Get block data once
+    block_data = block.get(block_type, {})
+    if block_data is None:
+        block_data = {}
+    
     if custom_formatter == "list_items":
-        items = block.get(block_type, {}).get("items", [])
+        items = block_data.get("items", [])
         formatted_items = []
         for item in items:
             item_text = _extract_text_from_rich_text(item.get("bulleted_list_item", {}).get("rich_text", []))
@@ -139,7 +144,7 @@ def _format_block_content(block: Dict, block_type: str, config: Dict) -> Optiona
         return "\n".join(formatted_items)
     
     elif custom_formatter == "numbered_list_items":
-        items = block.get(block_type, {}).get("items", [])
+        items = block_data.get("items", [])
         formatted_items = []
         for i, item in enumerate(items, 1):
             item_text = _extract_text_from_rich_text(item.get("numbered_list_item", {}).get("rich_text", []))
@@ -148,7 +153,7 @@ def _format_block_content(block: Dict, block_type: str, config: Dict) -> Optiona
         return "\n".join(formatted_items)
     
     elif custom_formatter == "table":
-        table_rows = block.get(block_type, {}).get("table_rows", [])
+        table_rows = block_data.get("table_rows", [])
         formatted_rows = []
         for row in table_rows:
             cells = row.get("table_row", {}).get("cells", [])
@@ -162,7 +167,7 @@ def _format_block_content(block: Dict, block_type: str, config: Dict) -> Optiona
         return "\n".join(formatted_rows)
     
     # Get rich text from the block for other formatters
-    rich_text = block.get(block_type, {}).get("rich_text", [])
+    rich_text = block_data.get("rich_text", [])
     text = _extract_text_from_rich_text(rich_text)
     
     if not text:
@@ -170,16 +175,20 @@ def _format_block_content(block: Dict, block_type: str, config: Dict) -> Optiona
     
     # Handle other custom formatters
     if custom_formatter == "checkbox":
-        checked = block.get(block_type, {}).get("checked", False)
+        checked = block_data.get("checked", False)
         checkbox = "[x]" if checked else "[ ]"
         return f"{checkbox} {text}"
     
     elif custom_formatter == "callout":
-        icon = block.get(block_type, {}).get("icon", {}).get("emoji", "💡")
+        icon_data = block_data.get("icon", {})
+        if icon_data is not None:
+            icon = icon_data.get("emoji", "💡")
+        else:
+            icon = "💡"
         return f"{icon} {text}"
     
     elif custom_formatter == "code":
-        language = block.get(block_type, {}).get("language", "")
+        language = block_data.get("language", "")
         return f"```{language}\n{text}\n```"
     
     # Default formatting
