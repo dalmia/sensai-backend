@@ -34,7 +34,6 @@ async def create_integration(data: CreateIntegrationRequest) -> int:
         return result[0] if result else cursor.lastrowid
 
 async def get_integration(integration_id: int) -> Optional[Integration]:
-    print(f"Getting integration {integration_id}")
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
         await cursor.execute(
