@@ -204,6 +204,27 @@ class TestFormatBlockContent:
         result = _format_block_content(block, "paragraph", config)
         assert result is None
 
+    def test_format_block_content_with_none_block_data(self):
+        """Test formatting block when block_data is None."""
+        block = {
+            "paragraph": None
+        }
+        config = BLOCK_TYPE_CONFIG["paragraph"]
+        result = _format_block_content(block, "paragraph", config)
+        assert result is None
+
+    def test_format_block_content_callout_with_none_icon_data(self):
+        """Test formatting callout block when icon_data is None."""
+        block = {
+            "callout": {
+                "rich_text": [{"plain_text": "Important note"}],
+                "icon": None
+            }
+        }
+        config = BLOCK_TYPE_CONFIG["callout"]
+        result = _format_block_content(block, "callout", config)
+        assert result == "💡 Important note"
+
     def test_format_block_content_list_items(self):
         """Test formatting bulleted list items."""
         block = {
