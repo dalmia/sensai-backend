@@ -126,3 +126,8 @@ app.include_router(integration.router, prefix="/integrations", tags=["integratio
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health_check():
     return {"status": "ok"}
+
+
+@app.api_route("/bugsnag-debug", methods=["GET"])
+async def bugsnag_debug():
+    bugsnag.notify(Exception("Test error"))
