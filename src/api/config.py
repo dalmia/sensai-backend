@@ -64,9 +64,7 @@ uncategorized_milestone_name = "[UNASSIGNED]"
 uncategorized_milestone_color = "#808080"
 
 openai_plan_to_model_name = {
-    "reasoning": "o3-mini-2025-01-31",
-    "text": "gpt-4.1-2025-04-14",
-    "text-mini": "gpt-4.1-mini-2025-04-14",
+    "text": "gpt-5-2025-08-07",
+    "text-mini": "gpt-5-mini-2025-08-07",
     "audio": "gpt-4o-audio-preview-2024-12-17",
-    "router": "gpt-4.1-mini-2025-04-14",
 }
