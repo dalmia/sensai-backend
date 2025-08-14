@@ -51,8 +51,8 @@ class TestCohortBasicOperations:
         # Mock cohort data
         cohort_tuple = (1, "Test Cohort", 1)  # id, name, org_id
         members_data = [
-            (1, "user1@example.com", "learner"),
-            (2, "user2@example.com", "mentor"),
+            (1, "user1@example.com", "learner", "John", "M", "Doe"),
+            (2, "user2@example.com", "mentor", "Jane", None, "Smith"),
         ]
 
         mock_execute.side_effect = [cohort_tuple, members_data]
@@ -64,8 +64,8 @@ class TestCohortBasicOperations:
             "org_id": 1,
             "name": "Test Cohort",
             "members": [
-                {"id": 1, "email": "user1@example.com", "role": "learner"},
-                {"id": 2, "email": "user2@example.com", "role": "mentor"},
+                {"id": 1, "email": "user1@example.com", "role": "learner", "first_name": "John", "middle_name": "M", "last_name": "Doe"},
+                {"id": 2, "email": "user2@example.com", "role": "mentor", "first_name": "Jane", "middle_name": None, "last_name": "Smith"},
             ],
         }
 
@@ -622,8 +622,8 @@ class TestCohortAnalytics:
         """Test getting cohort by ID with batch_id filter for members."""
         cohort_tuple = (1, "Test Cohort", 1)
         members_data = [
-            (1, "user1@example.com", "learner"),  # Only users in the specified batch
-            (2, "user2@example.com", "learner"),
+            (1, "user1@example.com", "learner", "John", "M", "Doe"),  # Only users in the specified batch
+            (2, "user2@example.com", "learner", "Jane", None, "Smith"),
         ]
 
         mock_execute.side_effect = [cohort_tuple, members_data]
@@ -649,8 +649,8 @@ class TestCohortAnalytics:
             "org_id": 1,
             "name": "Test Cohort",
             "members": [
-                {"id": 1, "email": "user1@example.com", "role": "learner"},
-                {"id": 2, "email": "user2@example.com", "role": "learner"},
+                {"id": 1, "email": "user1@example.com", "role": "learner", "first_name": "John", "middle_name": "M", "last_name": "Doe"},
+                {"id": 2, "email": "user2@example.com", "role": "learner", "first_name": "Jane", "middle_name": None, "last_name": "Smith"},
             ],
         }
 

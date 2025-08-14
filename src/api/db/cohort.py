@@ -324,7 +324,7 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
         # Filter members by batch
         members = await execute_db_operation(
             f"""
-            SELECT DISTINCT u.id, u.email, uc.role
+            SELECT DISTINCT u.id, u.email, uc.role, u.first_name, u.middle_name, u.last_name
             FROM {users_table_name} u
             JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
             JOIN {user_batches_table_name} ub ON u.id = ub.user_id
@@ -338,7 +338,7 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
         # Get all users and their roles in the cohort
         members = await execute_db_operation(
             f"""
-            SELECT DISTINCT u.id, u.email, uc.role
+            SELECT DISTINCT u.id, u.email, uc.role, u.first_name, u.middle_name, u.last_name
             FROM {users_table_name} u
             JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
             WHERE uc.cohort_id = ?
@@ -353,7 +353,14 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
         "org_id": cohort[2],
         "name": cohort[1],
         "members": [
-            {"id": member[0], "email": member[1], "role": member[2]}
+            {
+                "id": member[0], 
+                "email": member[1], 
+                "role": member[2],
+                "first_name": member[3],
+                "middle_name": member[4],
+                "last_name": member[5]
+            }
             for member in members
         ],
     }
