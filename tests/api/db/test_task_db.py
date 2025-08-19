@@ -1059,7 +1059,7 @@ class TestTaskUtilities:
             3,  # max_attempts
             True,  # is_feedback_shown
             "question",  # title
-            '{"shuffle": true}',  # settings
+            '{"allowCopyPaste": true}',  # settings
         )
 
         result = convert_question_db_to_dict(question_tuple)
@@ -1077,7 +1077,7 @@ class TestTaskUtilities:
             "max_attempts": 3,
             "is_feedback_shown": True,
             "title": "question",
-            "settings": {"shuffle": True},
+            "settings": {"allowCopyPaste": True},
         }
 
         assert result == expected

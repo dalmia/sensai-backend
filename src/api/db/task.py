@@ -401,7 +401,7 @@ async def update_draft_quiz(
                     question["max_attempts"],
                     question["is_feedback_shown"],
                     question["title"],
-                    json.dumps(question.get("settings")),
+                    json.dumps(question.get("settings", {})),
                 ),
             )
 
@@ -481,7 +481,7 @@ async def update_published_quiz(
                     str(question["response_type"]),
                     str(question["type"]),
                     question["title"],
-                    json.dumps(question.get("settings")),
+                    json.dumps(question.get("settings", {})),
                     question["id"],
                 ),
             )
