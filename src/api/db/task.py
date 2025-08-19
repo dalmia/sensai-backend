@@ -140,6 +140,7 @@ def convert_question_db_to_dict(question) -> Dict:
         "max_attempts": question[9],
         "is_feedback_shown": question[10],
         "title": question[11],
+        "settings": json.loads(question[12]) if question[12] else None,
     }
 
     return result
@@ -169,7 +170,7 @@ async def get_scorecard(scorecard_id: int) -> Dict:
 async def get_question(question_id: int) -> Dict:
     question = await execute_db_operation(
         f"""
-        SELECT q.id, q.type, q.blocks, q.answer, q.input_type, q.response_type, qs.scorecard_id, q.context, q.coding_language, q.max_attempts, q.is_feedback_shown, q.title
+        SELECT q.id, q.type, q.blocks, q.answer, q.input_type, q.response_type, qs.scorecard_id, q.context, q.coding_language, q.max_attempts, q.is_feedback_shown, q.title, q.settings
         FROM {questions_table_name} q
         LEFT JOIN {question_scorecards_table_name} qs ON q.id = qs.question_id
         WHERE q.id = ?
@@ -231,7 +232,7 @@ async def get_task(task_id: int):
     elif task_data["type"] == TaskType.QUIZ:
         questions = await execute_db_operation(
             f"""
-            SELECT q.id, q.type, q.blocks, q.answer, q.input_type, q.response_type, qs.scorecard_id, q.context, q.coding_language, q.max_attempts, q.is_feedback_shown, q.title
+            SELECT q.id, q.type, q.blocks, q.answer, q.input_type, q.response_type, qs.scorecard_id, q.context, q.coding_language, q.max_attempts, q.is_feedback_shown, q.title, q.settings
             FROM {questions_table_name} q
             LEFT JOIN {question_scorecards_table_name} qs ON q.id = qs.question_id
             WHERE task_id = ? ORDER BY position ASC
@@ -376,7 +377,7 @@ async def update_draft_quiz(
 
             await cursor.execute(
                 f"""
-                INSERT INTO {questions_table_name} (task_id, type, blocks, answer, input_type, response_type, coding_language, generation_model, context, position, max_attempts, is_feedback_shown, title) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO {questions_table_name} (task_id, type, blocks, answer, input_type, response_type, coding_language, generation_model, context, position, max_attempts, is_feedback_shown, title, settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -400,6 +401,7 @@ async def update_draft_quiz(
                     question["max_attempts"],
                     question["is_feedback_shown"],
                     question["title"],
+                    json.dumps(question.get("settings")),
                 ),
             )
 
@@ -460,7 +462,7 @@ async def update_published_quiz(
 
             await cursor.execute(
                 f"""
-                UPDATE {questions_table_name} SET blocks = ?, answer = ?, input_type = ?, coding_language = ?, context = ?, response_type = ?, type = ?, title = ? WHERE id = ?
+                UPDATE {questions_table_name} SET blocks = ?, answer = ?, input_type = ?, coding_language = ?, context = ?, response_type = ?, type = ?, title = ?, settings = ? WHERE id = ?
                 """,
                 (
                     json.dumps(prepare_blocks_for_publish(question["blocks"])),
@@ -479,6 +481,7 @@ async def update_published_quiz(
                     str(question["response_type"]),
                     str(question["type"]),
                     question["title"],
+                    json.dumps(question.get("settings")),
                     question["id"],
                 ),
             )

@@ -191,6 +191,7 @@ class TestTaskOperations:
             3,  # max_attempts
             True,  # is_feedback_shown
             "question",  # title
+            None,  # settings
         )
 
         mock_scorecard = {
@@ -217,6 +218,7 @@ class TestTaskOperations:
             "is_feedback_shown": True,
             "scorecard": mock_scorecard,
             "title": "question",
+            "settings": None,
         }
 
         assert result == expected
@@ -1057,6 +1059,7 @@ class TestTaskUtilities:
             3,  # max_attempts
             True,  # is_feedback_shown
             "question",  # title
+            '{"shuffle": true}',  # settings
         )
 
         result = convert_question_db_to_dict(question_tuple)
@@ -1074,6 +1077,7 @@ class TestTaskUtilities:
             "max_attempts": 3,
             "is_feedback_shown": True,
             "title": "question",
+            "settings": {"shuffle": True},
         }
 
         assert result == expected
@@ -1093,6 +1097,7 @@ class TestTaskUtilities:
             1,  # max_attempts
             False,  # is_feedback_shown
             "question",  # title
+            None,  # settings
         )
 
         result = convert_question_db_to_dict(question_tuple)
@@ -1110,6 +1115,7 @@ class TestTaskUtilities:
             "max_attempts": 1,
             "is_feedback_shown": False,
             "title": "question",
+            "settings": None,
         }
 
         assert result == expected
