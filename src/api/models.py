@@ -1,6 +1,6 @@
 from enum import Enum
 from pydantic import BaseModel
-from typing import List, Tuple, Optional, Dict, Literal
+from typing import List, Tuple, Optional, Dict, Literal, Any
 from datetime import datetime
 
 
@@ -341,6 +341,7 @@ class DraftQuestion(BaseModel):
     coding_languages: List[str] | None
     scorecard_id: Optional[int] = None
     title: str
+    settings: Optional[Any] = None
 
 
 class PublishedQuestion(DraftQuestion):
@@ -570,6 +571,7 @@ class UpdateQuestionRequest(BaseModel):
     response_type: TaskAIResponseType | None
     type: QuestionType | None
     title: str
+    settings: Optional[Any] = None
 
 
 class UpdatePublishedQuizRequest(BaseModel):

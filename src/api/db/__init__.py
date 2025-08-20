@@ -401,6 +401,7 @@ async def create_questions_table(cursor):
                 is_feedback_shown BOOLEAN NOT NULL,
                 context TEXT,
                 title TEXT NOT NULL,
+                settings JSON,
                 FOREIGN KEY (task_id) REFERENCES {tasks_table_name}(id) ON DELETE CASCADE
             )"""
     )

@@ -443,5 +443,27 @@ async def create_integrations_table_migration():
         await conn.commit()
 
 
+async def add_settings_column_to_questions():
+    """
+    Migration: Adds a 'settings' column to the questions table.
+    """
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+        
+        # Check if 'settings' column already exists
+        await cursor.execute(f"PRAGMA table_info({questions_table_name})")
+        columns = [col[1] for col in await cursor.fetchall()]
+        
+        if "settings" not in columns:
+            await cursor.execute(
+                f"ALTER TABLE {questions_table_name} ADD COLUMN settings JSON"
+            )
+            print(f"Added 'settings' column to {questions_table_name} table")
+        else:
+            print(f"'settings' column already exists in {questions_table_name} table")
+        
+        await conn.commit()
+
+
 async def run_migrations():
-    await create_integrations_table_migration()
+    await add_settings_column_to_questions()
