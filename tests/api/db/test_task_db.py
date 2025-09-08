@@ -36,6 +36,7 @@ from src.api.db.task import (
     publish_scheduled_tasks,
     add_generated_learning_material,
     add_generated_quiz,
+    upsert_question,
 )
 from src.api.models import (
     TaskType,
@@ -494,6 +495,184 @@ class TestTaskOperations:
         result = await update_draft_quiz(999, "Title", [], None)
 
         assert result is False
+
+    @pytest.mark.asyncio
+    async def test_upsert_question_updates_existing_question(self):
+        """Covers UPDATE branch of upsert_question when question_id exists."""
+        # Arrange: Create a fake cursor that records calls
+        mock_cursor = AsyncMock()
+        question = {
+            "id": 123,
+            "type": "multiple_choice",
+            "blocks": [],
+            "answer": None,
+            "input_type": "text",
+            "response_type": "chat",
+            "coding_languages": None,
+            "context": None,
+            "max_attempts": 1,
+            "is_feedback_shown": True,
+            "title": "q",
+            "settings": {},
+        }
+
+        # Act
+        returned_id = await upsert_question(mock_cursor, question, task_id=1, index=0)
+
+        # Assert: ensure UPDATE executed and returned id is the same
+        assert returned_id == 123
+        # Find the UPDATE call
+        update_calls = [c for c in mock_cursor.execute.call_args_list if "UPDATE" in str(c)]
+        assert len(update_calls) == 1, "Expected an UPDATE call for existing question"
+
+    @patch("src.api.db.task.does_task_exist")
+    @patch("src.api.db.task.get_basic_task_details")
+    @patch("src.api.db.task.get_new_db_connection")
+    @patch("src.api.db.task.get_task")
+    async def test_update_draft_quiz_deletes_and_reinserts_scorecard_when_changed(
+        self, mock_get_task, mock_db_conn, mock_get_basic, mock_task_exists
+    ):
+        """Covers the SELECT old scorecard, conditional DELETE, and INSERT when changed."""
+        mock_task_exists.return_value = True
+        mock_get_basic.return_value = {"org_id": 1}
+
+        mock_cursor = AsyncMock()
+        # existing questions in DB: id 10
+        mock_cursor.fetchall.return_value = [(10,)]
+        # SELECT scorecard_id returns old id 5
+        mock_cursor.fetchone.return_value = (5,)
+        mock_conn_instance = AsyncMock()
+        mock_conn_instance.cursor.return_value = mock_cursor
+        mock_conn_instance.__aenter__.return_value = mock_conn_instance
+        mock_db_conn.return_value = mock_conn_instance
+
+        questions = [
+            {
+                "id": 10,
+                "type": "multiple_choice",
+                "blocks": [],
+                "answer": None,
+                "input_type": "text",
+                "response_type": "chat",
+                "coding_languages": None,
+                "context": None,
+                "max_attempts": 1,
+                "is_feedback_shown": True,
+                "scorecard_id": 6,  # changed from 5 -> 6
+                "title": "q",
+                "settings": {},
+            }
+        ]
+
+        mock_get_task.return_value = {"id": 1, "questions": questions}
+
+        result = await update_draft_quiz(1, "t", questions, datetime.now())
+        assert result["id"] == 1
+
+        # Ensure we selected existing mapping
+        select_calls = [c for c in mock_cursor.execute.call_args_list if "SELECT scorecard_id" in str(c)]
+        assert select_calls, "Expected a SELECT for existing scorecard mapping"
+        # Ensure the DELETE ran because mapping changed
+        delete_calls = [c for c in mock_cursor.execute.call_args_list if "DELETE FROM" in str(c) and "question_scorecards" in str(c)]
+        assert delete_calls, "Expected DELETE of old scorecard mapping when changed"
+        # Ensure we inserted the new mapping
+        insert_calls = [c for c in mock_cursor.execute.call_args_list if "INSERT INTO" in str(c) and "question_scorecards" in str(c)]
+        assert insert_calls, "Expected INSERT of new scorecard mapping"
+
+    @patch("src.api.db.task.does_task_exist")
+    @patch("src.api.db.task.get_basic_task_details")
+    @patch("src.api.db.task.get_new_db_connection")
+    @patch("src.api.db.task.get_task")
+    async def test_update_draft_quiz_skips_delete_when_scorecard_unchanged(
+        self, mock_get_task, mock_db_conn, mock_get_basic, mock_task_exists
+    ):
+        """If scorecard_id is unchanged, do not DELETE existing mapping."""
+        mock_task_exists.return_value = True
+        mock_get_basic.return_value = {"org_id": 1}
+
+        mock_cursor = AsyncMock()
+        # existing question id
+        mock_cursor.fetchall.return_value = [(10,)]
+        # SELECT scorecard_id returns the same id as provided
+        mock_cursor.fetchone.return_value = (6,)
+        mock_conn_instance = AsyncMock()
+        mock_conn_instance.cursor.return_value = mock_cursor
+        mock_conn_instance.__aenter__.return_value = mock_conn_instance
+        mock_db_conn.return_value = mock_conn_instance
+
+        questions = [
+            {
+                "id": 10,
+                "type": "multiple_choice",
+                "blocks": [],
+                "answer": None,
+                "input_type": "text",
+                "response_type": "chat",
+                "coding_languages": None,
+                "context": None,
+                "max_attempts": 1,
+                "is_feedback_shown": True,
+                "scorecard_id": 6,  # unchanged
+                "title": "q",
+                "settings": {},
+            }
+        ]
+
+        mock_get_task.return_value = {"id": 1, "questions": questions}
+
+        await update_draft_quiz(1, "t", questions, datetime.now())
+
+        # There should be no DELETE of mapping because unchanged
+        delete_calls = [c for c in mock_cursor.execute.call_args_list if "DELETE FROM" in str(c) and "question_scorecards" in str(c)]
+        # It's possible other deletes happen later (like cleanup). Filter by WHERE question_id = ? form
+        mapping_deletes = [c for c in delete_calls if "WHERE question_id = ?" in str(c)]
+        assert len(mapping_deletes) == 0, "Should not delete mapping when scorecard_id unchanged"
+
+    @patch("src.api.db.task.does_task_exist")
+    @patch("src.api.db.task.get_basic_task_details")
+    @patch("src.api.db.task.get_new_db_connection")
+    @patch("src.api.db.task.get_task")
+    async def test_update_draft_quiz_deletes_removed_questions_with_in_clause(
+        self, mock_get_task, mock_db_conn, mock_get_basic, mock_task_exists
+    ):
+        """Covers DELETE ... IN (...) for removed questions and their scorecard mappings."""
+        mock_task_exists.return_value = True
+        mock_get_basic.return_value = {"org_id": 1}
+
+        mock_cursor = AsyncMock()
+        # existing questions: ids 1 and 2; we will only provide id 1 so id 2 gets deleted
+        mock_cursor.fetchall.return_value = [(1,), (2,)]
+        mock_conn_instance = AsyncMock()
+        mock_conn_instance.cursor.return_value = mock_cursor
+        mock_conn_instance.__aenter__.return_value = mock_conn_instance
+        mock_db_conn.return_value = mock_conn_instance
+
+        provided_questions = [
+            {
+                "id": 1,
+                "type": "multiple_choice",
+                "blocks": [],
+                "answer": None,
+                "input_type": "text",
+                "response_type": "chat",
+                "coding_languages": None,
+                "context": None,
+                "max_attempts": 1,
+                "is_feedback_shown": True,
+                "scorecard_id": None,
+                "title": "q",
+                "settings": {},
+            }
+        ]
+
+        mock_get_task.return_value = {"id": 1, "questions": provided_questions}
+
+        await update_draft_quiz(1, "t", provided_questions, datetime.now())
+
+        # Ensure DELETE ... IN (...) for scorecard mappings and questions
+        calls_str = "\n".join(str(c) for c in mock_cursor.execute.call_args_list)
+        assert "WHERE question_id IN (2)" in calls_str or "WHERE question_id IN (" in calls_str
+        assert "WHERE id IN (2)" in calls_str or "WHERE id IN (" in calls_str
 
     @patch("src.api.db.task.does_task_exist")
     @patch("src.api.db.task.get_basic_task_details")

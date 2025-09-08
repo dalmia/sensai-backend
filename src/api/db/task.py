@@ -306,6 +306,64 @@ def prepare_blocks_for_publish(blocks: List[Dict]) -> List[Dict]:
     return blocks
 
 
+def prepare_question_data(question: Dict, index: int) -> tuple:
+    """Prepare question data for database operations"""
+    return (
+        str(question["type"]),
+        json.dumps(prepare_blocks_for_publish(question["blocks"])),
+        (
+            json.dumps(prepare_blocks_for_publish(question["answer"]))
+            if question["answer"]
+            else None
+        ),
+        str(question["input_type"]),
+        str(question["response_type"]),
+        (
+            json.dumps(question["coding_languages"])
+            if question["coding_languages"]
+            else None
+        ),
+        None,  # generation_model
+        json.dumps(question["context"]) if question["context"] else None,
+        index,
+        question["max_attempts"],
+        question["is_feedback_shown"],
+        question["title"],
+        json.dumps(question.get("settings", {})),
+    )
+
+
+async def upsert_question(cursor, question: Dict, task_id: int, index: int) -> int:
+    """Upsert question (insert or update) and return question_id"""
+    question_id = question.get("id")
+    question_data = prepare_question_data(question, index)
+    
+    if question_id:
+        # Update existing question
+        await cursor.execute(
+            f"""
+            UPDATE {questions_table_name} SET 
+                type = ?, blocks = ?, answer = ?, input_type = ?, response_type = ?, 
+                coding_language = ?, generation_model = ?, context = ?, position = ?, 
+                max_attempts = ?, is_feedback_shown = ?, title = ?, settings = ?
+            WHERE id = ? AND task_id = ?
+            """,
+            question_data + (question_id, task_id),
+        )
+    else:
+        # Create new question
+        await cursor.execute(
+            f"""
+            INSERT INTO {questions_table_name} (task_id, type, blocks, answer, input_type, response_type, coding_language, generation_model, context, position, max_attempts, is_feedback_shown, title, settings) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (task_id,) + question_data,
+        )
+        question_id = cursor.lastrowid
+    
+    return question_id
+
+
 async def update_learning_material_task(
     task_id: int,
     title: str,
@@ -359,74 +417,76 @@ async def update_draft_quiz(
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
+        # Get existing question IDs for this task
         await cursor.execute(
-            f"DELETE FROM {question_scorecards_table_name} WHERE question_id IN (SELECT id FROM {questions_table_name} WHERE task_id = ?)",
+            f"SELECT id FROM {questions_table_name} WHERE task_id = ?",
             (task_id,),
         )
+        existing_question_ids = {row[0] for row in await cursor.fetchall()}
 
-        await cursor.execute(
-            f"DELETE FROM {questions_table_name} WHERE task_id = ?",
-            (task_id,),
-        )
-
+        # Process questions from the request
+        provided_question_ids = set()
         scorecards_to_publish = []
 
         for index, question in enumerate(questions):
             if not isinstance(question, dict):
                 question = question.model_dump()
 
-            await cursor.execute(
-                f"""
-                INSERT INTO {questions_table_name} (task_id, type, blocks, answer, input_type, response_type, coding_language, generation_model, context, position, max_attempts, is_feedback_shown, title, settings) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    task_id,
-                    str(question["type"]),
-                    json.dumps(prepare_blocks_for_publish(question["blocks"])),
-                    (
-                        json.dumps(prepare_blocks_for_publish(question["answer"]))
-                        if question["answer"]
-                        else None
-                    ),
-                    str(question["input_type"]),
-                    str(question["response_type"]),
-                    (
-                        json.dumps(question["coding_languages"])
-                        if question["coding_languages"]
-                        else None
-                    ),
-                    None,
-                    json.dumps(question["context"]) if question["context"] else None,
-                    index,
-                    question["max_attempts"],
-                    question["is_feedback_shown"],
-                    question["title"],
-                    json.dumps(question.get("settings", {})),
-                ),
-            )
+            question_id = question.get("id")
+            new_scorecard_id = question.get("scorecard_id")
+            
+            if question_id:
+                provided_question_ids.add(question_id)
+                
+                # Check if scorecard_id changed
+                await cursor.execute(
+                    f"SELECT scorecard_id FROM {question_scorecards_table_name} WHERE question_id = ?",
+                    (question_id,),
+                )
+                existing_scorecard = await cursor.fetchone()
+                existing_scorecard_id = existing_scorecard[0] if existing_scorecard else None
+                
+                # Only update if scorecard_id actually changed
+                if existing_scorecard_id != new_scorecard_id:
+                    # Delete existing scorecard association
+                    await cursor.execute(
+                        f"DELETE FROM {question_scorecards_table_name} WHERE question_id = ?",
+                        (question_id,),
+                    )
+            
+            # Upsert question (handles both update and create)
+            question_id = await upsert_question(cursor, question, task_id, index)
 
-            question_id = cursor.lastrowid
-
-            scorecard_id = None
-            if question.get("scorecard_id") is not None:
-                scorecard_id = question["scorecard_id"]
-
+            # Add new scorecard association if provided
+            if new_scorecard_id is not None:
                 await cursor.execute(
                     f"""
                     INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)
                     """,
-                    (question_id, scorecard_id),
+                    (question_id, new_scorecard_id),
                 )
 
                 await cursor.execute(
                     f"SELECT id FROM {scorecards_table_name} WHERE id = ? AND status = ?",
-                    (question["scorecard_id"], str(ScorecardStatus.DRAFT)),
+                    (new_scorecard_id, str(ScorecardStatus.DRAFT)),
                 )
 
                 result = await cursor.fetchone()
 
                 if result:
-                    scorecards_to_publish.append(question["scorecard_id"])
+                    scorecards_to_publish.append(new_scorecard_id)
+
+        # Delete questions that exist in DB but not in the request
+        questions_to_delete = existing_question_ids - provided_question_ids
+        if questions_to_delete:
+            # Delete scorecard associations first
+            await cursor.execute(
+                f"DELETE FROM {question_scorecards_table_name} WHERE question_id IN ({','.join(map(str, questions_to_delete))})",
+            )
+            # Delete the questions
+            await cursor.execute(
+                f"DELETE FROM {questions_table_name} WHERE id IN ({','.join(map(str, questions_to_delete))})",
+            )
 
         if scorecards_to_publish:
             await cursor.execute(
