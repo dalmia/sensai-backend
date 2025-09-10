@@ -435,7 +435,6 @@ async def update_draft_quiz(
             question_id = question.get("id")
             new_scorecard_id = question.get("scorecard_id")
             existing_scorecard_id = None
-            provided_question_id = question_id
             
             if question_id:
                 provided_question_ids.add(question_id)
@@ -460,9 +459,7 @@ async def update_draft_quiz(
             question_id = await upsert_question(cursor, question, task_id, index)
 
             # Add new scorecard association only when needed
-            if new_scorecard_id is not None and (
-                provided_question_id is None or existing_scorecard_id != new_scorecard_id
-            ):
+            if new_scorecard_id is not None and existing_scorecard_id != new_scorecard_id:
                 await cursor.execute(
                     f"""
                     INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)
