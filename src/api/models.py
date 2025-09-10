@@ -547,6 +547,7 @@ class UpdateLearningMaterialTaskRequest(PublishLearningMaterialTaskRequest):
 
 
 class CreateQuestionRequest(DraftQuestion):
+    id: Optional[int] = None
     generation_model: str | None
     max_attempts: int | None
     is_feedback_shown: bool | None
