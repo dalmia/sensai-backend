@@ -517,7 +517,7 @@ class TestTaskOperations:
         }
 
         # Act
-        returned_id = await upsert_question(mock_cursor, question, task_id=1, index=0)
+        returned_id = await upsert_question(mock_cursor, question, task_id=1, position=0)
 
         # Assert: ensure UPDATE executed and returned id is the same
         assert returned_id == 123

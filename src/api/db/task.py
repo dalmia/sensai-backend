@@ -306,7 +306,7 @@ def prepare_blocks_for_publish(blocks: List[Dict]) -> List[Dict]:
     return blocks
 
 
-def prepare_question_data(question: Dict, index: int) -> tuple:
+def prepare_question_data(question: Dict, position: int) -> tuple:
     """Prepare question data for database operations"""
     return (
         str(question["type"]),
@@ -325,7 +325,7 @@ def prepare_question_data(question: Dict, index: int) -> tuple:
         ),
         None,  # generation_model
         json.dumps(question["context"]) if question["context"] else None,
-        index,
+        position,
         question["max_attempts"],
         question["is_feedback_shown"],
         question["title"],
@@ -333,10 +333,10 @@ def prepare_question_data(question: Dict, index: int) -> tuple:
     )
 
 
-async def upsert_question(cursor, question: Dict, task_id: int, index: int) -> int:
+async def upsert_question(cursor, question: Dict, task_id: int, position: int) -> int:
     """Upsert question (insert or update) and return question_id"""
     question_id = question.get("id")
-    question_data = prepare_question_data(question, index)
+    question_data = prepare_question_data(question, position)
     
     if question_id:
         # Update existing question
@@ -434,6 +434,7 @@ async def update_draft_quiz(
 
             question_id = question.get("id")
             new_scorecard_id = question.get("scorecard_id")
+            existing_scorecard_id = None
             
             if question_id:
                 provided_question_ids.add(question_id)
@@ -457,8 +458,10 @@ async def update_draft_quiz(
             # Upsert question (handles both update and create)
             question_id = await upsert_question(cursor, question, task_id, index)
 
-            # Add new scorecard association if provided
-            if new_scorecard_id is not None:
+            # Add new scorecard association only when needed
+            if new_scorecard_id is not None and (
+                question_id is None or existing_scorecard_id != new_scorecard_id
+            ):
                 await cursor.execute(
                     f"""
                     INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)
