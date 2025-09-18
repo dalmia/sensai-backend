@@ -11,8 +11,8 @@
   ```
 - Clone the repository:
   ```
-  git clone https://gitlab.com/hvacademy/sensai-ai.git
-  cd sensai-ai
+  git clone https://github.com/dalmia/sensai-backend.git
+  cd sensai-backend
   ```
 - Install packages
   ```
