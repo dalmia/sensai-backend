@@ -597,12 +597,11 @@ async def init_db():
     else:
         await run_migrations()
         return
+
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
         try:
-            print("Creating tables")
-            print(sqlite_db_path)
             await create_organizations_table(cursor)
 
             await create_org_api_keys_table(cursor)
@@ -646,8 +645,7 @@ async def init_db():
             await create_integrations_table(cursor)
 
             await conn.commit()
-            print("Created tables")
-
+            
         except Exception as exception:
             # delete db
             os.remove(sqlite_db_path)
