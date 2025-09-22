@@ -632,10 +632,7 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
         )
     elif task["type"] == TaskType.QUIZ:
         for question in task["questions"]:
-            if question["scorecard_id"] is not None:
-                question["scorecard"] = await get_scorecard(
-                    question.pop("scorecard_id")
-                )
+            question.pop("id", None)
 
         await update_draft_quiz(
             new_task_id,

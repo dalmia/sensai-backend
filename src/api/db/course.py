@@ -267,6 +267,8 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                         question["scorecard_id"] = scorecard_mapping[
                             original_scorecard_id
                         ]
+                    # Ensure new question rows by removing existing IDs
+                    question.pop("id", None)
 
                 await update_draft_quiz(
                     new_task_id,
