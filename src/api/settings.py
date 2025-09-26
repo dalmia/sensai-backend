@@ -45,8 +45,16 @@ def get_settings():
 
 settings = get_settings()
 
-os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key
-os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key
-os.environ["LANGFUSE_HOST"] = settings.langfuse_host
-os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = settings.langfuse_tracing_environment
-os.environ["OPENAI_API_KEY"] = settings.openai_api_key
+if (
+    settings.langfuse_public_key
+    and settings.langfuse_secret_key
+    and settings.langfuse_host
+    and settings.langfuse_tracing_environment
+):
+    os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key
+    os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key
+    os.environ["LANGFUSE_HOST"] = settings.langfuse_host
+    os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = settings.langfuse_tracing_environment
+
+if settings.openai_api_key:
+    os.environ["OPENAI_API_KEY"] = settings.openai_api_key
