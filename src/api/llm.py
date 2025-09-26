@@ -1,10 +1,8 @@
-from typing import Dict, List
+from typing import List
 import backoff
 import openai
 import instructor
-
-from openai import OpenAI
-
+from langfuse.openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from api.utils.logging import logger
@@ -24,20 +22,6 @@ def is_reasoning_model(model: str) -> bool:
         "o1",
         "o1-2024-12-17",
     ]
-
-
-def validate_openai_api_key(openai_api_key: str) -> bool:
-    client = OpenAI(api_key=openai_api_key)
-    try:
-        models = client.models.list()
-        model_ids = [model.id for model in models.data]
-
-        if "gpt-4o-audio-preview-2024-12-17" in model_ids:
-            return False  # paid account
-        else:
-            return True  # free trial account
-    except Exception:
-        return None
 
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
@@ -115,4 +99,24 @@ def stream_llm_with_openai(
         max_completion_tokens=max_completion_tokens,
         store=True,
         **model_kwargs,
+    )
+
+
+@backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
+async def run_openai_inference(
+    model: str,
+    messages: List,
+    response_model: BaseModel,
+    max_output_tokens: int,
+    **kwargs,
+):
+    client = AsyncOpenAI()
+
+    return await client.responses.create(
+        model=model,
+        messages=messages,
+        text_format=response_model,
+        max_output_tokens=max_output_tokens,
+        store=True,
+        **kwargs,
     )
