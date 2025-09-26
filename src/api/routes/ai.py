@@ -8,7 +8,6 @@ from fastapi import APIRouter, HTTPException, Body, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, Literal, AsyncGenerator
 import json
-import instructor
 import openai
 from pydantic import BaseModel, Field
 from langchain_core.output_parsers import PydanticOutputParser
@@ -23,7 +22,7 @@ from api.models import (
     GenerateTaskJobStatus,
     QuestionType,
 )
-from api.llm import run_llm_with_instructor, stream_llm_with_instructor
+from api.llm import run_llm_with_openai, stream_llm_with_openai
 from api.settings import settings
 from api.utils.logging import logger
 from api.utils.concurrency import async_batch_gather
@@ -188,16 +187,17 @@ async def ai_response_for_question(request: AIChatRequest):
             chat_history = await get_question_chat_history_for_user(
                 request.question_id, request.user_id
             )
-            chat_history = [
-                {"role": message["role"], "content": message["content"]}
-                for message in chat_history
-            ]
         else:
             question = request.question.model_dump()
             chat_history = request.chat_history
 
             question["scorecard"] = await get_scorecard(question["scorecard_id"])
             metadata["question_id"] = None
+
+        chat_history = [
+            {"role": message["role"], "content": message["content"]}
+            for message in chat_history
+        ]
 
         metadata["question_title"] = question["title"]
         metadata["question_type"] = question["type"]
@@ -278,7 +278,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 ):
                     system_prompt = f"""You are a very good communicator.\n\nYou will receive:\n- A Reference Material\n- Conversation history with a student\n- The student's latest query/message.\n\nYour role: You need to rewrite the student's latest query/message by taking the reference material and the conversation history into consideration so that the query becomes more specific, detailed and clear, reflecting the actual intent of the student."""
 
-                    model = openai_plan_to_model_name["text-mini"]
+                    model = openai_plan_to_model_name["text-nano"]
 
                     messages = [
                         {"role": "system", "content": system_prompt}
@@ -289,12 +289,13 @@ async def ai_response_for_question(request: AIChatRequest):
                             description="The rewritten query/message of the student"
                         )
 
-                    pred = await run_llm_with_instructor(
+                    pred = await run_llm_with_openai(
                         api_key=settings.openai_api_key,
                         model=model,
                         messages=messages,
                         response_model=Output,
                         max_completion_tokens=8192,
+                        reasoning_effort="minimal",
                     )
 
                     chat_history[-2]["content"] = get_user_message_for_chat_history(
@@ -306,18 +307,22 @@ async def ai_response_for_question(request: AIChatRequest):
             try:
                 if request.response_type == ChatResponseType.AUDIO:
                     model = openai_plan_to_model_name["audio"]
+                    reasoning_effort = None
                 else:
+                    model = openai_plan_to_model_name["text"]
 
                     class Output(BaseModel):
-                        use_reasoning_model: bool = Field(
-                            description="Whether to use a reasoning model to evaluate the student's response"
+                        reasoning_effort: Literal[
+                            "minimal", "low", "medium", "high"
+                        ] = Field(
+                            description="The amount of reasoning effort to use to evaluate the student's response"
                         )
 
                     format_instructions = PydanticOutputParser(
                         pydantic_object=Output
                     ).get_format_instructions()
 
-                    system_prompt = f"""You are an intelligent routing agent that decides which type of language model should be used to evaluate a student's response to a given task. You will receive the details of a task, the conversation history with the student and the student's latest query/message.\n\nYou have two options:\n- Reasoning Model (e.g. o3): Best for complex tasks involving logical deduction, problem-solving, code generation, mathematics, research reasoning, multi-step analysis, or edge-case handling.\n- General-Purpose Model (e.g. gpt-4o): Best for everyday conversation, writing help, summaries, rephrasing, explanations, casual queries, grammar correction, and general knowledge Q&A.\n\nYour job is to classify which of the two options is best suited to evaluate the student's response for the given task. If a task can be solved by a general purpose model, avoid using a reasoning model as it takes longer and costs more. At the same time, accuracy cannot be compromised.\n\n{format_instructions}"""
+                    system_prompt = f"""You are an intelligent routing agent that decides how much of reasoning effort should be used to evaluate a student's response to a given task. You will receive the details of a task, the conversation history with the student and the student's latest query/message.\n\nYou have 4 options: `minimal`, `low`, `medium` and `high`.\n\nYour job is to classify which of the 4 options is best suited to evaluate the student's response for the given task. If a task can be solved by minimal effort, avoid selecting a higher effort value as it takes longer and costs more. At the same time, accuracy cannot be compromised.\n\nThe reasoning_effort guides the model on how many reasoning tokens to generate before creating a response to the prompt. Specify minimal, low, medium, or high for this parameter, where low favors speed and economical token usage, and high favors more complete reasoning. The default value is medium, which is a balance between speed and reasoning accuracy. The new minimal setting produces very few reasoning tokens for cases where you need the fastest possible time-to-first-token.\n\n{format_instructions}"""
 
                     messages = [
                         {
@@ -331,20 +336,19 @@ async def ai_response_for_question(request: AIChatRequest):
                         user_id=str(request.user_id),
                         metadata={"stage": "router", **metadata},
                     ):
-                        router_output = await run_llm_with_instructor(
+                        router_output = await run_llm_with_openai(
                             api_key=settings.openai_api_key,
-                            model=openai_plan_to_model_name["router"],
+                            model=openai_plan_to_model_name["text-nano"],
                             messages=messages,
                             response_model=Output,
                             max_completion_tokens=4096,
+                            reasoning_effort="minimal",
                         )
 
-                    if router_output.use_reasoning_model:
-                        model = openai_plan_to_model_name["reasoning"]
-                    else:
-                        model = openai_plan_to_model_name["text"]
+                    reasoning_effort = router_output.reasoning_effort
 
-                # print(f"Using model: {model}")
+                print(f"Using model: {model}")
+                print(f"Using reasoning effort: {reasoning_effort}")
 
                 if request.task_type == TaskType.QUIZ:
                     if question["type"] == QuestionType.OBJECTIVE:
@@ -442,12 +446,13 @@ async def ai_response_for_question(request: AIChatRequest):
                     user_id=str(request.user_id),
                     metadata={"stage": "feedback", **metadata},
                 ):
-                    stream = await stream_llm_with_instructor(
+                    stream = stream_llm_with_openai(
                         api_key=settings.openai_api_key,
                         model=model,
                         messages=messages,
                         response_model=Output,
                         max_completion_tokens=8192,
+                        reasoning_effort=reasoning_effort,
                     )
                     # Process the async generator
                     async for chunk in stream:
@@ -541,12 +546,13 @@ The final output should be a JSON in the following format:
         {"role": "user", "content": content},
     ]
 
-    output = await run_llm_with_instructor(
+    output = await run_llm_with_openai(
         api_key=settings.openai_api_key,
-        model=openai_plan_to_model_name["text-mini"],
+        model=openai_plan_to_model_name["text-nano"],
         messages=messages,
         response_model=Output,
         max_completion_tokens=16000,
+        reasoning_effort="minimal",
     )
 
     blocks = output.model_dump(exclude_none=True)["blocks"]
@@ -702,9 +708,9 @@ Do not include the type of task in the name of the task."""
         {"role": "user", "content": course_structure_generation_prompt},
     ]
 
-    stream = await stream_llm_with_instructor(
+    stream = stream_llm_with_openai(
         api_key=settings.openai_api_key,
-        model=openai_plan_to_model_name["text"],
+        model=openai_plan_to_model_name["text-mini"],
         messages=messages,
         response_model=Output,
         max_completion_tokens=16000,
@@ -980,7 +986,6 @@ The final output should be a JSON in the following format:
 
 
 async def generate_course_task(
-    client,
     task: Dict,
     concept: Dict,
     file_id: str,
@@ -991,7 +996,7 @@ async def generate_course_task(
 
     system_prompt = get_system_prompt_for_task_generation(task["type"])
 
-    model = openai_plan_to_model_name["text"]
+    model = openai_plan_to_model_name["text-mini"]
 
     generation_prompt = f"""Concept details:
 
@@ -1023,12 +1028,12 @@ Task to generate:
         LearningMaterial if task["type"] == TaskType.LEARNING_MATERIAL else Quiz
     )
 
-    output = await client.chat.completions.create(
+    output = await run_llm_with_openai(
+        api_key=settings.openai_api_key,
         model=model,
         messages=messages,
         response_model=response_model,
         max_completion_tokens=16000,
-        store=True,
     )
 
     task["details"] = output.model_dump(exclude_none=True)
@@ -1070,12 +1075,6 @@ async def generate_course_tasks(
 ):
     job_details = await get_course_generation_job_details(job_uuid)
 
-    client = instructor.from_openai(
-        openai.AsyncOpenAI(
-            api_key=settings.openai_api_key,
-        )
-    )
-
     # Create a list to hold all task coroutines
     tasks = []
 
@@ -1096,7 +1095,6 @@ async def generate_course_tasks(
                 # Add task to the list instead of adding to background_tasks
                 tasks.append(
                     generate_course_task(
-                        client,
                         task,
                         concept,
                         job_details["openai_file_id"],
@@ -1158,16 +1156,9 @@ async def resume_pending_task_generation_jobs():
 
     tasks = []
 
-    client = instructor.from_openai(
-        openai.AsyncOpenAI(
-            api_key=settings.openai_api_key,
-        )
-    )
-
     for job in incomplete_course_jobs:
         tasks.append(
             generate_course_task(
-                client,
                 job["job_details"]["task"],
                 job["job_details"]["concept"],
                 job["job_details"]["openai_file_id"],
