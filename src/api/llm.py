@@ -1,11 +1,10 @@
-from typing import Dict, List
+from typing import Optional, Type
 import backoff
-import openai
-import instructor
-
-from openai import OpenAI
-
+from langfuse.openai import AsyncOpenAI
 from pydantic import BaseModel
+from pydantic import create_model
+from pydantic.fields import FieldInfo
+import jiter
 
 from api.utils.logging import logger
 
@@ -26,93 +25,94 @@ def is_reasoning_model(model: str) -> bool:
     ]
 
 
-def validate_openai_api_key(openai_api_key: str) -> bool:
-    client = OpenAI(api_key=openai_api_key)
-    try:
-        models = client.models.list()
-        model_ids = [model.id for model in models.data]
+# This function takes any Pydantic model and creates a new one
+# where all fields are optional, allowing for partial data.
+def create_partial_model(model: Type[BaseModel]) -> Type[BaseModel]:
+    """
+    Dynamically creates a Pydantic model where all fields of the original model
+    are converted to Optional and have a default value of None.
+    """
+    new_fields = {}
+    for name, field_info in model.model_fields.items():
+        # Create a new FieldInfo with Optional type and a default of None
+        new_field_info = FieldInfo.from_annotation(Optional[field_info.annotation])
+        new_field_info.default = None
+        new_fields[name] = (new_field_info.annotation, new_field_info)
 
-        if "gpt-4o-audio-preview-2024-12-17" in model_ids:
-            return False  # paid account
-        else:
-            return True  # free trial account
-    except Exception:
-        return None
-
-
-@backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
-async def run_llm_with_instructor(
-    api_key: str,
-    model: str,
-    messages: List,
-    response_model: BaseModel,
-    max_completion_tokens: int,
-):
-    client = instructor.from_openai(openai.AsyncOpenAI(api_key=api_key))
-
-    model_kwargs = {}
-
-    if not is_reasoning_model(model):
-        model_kwargs["temperature"] = 0
-
-    return await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_model=response_model,
-        max_completion_tokens=max_completion_tokens,
-        store=True,
-        **model_kwargs,
-    )
+    # Create the new model with the same name prefixed by "Partial"
+    return create_model(f"Partial{model.__name__}", **new_fields)
 
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
-async def stream_llm_with_instructor(
-    api_key: str,
+async def stream_llm_with_openai(
     model: str,
-    messages: List,
+    messages: list[dict],
     response_model: BaseModel,
-    max_completion_tokens: int,
+    max_output_tokens: int,
     **kwargs,
 ):
-    client = instructor.from_openai(openai.AsyncOpenAI(api_key=api_key))
+    client = AsyncOpenAI()
 
-    model_kwargs = {}
+    partial_model = create_partial_model(response_model)
 
-    if not is_reasoning_model(model):
-        model_kwargs["temperature"] = 0
-
-    model_kwargs.update(kwargs)
-
-    return client.chat.completions.create_partial(
+    async with client.responses.stream(
         model=model,
-        messages=messages,
-        response_model=response_model,
-        stream=True,
-        max_completion_tokens=max_completion_tokens,
+        input=messages,
+        text_format=response_model,
+        max_output_tokens=max_output_tokens,
         store=True,
-        **model_kwargs,
-    )
+        metadata={},
+        **kwargs,
+    ) as stream:
+        json_buffer = ""
+        async for event in stream:
+            if event.type == "response.output_text.delta":
+                # Get the content delta from the chunk
+                content = event.delta or ""
+                if not content:
+                    continue
+
+                json_buffer += content
+
+                # Use jiter to parse the potentially incomplete JSON string.
+                # We wrap this in a try-except block to handle cases where the buffer
+                # is not yet a parsable JSON fragment (e.g., just whitespace or a comma).
+                try:
+                    # 'trailing-strings' mode allows jiter to parse incomplete strings at the end of the JSON.
+                    parsed_data = jiter.from_json(
+                        json_buffer.encode("utf-8"), partial_mode="trailing-strings"
+                    )
+
+                    # Validate the partially parsed data against our dynamic partial model.
+                    # `strict=False` allows for some type coercion, which is helpful here.
+                    partial_obj = partial_model.model_validate(
+                        parsed_data, strict=False
+                    )
+                    yield partial_obj
+                except:
+                    # The buffer isn't a valid partial JSON object yet, so we wait for more chunks.
+                    continue
 
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
-def stream_llm_with_openai(
-    api_key: str,
+async def run_llm_with_openai(
     model: str,
-    messages: List,
-    max_completion_tokens: int,
+    messages: list[dict],
+    response_model: BaseModel,
+    max_output_tokens: int,
+    langfuse_prompt,
+    **kwargs,
 ):
-    client = openai.OpenAI(api_key=api_key)
+    client = AsyncOpenAI()
 
-    model_kwargs = {}
-
-    if not is_reasoning_model(model):
-        model_kwargs["temperature"] = 0
-
-    return client.chat.completions.create(
+    response = await client.responses.parse(
         model=model,
-        messages=messages,
-        stream=True,
-        max_completion_tokens=max_completion_tokens,
+        input=messages,
+        text_format=response_model,
+        max_output_tokens=max_output_tokens,
         store=True,
-        **model_kwargs,
+        langfuse_prompt=langfuse_prompt,
+        **kwargs,
     )
+
+    return response.output_parsed

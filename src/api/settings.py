@@ -4,7 +4,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from dotenv import load_dotenv
 from functools import lru_cache
 from api.config import UPLOAD_FOLDER_NAME
-from phoenix.otel import register
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = join(root_dir, ".env.aws")
@@ -31,8 +30,10 @@ class Settings(BaseSettings):
     slack_course_created_webhook_url: str | None = None
     slack_usage_stats_webhook_url: str | None = None
     slack_alert_webhook_url: str | None = None
-    phoenix_endpoint: str | None = None
-    phoenix_api_key: str | None = None
+    langfuse_secret_key: str | None = None
+    langfuse_public_key: str | None = None
+    langfuse_host: str | None = None
+    langfuse_tracing_environment: str | None = None
 
     model_config = SettingsConfigDict(env_file=join(root_dir, ".env"))
 
@@ -44,16 +45,16 @@ def get_settings():
 
 settings = get_settings()
 
-if settings.phoenix_api_key is not None:
-    os.environ["PHOENIX_API_KEY"] = settings.phoenix_api_key
+if (
+    settings.langfuse_public_key
+    and settings.langfuse_secret_key
+    and settings.langfuse_host
+    and settings.langfuse_tracing_environment
+):
+    os.environ["LANGFUSE_PUBLIC_KEY"] = settings.langfuse_public_key
+    os.environ["LANGFUSE_SECRET_KEY"] = settings.langfuse_secret_key
+    os.environ["LANGFUSE_HOST"] = settings.langfuse_host
+    os.environ["LANGFUSE_TRACING_ENVIRONMENT"] = settings.langfuse_tracing_environment
 
-tracer_provider = register(
-    protocol="http/protobuf",
-    project_name=f"sensai-{settings.env}",
-    auto_instrument=True,
-    batch=True,
-    endpoint=(
-        f"{settings.phoenix_endpoint}/v1/traces" if settings.phoenix_endpoint else None
-    ),
-)
-tracer = tracer_provider.get_tracer(__name__)
+if settings.openai_api_key:
+    os.environ["OPENAI_API_KEY"] = settings.openai_api_key

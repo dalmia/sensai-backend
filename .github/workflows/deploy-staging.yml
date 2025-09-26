@@ -6,9 +6,9 @@ on:
       - main
     inputs:
       deploy:
-        description: 'Whether to deploy to the instance'
+        description: "Whether to deploy to the instance"
         required: false
-        default: 'false'
+        default: "false"
         type: boolean
 
 jobs:
@@ -44,8 +44,10 @@ jobs:
             BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY }}
             OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
             GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            PHOENIX_ENDPOINT=${{ secrets.PHOENIX_ENDPOINT }}
-            PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY }}
+            LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
+            LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
+            LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
+            LANGFUSE_TRACING_ENVIRONMENT=${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}
             SLACK_USER_SIGNUP_WEBHOOK_URL=${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}
             GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
             BQ_PROJECT_NAME=${{ secrets.BQ_PROJECT_NAME }}
@@ -61,15 +63,24 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           script: |
             sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d
-      
 
-      - name: Notify Slack on Success
+      - name: Notify Slack on Success - Deployment
+        if: ${{ inputs.deploy == true }}
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             text: "🚀 *backend*: Staging deployment completed successfully!"
+
+      - name: Notify Slack on Success - Build Only
+        if: ${{ inputs.deploy != true }}
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "🔨 *backend*: Staging build completed and needs to be deployed!"
 
       - name: Notify Slack on Failure
         if: failure()
