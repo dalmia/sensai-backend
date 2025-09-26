@@ -483,9 +483,14 @@ async def ai_response_for_question(request: AIChatRequest):
                         content = json.dumps(chunk.model_dump()) + "\n"
                         llm_output = chunk.model_dump()
                         yield content
-                except Exception:
-                    # Silently end partial stream on producer error
-                    pass
+                except Exception as e:
+                    # Check if it's the specific AsyncStream aclose error
+                    if str(e) == "'AsyncStream' object has no attribute 'aclose'":
+                        # Silently end partial stream on this specific error
+                        pass
+                    else:
+                        # Re-raise other exceptions
+                        raise
                 finally:
                     observation.update(
                         input=llm_input,
