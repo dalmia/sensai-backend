@@ -24,10 +24,11 @@ from api.routes import (
     scorecard,
     integration,
 )
-from api.routes.ai import (
-    resume_pending_task_generation_jobs,
-    resume_pending_course_structure_generation_jobs,
-)
+
+# from api.routes.ai import (
+#     resume_pending_task_generation_jobs,
+#     resume_pending_course_structure_generation_jobs,
+# )
 from api.websockets import router as websocket_router
 from api.scheduler import scheduler
 from api.settings import settings
@@ -43,8 +44,8 @@ async def lifespan(app: FastAPI):
     os.makedirs(settings.local_upload_folder, exist_ok=True)
 
     # Add recovery logic for interrupted tasks
-    asyncio.create_task(resume_pending_task_generation_jobs())
-    asyncio.create_task(resume_pending_course_structure_generation_jobs())
+    # asyncio.create_task(resume_pending_task_generation_jobs())
+    # asyncio.create_task(resume_pending_course_structure_generation_jobs())
 
     yield
     scheduler.shutdown()

@@ -14,7 +14,6 @@ boto3==1.37.18
 botocore==1.37.18
 httpx==0.27.0
 st-theme==1.2.3
-instructor==1.11.3
 imgkit==1.2.3
 pydub==0.25.1
 pypdf==5.1.0
