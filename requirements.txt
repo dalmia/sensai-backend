@@ -1,5 +1,6 @@
 langchain-core==0.3.40
 openai==1.109.1
+aiohttp==3.12.13
 email_validator==2.2.0
 python-dotenv==1.0.1
 pydantic==2.8.2
