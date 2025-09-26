@@ -43,7 +43,7 @@ def create_partial_model(model: Type[BaseModel]) -> Type[BaseModel]:
     return create_model(f"Partial{model.__name__}", **new_fields)
 
 
-# @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
+@backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
 async def stream_llm_with_openai(
     model: str,
     messages: list[dict],
@@ -51,8 +51,6 @@ async def stream_llm_with_openai(
     max_output_tokens: int,
     **kwargs,
 ):
-    from openai import AsyncOpenAI
-
     client = AsyncOpenAI()
 
     partial_model = create_partial_model(response_model)

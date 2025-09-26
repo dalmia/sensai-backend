@@ -82,7 +82,7 @@ async def rewrite_query(
     if is_root_trace:
         langfuse_update_fn = langfuse.update_current_trace
     else:
-        langfuse_update_fn = langfuse.update_current_span
+        langfuse_update_fn = langfuse.update_current_generation
 
     output = pred.rewritten_query
     langfuse_update_fn(
