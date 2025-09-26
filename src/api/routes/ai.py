@@ -22,7 +22,7 @@ from api.models import (
     GenerateTaskJobStatus,
     QuestionType,
 )
-from api.llm import run_openai_inference, stream_llm_with_instructor
+from api.llm import run_llm_with_openai, stream_llm_with_openai
 from api.settings import settings
 from api.utils.logging import logger
 from api.utils.concurrency import async_batch_gather
@@ -55,14 +55,138 @@ from api.utils.s3 import (
     get_media_upload_s3_key_from_uuid,
 )
 from api.utils.audio import prepare_audio_input_for_ai
-from api.settings import tracer
-from opentelemetry.trace import StatusCode, Status
-from openinference.instrumentation import using_attributes
 from langfuse import get_client, observe
 
 router = APIRouter()
 
 langfuse = get_client()
+
+
+def convert_chat_history_to_prompt(chat_history: List[Dict]) -> str:
+    role_to_label = {
+        "user": "Student",
+        "assistant": "AI",
+    }
+    return "\n".join(
+        [
+            f"<{role_to_label[message['role']]}>\n{message['content']}\n</{role_to_label[message['role']]}>"
+            for message in chat_history
+        ]
+    )
+
+
+@observe(name="rewrite_query")
+async def rewrite_query(
+    chat_history: List[Dict],
+    question_details: str,
+    user_id: str = None,
+    is_root_trace: bool = False,
+):
+    # rewrite query
+    prompt = langfuse.get_prompt("rewrite-query", type="chat", label="production")
+
+    messages = prompt.compile(
+        chat_history=convert_chat_history_to_prompt(chat_history),
+        reference_material=question_details,
+    )
+
+    model = openai_plan_to_model_name["text-mini"]
+
+    class Output(BaseModel):
+        rewritten_query: str = Field(
+            description="The rewritten query/message of the student"
+        )
+
+    pred = await run_llm_with_openai(
+        model=model,
+        messages=messages,
+        response_model=Output,
+        max_output_tokens=8192,
+        langfuse_prompt=prompt,
+    )
+
+    llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nReference Material:\n```\n{question_details}\n```"""
+
+    if is_root_trace:
+        langfuse_update_fn = langfuse.update_current_trace
+    else:
+        langfuse_update_fn = langfuse.update_current_span
+
+    output = pred.rewritten_query
+    langfuse_update_fn(
+        input=llm_input,
+        output=output,
+        metadata={
+            "prompt_version": prompt.version,
+            "prompt_name": prompt.name,
+        },
+    )
+
+    if user_id is not None and is_root_trace:
+        langfuse.update_current_trace(
+            user_id=user_id,
+        )
+
+    return output
+
+
+@observe(name="router")
+async def get_model_for_task(
+    chat_history: List[Dict],
+    question_details: str,
+    user_id: str = None,
+    is_root_trace: bool = False,
+):
+    class Output(BaseModel):
+        chain_of_thought: str = Field(
+            description="The chain of thought process for the decision to use a reasoning model or a general-purpose model"
+        )
+        use_reasoning_model: bool = Field(
+            description="Whether to use a reasoning model to evaluate the student's response"
+        )
+
+    prompt = langfuse.get_prompt("router", type="chat", label="production")
+
+    messages = prompt.compile(
+        chat_history=convert_chat_history_to_prompt(chat_history),
+        task_details=question_details,
+    )
+
+    router_output = await run_llm_with_openai(
+        model=openai_plan_to_model_name["router"],
+        messages=messages,
+        response_model=Output,
+        max_output_tokens=4096,
+        langfuse_prompt=prompt,
+    )
+
+    if router_output.use_reasoning_model:
+        model = openai_plan_to_model_name["reasoning"]
+    else:
+        model = openai_plan_to_model_name["text"]
+
+    llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nTask Details:\n```\n{question_details}\n```"""
+
+    if is_root_trace:
+        langfuse_update_fn = langfuse.update_current_trace
+    else:
+        langfuse_update_fn = langfuse.update_current_generation
+
+    langfuse_update_fn(
+        input=llm_input,
+        output=router_output.use_reasoning_model,
+        metadata={
+            "prompt_version": prompt.version,
+            "prompt_name": prompt.name,
+        },
+    )
+
+    if user_id is not None and is_root_trace:
+        langfuse.update_current_trace(
+            user_id=user_id,
+        )
+
+    return model
 
 
 def get_user_audio_message_for_chat_history(uuid: str) -> List[Dict]:
@@ -75,10 +199,6 @@ def get_user_audio_message_for_chat_history(uuid: str) -> List[Dict]:
             audio_data = f.read()
 
     return [
-        {
-            "type": "text",
-            "text": "Student's Response:",
-        },
         {
             "type": "input_audio",
             "input_audio": {
@@ -114,243 +234,175 @@ def get_ai_message_for_chat_history(ai_message: Dict) -> str:
     return f"""Feedback:\n```\n{message['feedback']}\n```\n\nScorecard:\n```\n{scorecard_as_prompt}\n```"""
 
 
-def get_user_message_for_chat_history(user_response: str) -> str:
-    return f"""Student's Response:\n```\n{user_response}\n```"""
-
-
 @router.post("/chat")
-@observe(name="ai_chat")
 async def ai_response_for_question(request: AIChatRequest):
-
-    metadata = {
-        "task_id": request.task_id,
-        "user_id": request.user_id,
-        "user_email": request.user_email,
-    }
-
-    if request.task_type == TaskType.QUIZ:
-        if request.question_id is None and request.question is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Question ID or question is required for {request.task_type} tasks",
-            )
-
-        if request.question_id is not None and request.user_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="User ID is required when question ID is provided",
-            )
-
-        if request.question and request.chat_history is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Chat history is required when question is provided",
-            )
-        if request.question_id is None:
-            session_id = f"quiz_{request.task_id}_preview_{request.user_id}"
-        else:
-            session_id = (
-                f"quiz_{request.task_id}_{request.question_id}_{request.user_id}"
-            )
-    else:
-        if request.task_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Task ID is required for learning material tasks",
-            )
-
-        if request.chat_history is None:
-            raise HTTPException(
-                status_code=400,
-                detail="Chat history is required for learning material tasks",
-            )
-        session_id = f"lm_{request.task_id}_{request.user_id}"
-
-    task = await get_task(request.task_id)
-    if not task:
-        raise HTTPException(status_code=404, detail="Task not found")
-
-    metadata["task_title"] = task["title"]
-
-    if request.task_type == TaskType.LEARNING_MATERIAL:
-        metadata["type"] = "learning_material"
-
-        chat_history = request.chat_history
-
-        reference_material = construct_description_from_blocks(task["blocks"])
-        question_details = f"""Reference Material:\n```\n{reference_material}\n```"""
-    else:
-        metadata["type"] = "quiz"
-
-        if request.question_id:
-            question = await get_question(request.question_id)
-            if not question:
-                raise HTTPException(status_code=404, detail="Question not found")
-
-            metadata["question_id"] = request.question_id
-
-            chat_history = await get_question_chat_history_for_user(
-                request.question_id, request.user_id
-            )
-            chat_history = [
-                {"role": message["role"], "content": message["content"]}
-                for message in chat_history
-            ]
-        else:
-            question = request.question.model_dump()
-            chat_history = request.chat_history
-
-            question["scorecard"] = await get_scorecard(question["scorecard_id"])
-            metadata["question_id"] = None
-
-        metadata["question_title"] = question["title"]
-        metadata["question_type"] = question["type"]
-        metadata["question_purpose"] = (
-            "practice" if question["response_type"] == "chat" else "exam"
-        )
-        metadata["question_input_type"] = question["input_type"]
-        metadata["question_has_context"] = bool(question["context"])
-
-        question_description = construct_description_from_blocks(question["blocks"])
-        question_details = f"""Task:\n```\n{question_description}\n```"""
-
-    task_metadata = await get_task_metadata(request.task_id)
-    if task_metadata:
-        metadata.update(task_metadata)
-
-    for message in chat_history:
-        if message["role"] == "user":
-            if request.response_type == ChatResponseType.AUDIO:
-                message["content"] = get_user_audio_message_for_chat_history(
-                    message["content"]
-                )
-            else:
-                message["content"] = get_user_message_for_chat_history(
-                    message["content"]
-                )
-        else:
-            if request.task_type == TaskType.LEARNING_MATERIAL:
-                message["content"] = json.dumps({"feedback": message["content"]})
-
-            message["content"] = get_ai_message_for_chat_history(message["content"])
-
-    if request.task_type == TaskType.QUIZ:
-        if question["type"] == QuestionType.OBJECTIVE:
-            answer_as_prompt = construct_description_from_blocks(question["answer"])
-            question_details += f"""\n\nReference Solution (never to be shared with the learner):\n```\n{answer_as_prompt}\n```"""
-        else:
-            scoring_criteria_as_prompt = ""
-
-            for criterion in question["scorecard"]["criteria"]:
-                scoring_criteria_as_prompt += f"""- **{criterion['name']}** [min: {criterion['min_score']}, max: {criterion['max_score']}, pass: {criterion.get('pass_score', criterion['max_score'])}]: {criterion['description']}\n"""
-
-            question_details += (
-                f"""\n\nScoring Criteria:\n```\n{scoring_criteria_as_prompt}\n```"""
-            )
-
-    chat_history = chat_history + [
-        {
-            "role": "user",
-            "content": (
-                get_user_audio_message_for_chat_history(request.user_response)
-                if request.response_type == ChatResponseType.AUDIO
-                else get_user_message_for_chat_history(request.user_response)
-            ),
-        }
-    ]
-
     # Define an async generator for streaming
     async def stream_response() -> AsyncGenerator[str, None]:
-        if request.task_type == TaskType.LEARNING_MATERIAL:
-            # rewrite query
-            prompt = langfuse.get_prompt(
-                "rewrite-query", type="chat", label="production"
-            )
+        with langfuse.start_as_current_span(
+            name="ai_chat",
+        ) as trace:
+            metadata = {
+                "task_id": request.task_id,
+                "user_id": request.user_id,
+                "user_email": request.user_email,
+            }
 
-            with langfuse.start_as_current_observation(
-                as_type="generation", name="query_rewrite", prompt=prompt
-            ) as observation:
-
-                messages = prompt.compile(
-                    chat_history=chat_history, reference_material=question_details
-                )
-
-                model = openai_plan_to_model_name["text-mini"]
-
-                class Output(BaseModel):
-                    rewritten_query: str = Field(
-                        description="The rewritten query/message of the student"
+            if request.task_type == TaskType.QUIZ:
+                if request.question_id is None and request.question is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Question ID or question is required for {request.task_type} tasks",
                     )
 
-                pred = await run_openai_inference(
-                    model=model,
-                    messages=messages,
-                    response_model=Output,
-                    max_completion_tokens=8192,
-                )
+                if request.question_id is not None and request.user_id is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="User ID is required when question ID is provided",
+                    )
 
-                llm_input = f"""Chat History:\n```\n{json.dumps(chat_history)}\n```\n\nReference Material:\n```\n{question_details}\n```"""
-                observation.update(
-                    input=llm_input,
-                    output=pred.rewritten_query,
-                    metadata={
-                        "prompt_version": prompt.version,
-                        "prompt_name": prompt.name,
-                    },
+                if request.question and request.chat_history is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Chat history is required when question is provided",
+                    )
+                if request.question_id is None:
+                    session_id = f"quiz_{request.task_id}_preview_{request.user_id}"
+                else:
+                    session_id = f"quiz_{request.task_id}_{request.question_id}_{request.user_id}"
+            else:
+                if request.task_id is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Task ID is required for learning material tasks",
+                    )
+
+                if request.chat_history is None:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Chat history is required for learning material tasks",
+                    )
+                session_id = f"lm_{request.task_id}_{request.user_id}"
+
+            task = await get_task(request.task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            metadata["task_title"] = task["title"]
+
+            new_user_message = [
+                {
+                    "role": "user",
+                    "content": (
+                        get_user_audio_message_for_chat_history(request.user_response)
+                        if request.response_type == ChatResponseType.AUDIO
+                        else request.user_response
+                    ),
+                }
+            ]
+
+            if request.task_type == TaskType.LEARNING_MATERIAL:
+                metadata["type"] = "learning_material"
+
+                chat_history = request.chat_history
+
+                reference_material = construct_description_from_blocks(task["blocks"])
+
+                rewritten_query = await rewrite_query(
+                    chat_history + new_user_message, reference_material
                 )
 
                 # update the last user message with the rewritten query
-                chat_history[-2]["content"] = get_user_message_for_chat_history(
-                    pred.rewritten_query
+                new_user_message[0]["content"] = rewritten_query
+
+                question_details = (
+                    f"<Reference Material>\n{reference_material}\n</Reference Material>"
                 )
+            else:
+                metadata["type"] = "quiz"
 
-        # router
-        if request.response_type == ChatResponseType.AUDIO:
-            model = openai_plan_to_model_name["audio"]
-        else:
+                if request.question_id:
+                    question = await get_question(request.question_id)
+                    if not question:
+                        raise HTTPException(
+                            status_code=404, detail="Question not found"
+                        )
 
-            class Output(BaseModel):
-                chain_of_thought: str = Field(
-                    description="The chain of thought process for the decision to use a reasoning model or a general-purpose model"
-                )
-                use_reasoning_model: bool = Field(
-                    description="Whether to use a reasoning model to evaluate the student's response"
-                )
+                    metadata["question_id"] = request.question_id
 
-            prompt = langfuse.get_prompt("router", type="chat", label="production")
-
-            with langfuse.start_as_current_observation(
-                as_type="generation", name="router", prompt=prompt
-            ) as observation:
-                messages = prompt.compile(
-                    chat_history=chat_history,
-                    task_details=question_details,
-                )
-
-                router_output = await run_openai_inference(
-                    model=openai_plan_to_model_name["router"],
-                    messages=messages,
-                    text_format=Output,
-                    max_completion_tokens=4096,
-                )
-
-                if router_output.use_reasoning_model:
-                    model = openai_plan_to_model_name["reasoning"]
+                    chat_history = await get_question_chat_history_for_user(
+                        request.question_id, request.user_id
+                    )
+                    chat_history = [
+                        {"role": message["role"], "content": message["content"]}
+                        for message in chat_history
+                    ]
                 else:
-                    model = openai_plan_to_model_name["text"]
+                    question = request.question.model_dump()
+                    chat_history = request.chat_history
 
-                llm_input = f"""Chat History:\n```\n{json.dumps(chat_history)}\n```\n\nTask Details:\n```\n{question_details}\n```"""
-                observation.update(
-                    input=llm_input,
-                    output=router_output.use_reasoning_model,
-                    metadata={
-                        "prompt_version": prompt.version,
-                        "prompt_name": prompt.name,
-                    },
+                    question["scorecard"] = await get_scorecard(
+                        question["scorecard_id"]
+                    )
+                    metadata["question_id"] = None
+
+                metadata["question_title"] = question["title"]
+                metadata["question_type"] = question["type"]
+                metadata["question_purpose"] = (
+                    "practice" if question["response_type"] == "chat" else "exam"
                 )
+                metadata["question_input_type"] = question["input_type"]
+                metadata["question_has_context"] = bool(question["context"])
 
-        # response
-        try:
+                question_description = construct_description_from_blocks(
+                    question["blocks"]
+                )
+                question_details = f"<Task>\n{question_description}\n</Task>"
+
+            task_metadata = await get_task_metadata(request.task_id)
+            if task_metadata:
+                metadata.update(task_metadata)
+
+            for message in chat_history:
+                if message["role"] == "user":
+                    if request.response_type == ChatResponseType.AUDIO:
+                        message["content"] = get_user_audio_message_for_chat_history(
+                            message["content"]
+                        )
+                else:
+                    if request.task_type == TaskType.LEARNING_MATERIAL:
+                        message["content"] = json.dumps(
+                            {"feedback": message["content"]}
+                        )
+
+                    message["content"] = get_ai_message_for_chat_history(
+                        message["content"]
+                    )
+
+            if request.task_type == TaskType.QUIZ:
+                if question["type"] == QuestionType.OBJECTIVE:
+                    answer_as_prompt = construct_description_from_blocks(
+                        question["answer"]
+                    )
+                    question_details += f"\n\n<Reference Solution (never to be shared with the learner)>\n{answer_as_prompt}\n</Reference Solution>"
+                else:
+                    scoring_criteria_as_prompt = ""
+
+                    for criterion in question["scorecard"]["criteria"]:
+                        scoring_criteria_as_prompt += f"""- **{criterion['name']}** [min: {criterion['min_score']}, max: {criterion['max_score']}, pass: {criterion.get('pass_score', criterion['max_score'])}]: {criterion['description']}\n"""
+
+                    question_details += f"\n\n<Scoring Criteria>\n{scoring_criteria_as_prompt}\n</Scoring Criteria>"
+
+            chat_history = chat_history + new_user_message
+
+            # router
+            if request.response_type == ChatResponseType.AUDIO:
+                model = openai_plan_to_model_name["audio"]
+            else:
+                model = await get_model_for_task(chat_history, question_details)
+
+            # response
+            llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nTask Details:\n```\n{question_details}\n```"""
+            llm_output = ""
             if request.task_type == TaskType.QUIZ:
                 if question["type"] == QuestionType.OBJECTIVE:
 
@@ -433,7 +485,7 @@ async def ai_response_for_question(request: AIChatRequest):
                     prompt_name, type="chat", label="production"
                 )
                 messages = prompt.compile(
-                    chat_history=chat_history,
+                    chat_history=convert_chat_history_to_prompt(chat_history),
                     task_details=question_details,
                     knowledge_base=knowledge_base,
                 )
@@ -442,28 +494,45 @@ async def ai_response_for_question(request: AIChatRequest):
                     "doubt_solving", type="chat", label="production"
                 )
                 messages = prompt.compile(
-                    chat_history=chat_history,
+                    chat_history=convert_chat_history_to_prompt(chat_history),
                     reference_material=question_details,
                 )
 
             with langfuse.start_as_current_observation(
                 as_type="generation", name="response", prompt=prompt
             ) as observation:
+                try:
+                    async for chunk in stream_llm_with_openai(
+                        model=model,
+                        messages=messages,
+                        response_model=Output,
+                        max_output_tokens=8192,
+                    ):
+                        content = json.dumps(chunk.model_dump()) + "\n"
+                        llm_output = chunk.model_dump()
+                        yield content
+                except Exception:
+                    # Silently end partial stream on producer error
+                    pass
+                finally:
+                    observation.update(
+                        input=llm_input,
+                        output=llm_output,
+                        prompt=prompt,
+                        metadata={
+                            "prompt_version": prompt.version,
+                            "prompt_name": prompt.name,
+                        },
+                    )
 
-                stream = await stream_llm_with_instructor(
-                    model=model,
-                    messages=messages,
-                    response_model=Output,
-                    max_completion_tokens=8192,
-                )
-                # Process the async generator
-                async for chunk in stream:
-                    content = json.dumps(chunk.model_dump()) + "\n"
-                    yield content
-
-        finally:
-            langfuse.update_current_trace(
-                user_id=str(request.user_id), session_id=session_id, metadata=metadata
+            metadata["llm_input"] = llm_input
+            metadata["llm_output"] = llm_output
+            trace.update_trace(
+                user_id=str(request.user_id),
+                session_id=session_id,
+                metadata=metadata,
+                input=llm_input,
+                output=llm_output,
             )
 
     # Return a streaming response
@@ -471,97 +540,6 @@ async def ai_response_for_question(request: AIChatRequest):
         stream_response(),
         media_type="application/x-ndjson",
     )
-
-
-async def migrate_content_to_blocks(content: str) -> List[Dict]:
-    class BlockProps(BaseModel):
-        level: Optional[Literal[1, 2, 3]] = Field(
-            description="The level of a heading block"
-        )
-        checked: Optional[bool] = Field(
-            description="Whether the block is checked (for a checkListItem block)"
-        )
-        language: Optional[str] = Field(
-            description="The language of the code block (for a codeBlock block); always the full name of the language in lowercase (e.g. python, javascript, sql, html, css, etc.)"
-        )
-        name: Optional[str] = Field(
-            description="The name of the image (for an image block)"
-        )
-        url: Optional[str] = Field(
-            description="The URL of the image (for an image block)"
-        )
-
-    class BlockContentStyle(BaseModel):
-        bold: Optional[bool] = Field(description="Whether the text is bold")
-        italic: Optional[bool] = Field(description="Whether the text is italic")
-        underline: Optional[bool] = Field(description="Whether the text is underlined")
-
-    class BlockContentText(BaseModel):
-        type: Literal["text"] = Field(description="The type of the block content")
-        text: str = Field(
-            description="The text of the block; if the block is a code block, this should contain the code with newlines and tabs as appropriate"
-        )
-        styles: BlockContentStyle | dict = Field(
-            default={}, description="The styles of the block content"
-        )
-
-    class BlockContentLink(BaseModel):
-        type: Literal["link"] = Field(description="The type of the block content")
-        href: str = Field(description="The URL of the link")
-        content: List[BlockContentText] = Field(description="The content of the link")
-
-    class Block(BaseModel):
-        type: Literal[
-            "heading",
-            "paragraph",
-            "bulletListItem",
-            "numberedListItem",
-            "codeBlock",
-            "checkListItem",
-            "image",
-        ] = Field(description="The type of block")
-        props: Optional[BlockProps | dict] = Field(
-            default={}, description="The properties of the block"
-        )
-        content: List[BlockContentText | BlockContentLink] = Field(
-            description="The content of the block; empty for image blocks"
-        )
-
-    class Output(BaseModel):
-        blocks: List[Block] = Field(description="The blocks of the content")
-
-    system_prompt = f"""You are an expert course converter. The user will give you a content in markdown format. You will need to convert the content into a structured format as given below.
-
-Never modify the actual content given to you. Just convert it into the structured format.
-
-The `content` field of each block should have multiple blocks only when parts of the same line in the markdown content have different parameters or styles (e.g. some part of the line is bold and some is italic or some part of the line is a link and some is not).
-
-The final output should be a JSON in the following format:
-
-{Output.model_json_schema()}"""
-
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": content},
-    ]
-
-    output = await run_llm_with_instructor(
-        api_key=settings.openai_api_key,
-        model=openai_plan_to_model_name["text-mini"],
-        messages=messages,
-        response_model=Output,
-        max_completion_tokens=16000,
-    )
-
-    blocks = output.model_dump(exclude_none=True)["blocks"]
-
-    for block in blocks:
-        if block["type"] == "image":
-            block["props"].update(
-                {"showPreview": True, "caption": "", "previewWidth": 512}
-            )
-
-    return blocks
 
 
 async def add_generated_module(course_id: int, module: BaseModel):
@@ -706,12 +684,11 @@ Do not include the type of task in the name of the task."""
         {"role": "user", "content": course_structure_generation_prompt},
     ]
 
-    stream = await stream_llm_with_instructor(
-        api_key=settings.openai_api_key,
+    stream = await stream_llm_with_openai(
         model=openai_plan_to_model_name["text"],
         messages=messages,
         response_model=Output,
-        max_completion_tokens=16000,
+        max_output_tokens=16000,
     )
 
     module_ids = []
@@ -1031,7 +1008,7 @@ Task to generate:
         model=model,
         messages=messages,
         response_model=response_model,
-        max_completion_tokens=16000,
+        max_output_tokens=16000,
         store=True,
     )
 
