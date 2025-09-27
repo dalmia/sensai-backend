@@ -15,6 +15,9 @@ logger.info("Logging system initialized")
 
 
 def is_reasoning_model(model: str) -> bool:
+    if not model:
+        return False
+
     for model_family in ["o3", "o1", "o1", "o4", "gpt-5"]:
         if model_family in model:
             return True
