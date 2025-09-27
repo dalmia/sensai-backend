@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, AsyncGenerator
 import json
-import base64
+from copy import deepcopy
 from pydantic import BaseModel, Field
 from api.config import openai_plan_to_model_name
 from api.models import (
@@ -49,6 +49,30 @@ def convert_chat_history_to_prompt(chat_history: List[Dict]) -> str:
             for message in chat_history
         ]
     )
+
+
+def format_chat_history_with_audio(chat_history: List[Dict]) -> str:
+    chat_history = deepcopy(chat_history)
+
+    role_to_label = {
+        "user": "Student",
+        "assistant": "AI",
+    }
+
+    parts = []
+
+    for message in chat_history:
+        label = role_to_label[message["role"]]
+
+        if isinstance(message["content"], list):
+            for item in message["content"]:
+                if item["type"] == "input_audio":
+                    item.pop("input_audio")
+                    item["content"] = "<audio_message>"
+
+        parts.append(f"<{label}>\n{message['content']}\n</{label}>")
+
+    return "\n".join(parts)
 
 
 @observe(name="rewrite_query")
@@ -296,6 +320,11 @@ async def ai_response_for_question(request: AIChatRequest):
 
                 chat_history = request.chat_history
 
+                chat_history = [
+                    {"role": message["role"], "content": message["content"]}
+                    for message in chat_history
+                ]
+
                 reference_material = construct_description_from_blocks(task["blocks"])
 
                 rewritten_query = await rewrite_query(
@@ -323,10 +352,7 @@ async def ai_response_for_question(request: AIChatRequest):
                     chat_history = await get_question_chat_history_for_user(
                         request.question_id, request.user_id
                     )
-                    chat_history = [
-                        {"role": message["role"], "content": message["content"]}
-                        for message in chat_history
-                    ]
+
                 else:
                     question = request.question.model_dump()
                     chat_history = request.chat_history
@@ -335,6 +361,11 @@ async def ai_response_for_question(request: AIChatRequest):
                         question["scorecard_id"]
                     )
                     metadata["question_id"] = None
+
+                chat_history = [
+                    {"role": message["role"], "content": message["content"]}
+                    for message in chat_history
+                ]
 
                 metadata["question_title"] = question["title"]
                 metadata["question_type"] = question["type"]
@@ -394,7 +425,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 openai_api_mode = "responses"
 
             # response
-            llm_input = f"""`Chat History`:\n\n{convert_chat_history_to_prompt(chat_history)}\n\n`Task Details`:\n\n{question_details}"""
+            llm_input = f"""`Chat History`:\n\n{format_chat_history_with_audio(chat_history)}\n\n`Task Details`:\n\n{question_details}"""
             response_metadata = {
                 "input": llm_input,
             }
