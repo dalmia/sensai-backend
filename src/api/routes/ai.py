@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import List, Optional, Dict, AsyncGenerator
 import json
+import base64
 from pydantic import BaseModel, Field
 from api.config import openai_plan_to_model_name
 from api.models import (
@@ -12,7 +13,10 @@ from api.models import (
     TaskType,
     QuestionType,
 )
-from api.llm import run_llm_with_openai, stream_llm_with_openai
+from api.llm import (
+    run_llm_with_openai,
+    stream_llm_with_openai,
+)
 from api.settings import settings
 from api.db.task import (
     get_task_metadata,
@@ -69,6 +73,8 @@ async def rewrite_query(
             description="The rewritten query/message of the student"
         )
 
+    messages += chat_history
+
     pred = await run_llm_with_openai(
         model=model,
         messages=messages,
@@ -91,6 +97,8 @@ async def rewrite_query(
         metadata={
             "prompt_version": prompt.version,
             "prompt_name": prompt.name,
+            "input": llm_input,
+            "output": output,
         },
     )
 
@@ -120,9 +128,10 @@ async def get_model_for_task(
     prompt = langfuse.get_prompt("router", type="chat", label="production")
 
     messages = prompt.compile(
-        chat_history=convert_chat_history_to_prompt(chat_history),
         task_details=question_details,
     )
+
+    messages += chat_history
 
     router_output = await run_llm_with_openai(
         model=openai_plan_to_model_name["router"],
@@ -132,7 +141,9 @@ async def get_model_for_task(
         langfuse_prompt=prompt,
     )
 
-    if router_output.use_reasoning_model:
+    use_reasoning_model = router_output.use_reasoning_model
+
+    if use_reasoning_model:
         model = openai_plan_to_model_name["reasoning"]
     else:
         model = openai_plan_to_model_name["text"]
@@ -146,10 +157,12 @@ async def get_model_for_task(
 
     langfuse_update_fn(
         input=llm_input,
-        output=router_output.use_reasoning_model,
+        output=use_reasoning_model,
         metadata={
             "prompt_version": prompt.version,
             "prompt_name": prompt.name,
+            "input": llm_input,
+            "output": use_reasoning_model,
         },
     )
 
@@ -273,6 +286,12 @@ async def ai_response_for_question(request: AIChatRequest):
             ]
 
             if request.task_type == TaskType.LEARNING_MATERIAL:
+                if request.response_type == ChatResponseType.AUDIO:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Audio response is not supported for learning material tasks",
+                    )
+
                 metadata["type"] = "learning_material"
 
                 chat_history = request.chat_history
@@ -369,11 +388,19 @@ async def ai_response_for_question(request: AIChatRequest):
             # router
             if request.response_type == ChatResponseType.AUDIO:
                 model = openai_plan_to_model_name["audio"]
+                openai_api_mode = "chat_completions"
             else:
                 model = await get_model_for_task(chat_history, question_details)
+                openai_api_mode = "responses"
 
             # response
             llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nTask Details:\n```\n{question_details}\n```"""
+            response_metadata = {
+                "input": llm_input,
+            }
+
+            metadata.update(response_metadata)
+
             llm_output = ""
             if request.task_type == TaskType.QUIZ:
                 if question["type"] == QuestionType.OBJECTIVE:
@@ -448,6 +475,11 @@ async def ai_response_for_question(request: AIChatRequest):
 
                     knowledge_base = construct_description_from_blocks(knowledge_blocks)
 
+                    if knowledge_base:
+                        question_details += (
+                            f"\n\n<Knowledge Base>\n{knowledge_base}\n</Knowledge Base>"
+                        )
+
                 if question["type"] == QuestionType.OBJECTIVE:
                     prompt_name = "objective-question"
                 else:
@@ -457,18 +489,17 @@ async def ai_response_for_question(request: AIChatRequest):
                     prompt_name, type="chat", label="production"
                 )
                 messages = prompt.compile(
-                    chat_history=convert_chat_history_to_prompt(chat_history),
                     task_details=question_details,
-                    knowledge_base=knowledge_base,
                 )
             else:
                 prompt = langfuse.get_prompt(
                     "doubt_solving", type="chat", label="production"
                 )
                 messages = prompt.compile(
-                    chat_history=convert_chat_history_to_prompt(chat_history),
                     reference_material=question_details,
                 )
+
+            messages += chat_history
 
             with langfuse.start_as_current_observation(
                 as_type="generation", name="response", prompt=prompt
@@ -479,6 +510,7 @@ async def ai_response_for_question(request: AIChatRequest):
                         messages=messages,
                         response_model=Output,
                         max_output_tokens=8192,
+                        api_mode=openai_api_mode,
                     ):
                         content = json.dumps(chunk.model_dump()) + "\n"
                         llm_output = chunk.model_dump()
@@ -499,11 +531,11 @@ async def ai_response_for_question(request: AIChatRequest):
                         metadata={
                             "prompt_version": prompt.version,
                             "prompt_name": prompt.name,
+                            **response_metadata,
                         },
                     )
 
-            metadata["llm_input"] = llm_input
-            metadata["llm_output"] = llm_output
+            metadata["output"] = llm_output
             trace.update_trace(
                 user_id=str(request.user_id),
                 session_id=session_id,

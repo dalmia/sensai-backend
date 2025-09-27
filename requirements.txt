@@ -36,3 +36,4 @@ google-cloud-bigquery==3.35.0
 aiocache==0.12.3
 langfuse==3.5.1
 jiter==0.8.2
+instructor==1.11.3
