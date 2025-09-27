@@ -15,16 +15,11 @@ logger.info("Logging system initialized")
 
 
 def is_reasoning_model(model: str) -> bool:
-    return model in [
-        "o3-mini-2025-01-31",
-        "o3-mini",
-        "o1-preview-2024-09-12",
-        "o1-preview",
-        "o1-mini",
-        "o1-mini-2024-09-12",
-        "o1",
-        "o1-2024-12-17",
-    ]
+    for model_family in ["o3", "o1", "o1", "o4", "gpt-5"]:
+        if model_family in model:
+            return True
+
+    return False
 
 
 @backoff.on_exception(backoff.expo, Exception, max_tries=5, factor=2)
@@ -37,7 +32,7 @@ async def stream_llm_with_instructor(
 ):
     client = instructor.from_openai(openai.AsyncOpenAI())
 
-    if not kwargs:
+    if not kwargs and not is_reasoning_model(model):
         kwargs["temperature"] = 0
 
     return client.chat.completions.create_partial(
@@ -82,7 +77,7 @@ async def stream_llm_with_openai(
 
     partial_model = create_partial_model(response_model)
 
-    if not kwargs:
+    if not kwargs and not is_reasoning_model(model):
         kwargs["temperature"] = 0
 
     if api_mode == "responses":
@@ -197,7 +192,7 @@ async def run_llm_with_openai(
 ):
     client = AsyncOpenAI()
 
-    if not kwargs:
+    if not kwargs and not is_reasoning_model(model):
         kwargs["temperature"] = 0
 
     if api_mode == "responses":
