@@ -83,7 +83,7 @@ async def rewrite_query(
         langfuse_prompt=prompt,
     )
 
-    llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nReference Material:\n```\n{question_details}\n```"""
+    llm_input = f"""`Chat History`:\n\n{convert_chat_history_to_prompt(chat_history)}\n\n`Reference Material`:\n\n{question_details}"""
 
     if is_root_trace:
         langfuse_update_fn = langfuse.update_current_trace
@@ -148,7 +148,7 @@ async def get_model_for_task(
     else:
         model = openai_plan_to_model_name["text"]
 
-    llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nTask Details:\n```\n{question_details}\n```"""
+    llm_input = f"""`Chat History`:\n\n{convert_chat_history_to_prompt(chat_history)}\n\n`Task Details`:\n\n{question_details}"""
 
     if is_root_trace:
         langfuse_update_fn = langfuse.update_current_trace
@@ -347,7 +347,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 question_description = construct_description_from_blocks(
                     question["blocks"]
                 )
-                question_details = f"<Task>\n{question_description}\n</Task>"
+                question_details = f"<Task>\n\n{question_description}\n\n</Task>"
 
             task_metadata = await get_task_metadata(request.task_id)
             if task_metadata:
@@ -394,7 +394,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 openai_api_mode = "responses"
 
             # response
-            llm_input = f"""Chat History:\n```\n{convert_chat_history_to_prompt(chat_history)}\n```\n\nTask Details:\n```\n{question_details}\n```"""
+            llm_input = f"""`Chat History`:\n\n{convert_chat_history_to_prompt(chat_history)}\n\n`Task Details`:\n\n{question_details}"""
             response_metadata = {
                 "input": llm_input,
             }

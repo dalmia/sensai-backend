@@ -62,7 +62,7 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            cd sensai-backend && git checkout ${{ github.ref }} && git pull origin ${{ github.ref }}  && cp docker-compose.dev.yml ../ && cd ../ && sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d
+            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.dev.yml ../ && cd ../ && sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d
 
       - name: Notify Slack on Success - Deployment
         if: ${{ inputs.deploy == true }}
