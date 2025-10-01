@@ -1,11 +1,10 @@
-from ast import List
 import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import List, Optional, Dict, AsyncGenerator
+from typing import AsyncGenerator
 import json
 from copy import deepcopy
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, create_model
 from api.config import openai_plan_to_model_name
 from api.models import (
     AIChatRequest,
@@ -38,7 +37,7 @@ router = APIRouter()
 langfuse = get_client()
 
 
-def convert_chat_history_to_prompt(chat_history: List[Dict]) -> str:
+def convert_chat_history_to_prompt(chat_history: list[dict]) -> str:
     role_to_label = {
         "user": "Student",
         "assistant": "AI",
@@ -51,7 +50,7 @@ def convert_chat_history_to_prompt(chat_history: List[Dict]) -> str:
     )
 
 
-def format_chat_history_with_audio(chat_history: List[Dict]) -> str:
+def format_chat_history_with_audio(chat_history: list[dict]) -> str:
     chat_history = deepcopy(chat_history)
 
     role_to_label = {
@@ -77,7 +76,7 @@ def format_chat_history_with_audio(chat_history: List[Dict]) -> str:
 
 @observe(name="rewrite_query")
 async def rewrite_query(
-    chat_history: List[Dict],
+    chat_history: list[dict],
     question_details: str,
     user_id: str = None,
     is_root_trace: bool = False,
@@ -136,7 +135,7 @@ async def rewrite_query(
 
 @observe(name="router")
 async def get_model_for_task(
-    chat_history: List[Dict],
+    chat_history: list[dict],
     question_details: str,
     user_id: str = None,
     is_root_trace: bool = False,
@@ -198,7 +197,7 @@ async def get_model_for_task(
     return model
 
 
-def get_user_audio_message_for_chat_history(uuid: str) -> List[Dict]:
+def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
     if settings.s3_folder_name:
         audio_data = download_file_from_s3_as_bytes(
             get_media_upload_s3_key_from_uuid(uuid, "wav")
@@ -218,28 +217,47 @@ def get_user_audio_message_for_chat_history(uuid: str) -> List[Dict]:
     ]
 
 
-def get_ai_message_for_chat_history(ai_message: Dict) -> str:
+def format_ai_scorecard_report(scorecard: list[dict]) -> str:
+    scorecard_as_prompt = []
+    for criterion in scorecard:
+        row_as_prompt = []
+        row_as_prompt.append(f"""**{criterion['category']}**""")
+        row_as_prompt.append(f"""Score: {criterion['score']}""")
+
+        if criterion["feedback"].get("correct"):
+            row_as_prompt.append(
+                f"""What worked well: {criterion['feedback']['correct']}"""
+            )
+        if criterion["feedback"].get("wrong"):
+            row_as_prompt.append(
+                f"""What needs improvement: {criterion['feedback']['wrong']}"""
+            )
+
+        row_as_prompt = "\n".join(row_as_prompt)
+        scorecard_as_prompt.append(row_as_prompt)
+
+    return "\n\n".join(scorecard_as_prompt)
+
+
+def convert_scorecard_to_prompt(scorecard: list[dict]) -> str:
+    scoring_criteria_as_prompt = []
+
+    for index, criterion in enumerate(scorecard["criteria"]):
+        scoring_criteria_as_prompt.append(
+            f"""Criterion {index + 1}:\n**Name**: **{criterion['name']}** [min_score: {criterion['min_score']}, max_score: {criterion['max_score']}, pass_score: {criterion.get('pass_score', criterion['max_score'])}]\n\n{criterion['description']}"""
+        )
+
+    return "\n\n".join(scoring_criteria_as_prompt)
+
+
+def get_ai_message_for_chat_history(ai_message: dict) -> str:
     message = json.loads(ai_message)
 
     if "scorecard" not in message or not message["scorecard"]:
         return message["feedback"]
 
-    scorecard_as_prompt = []
-    for criterion in message["scorecard"]:
-        row_as_prompt = ""
-        row_as_prompt += f"""- **{criterion['category']}**\n"""
-        if criterion["feedback"].get("correct"):
-            row_as_prompt += (
-                f"""  What worked well: {criterion['feedback']['correct']}\n"""
-            )
-        if criterion["feedback"].get("wrong"):
-            row_as_prompt += (
-                f"""  What needs improvement: {criterion['feedback']['wrong']}\n"""
-            )
-        row_as_prompt += f"""  Score: {criterion['score']}"""
-        scorecard_as_prompt.append(row_as_prompt)
+    scorecard_as_prompt = format_ai_scorecard_report(message["scorecard"])
 
-    scorecard_as_prompt = "\n".join(scorecard_as_prompt)
     return f"""Feedback:\n```\n{message['feedback']}\n```\n\nScorecard:\n```\n{scorecard_as_prompt}\n```"""
 
 
@@ -407,12 +425,10 @@ async def ai_response_for_question(request: AIChatRequest):
                     )
                     question_details += f"\n\n<Reference Solution (never to be shared with the learner)>\n{answer_as_prompt}\n</Reference Solution>"
                 else:
-                    scoring_criteria_as_prompt = ""
-
-                    for criterion in question["scorecard"]["criteria"]:
-                        scoring_criteria_as_prompt += f"""- **{criterion['name']}** [min: {criterion['min_score']}, max: {criterion['max_score']}, pass: {criterion.get('pass_score', criterion['max_score'])}]: {criterion['description']}\n"""
-
-                    question_details += f"\n\n<Scoring Criteria>\n{scoring_criteria_as_prompt}\n</Scoring Criteria>"
+                    scorecard_as_prompt = convert_scorecard_to_prompt(
+                        question["scorecard"]
+                    )
+                    question_details += f"\n\n<Scoring Criteria>\n{scorecard_as_prompt}\n</Scoring Criteria>"
 
             chat_history = chat_history + new_user_message
 
@@ -450,17 +466,14 @@ async def ai_response_for_question(request: AIChatRequest):
                 else:
 
                     class Feedback(BaseModel):
-                        correct: Optional[str] = Field(
+                        correct: str | None = Field(
                             description="What worked well in the student's response for this category based on the scoring criteria"
                         )
-                        wrong: Optional[str] = Field(
+                        wrong: str | None = Field(
                             description="What needs improvement in the student's response for this category based on the scoring criteria"
                         )
 
                     class Row(BaseModel):
-                        category: str = Field(
-                            description="Category from the scoring criteria for which the feedback is being provided"
-                        )
                         feedback: Feedback = Field(
                             description="Detailed feedback for the student's response for this category"
                         )
@@ -474,12 +487,31 @@ async def ai_response_for_question(request: AIChatRequest):
                             description="Pass score possible for this category as per the scoring criteria"
                         )
 
+                    def make_scorecard_model(fields: list[str]) -> type[BaseModel]:
+                        """
+                        Dynamically create a Pydantic model with fields from a list of strings.
+                        Each field defaults to `str`, but you can change that if needed.
+                        """
+                        # build dictionary for create_model
+                        field_definitions: dict[str, tuple[type, any]] = {
+                            field: (Row, ...) for field in fields
+                        }
+                        # ... means "required"
+                        return create_model("Scorecard", **field_definitions)
+
+                    Scorecard = make_scorecard_model(
+                        [
+                            criterion["name"]
+                            for criterion in question["scorecard"]["criteria"]
+                        ]
+                    )
+
                     class Output(BaseModel):
                         feedback: str = Field(
                             description="A single, comprehensive summary based on the scoring criteria"
                         )
-                        scorecard: Optional[List[Row]] = Field(
-                            description="List of rows with one row for each category from scoring criteria; only include this in the response if the student's response is an answer to the task"
+                        scorecard: Scorecard | None = Field(
+                            description="list of rows with one row for each category from scoring criteria; only include this in the response if the student's response is an answer to the task"
                         )
 
             else:
