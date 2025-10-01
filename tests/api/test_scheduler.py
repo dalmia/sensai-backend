@@ -41,61 +41,6 @@ class TestScheduledTasks:
         # Verify the database function was called
         mock_publish_tasks.assert_called_once()
 
-    # @patch("src.api.scheduler.send_usage_summary_stats")
-    # @patch("src.api.scheduler.settings")
-    # async def test_daily_usage_stats_with_webhook(self, mock_settings, mock_send_stats):
-    #     """Test daily_usage_stats when webhook URL is configured."""
-    #     # Setup mock
-    #     mock_settings.slack_usage_stats_webhook_url = "https://hooks.slack.com/webhook"
-
-    #     # Call the function
-    #     await daily_usage_stats()
-
-    #     # Verify the stats function was called
-    #     mock_send_stats.assert_called_once()
-
-    # @patch("src.api.scheduler.send_usage_summary_stats")
-    # @patch("src.api.scheduler.settings")
-    # async def test_daily_usage_stats_without_webhook(
-    #     self, mock_settings, mock_send_stats
-    # ):
-    #     """Test daily_usage_stats when webhook URL is not configured."""
-    #     # Setup mock
-    #     mock_settings.slack_usage_stats_webhook_url = None
-
-    #     # Call the function
-    #     await daily_usage_stats()
-
-    #     # Verify the stats function was NOT called
-    #     mock_send_stats.assert_not_called()
-
-    # @patch("src.api.scheduler.send_usage_summary_stats")
-    # @patch("src.api.scheduler.settings")
-    # async def test_daily_usage_stats_empty_webhook(
-    #     self, mock_settings, mock_send_stats
-    # ):
-    #     """Test daily_usage_stats when webhook URL is empty string."""
-    #     # Setup mock
-    #     mock_settings.slack_usage_stats_webhook_url = ""
-
-    #     # Call the function
-    #     await daily_usage_stats()
-
-    #     # Verify the stats function was NOT called
-    #     mock_send_stats.assert_not_called()
-
-    # @patch("src.api.scheduler.save_daily_traces")
-    # async def test_daily_traces(self, mock_save_traces):
-    #     """Test the daily_traces function."""
-    #     # save_daily_traces is not async, just a regular function
-    #     mock_save_traces.return_value = None
-
-    #     # Call the function
-    #     await daily_traces()
-
-    #     # Verify the traces function was called
-    #     mock_save_traces.assert_called_once()
-
     @patch("src.api.scheduler.check_memory_and_raise_alert")
     async def test_check_memory(self, mock_check_memory_alert):
         """Test the check_memory function."""

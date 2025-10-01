@@ -60,18 +60,18 @@ class TestGetUsageSummaryByOrganization:
 
     @pytest.mark.asyncio
     @patch("api.db.analytics.execute_db_operation")
-    async def test_get_usage_summary_last_day_filter(self, mock_db):
-        """Test getting usage summary with last_day filter."""
+    async def test_get_usage_summary_last_week_filter(self, mock_db):
+        """Test getting usage summary with last_week filter."""
         mock_db.return_value = [(1, "Organization A", 50)]
 
-        result = await get_usage_summary_by_organization(filter_period="last_day")
+        result = await get_usage_summary_by_organization(filter_period="last_week")
 
         assert len(result) == 1
         assert result[0]["user_message_count"] == 50
 
-        # Verify last_day filter was applied
+        # Verify last_week filter was applied
         call_args = mock_db.call_args[0][0]
-        assert "AND ch.created_at >= datetime('now', '-1 day')" in call_args
+        assert "AND ch.created_at >= datetime('now', '-7 days')" in call_args
 
     @pytest.mark.asyncio
     @patch("api.db.analytics.execute_db_operation")

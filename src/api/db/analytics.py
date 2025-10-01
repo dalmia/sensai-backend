@@ -24,7 +24,7 @@ async def get_usage_summary_by_organization(
     """Get usage summary by organization from chat history."""
 
     if filter_period and filter_period not in [
-        "last_day",
+        "last_week",
         "current_month",
         "current_year",
     ]:
@@ -32,8 +32,8 @@ async def get_usage_summary_by_organization(
 
     # Build the date filter condition based on the filter_period
     date_filter = ""
-    if filter_period == "last_day":
-        date_filter = "AND ch.created_at >= datetime('now', '-1 day')"
+    if filter_period == "last_week":
+        date_filter = "AND ch.created_at >= datetime('now', '-7 days')"
     elif filter_period == "current_month":
         date_filter = "AND ch.created_at >= datetime('now', 'start of month')"
     elif filter_period == "current_year":

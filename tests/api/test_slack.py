@@ -315,7 +315,7 @@ class TestSlackNotificationForUsageStats:
         # Setup
         mock_settings.slack_usage_stats_webhook_url = "https://hooks.slack.com/test"
 
-        last_day_stats = {
+        last_week_stats = {
             "org": [
                 {"org_name": "School A", "user_message_count": 100},
                 {"org_name": "School B", "user_message_count": 50},
@@ -335,7 +335,7 @@ class TestSlackNotificationForUsageStats:
 
         # Execute
         await send_slack_notification_for_usage_stats(
-            last_day_stats, current_month_stats, current_year_stats
+            last_week_stats, current_month_stats, current_year_stats
         )
 
         # Verify
