@@ -511,7 +511,7 @@ async def ai_response_for_question(request: AIChatRequest):
                             description="A single, comprehensive summary based on the scoring criteria"
                         )
                         scorecard: Scorecard | None = Field(
-                            description="list of rows with one row for each category from scoring criteria; only include this in the response if the student's response is an answer to the task"
+                            description="score and feedback for each criterion from the scoring criteria; only include this in the response if the student's response is a valid response to the task"
                         )
 
             else:
