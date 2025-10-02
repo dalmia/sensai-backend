@@ -1,5 +1,4 @@
 from google.cloud import bigquery
-import os
 import json
 from typing import Dict
 from api.settings import settings
@@ -10,13 +9,7 @@ from api.config import (
     scorecards_table_name,
 )
 from api.models import TaskType
-
-
-def get_bq_client():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-        settings.google_application_credentials
-    )
-    return bigquery.Client()
+from api.bq.base import get_bq_client
 
 
 async def get_scorecard(scorecard_id: int) -> Dict:

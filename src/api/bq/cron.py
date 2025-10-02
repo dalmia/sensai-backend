@@ -1,5 +1,4 @@
 from google.cloud import bigquery
-import os
 from typing import List, Dict, Any
 from api.settings import settings
 from api.utils.db import get_new_db_connection
@@ -19,14 +18,7 @@ from api.config import (
     questions_table_name,
 )
 from api.utils.logging import logger
-
-
-def get_bq_client():
-    """Get BigQuery client with proper credentials"""
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-        settings.google_application_credentials
-    )
-    return bigquery.Client()
+from api.bq.base import get_bq_client
 
 
 async def sync_org_api_keys_to_bigquery():

@@ -1,5 +1,4 @@
 from google.cloud import bigquery
-import os
 from typing import AsyncGenerator, Dict, Any
 from api.settings import settings
 from api.config import (
@@ -9,13 +8,7 @@ from api.config import (
     users_table_name,
     course_tasks_table_name,
 )
-
-
-def get_bq_client():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-        settings.google_application_credentials
-    )
-    return bigquery.Client()
+from api.bq.base import get_bq_client
 
 
 async def get_all_chat_history(org_id: int) -> AsyncGenerator[Dict[str, Any], None]:
