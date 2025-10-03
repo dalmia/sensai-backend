@@ -323,7 +323,7 @@ async def test_download_file_locally_success(client, mock_db):
         "api.routes.file.settings.local_upload_folder", "/tmp/uploads"
     ):
 
-        # Setup mocks
+        # Setup mocks - return True for all exists checks
         mock_exists.return_value = True
         mock_file_response.return_value = "file_response"  # Simplified for testing
 
@@ -335,8 +335,12 @@ async def test_download_file_locally_success(client, mock_db):
             f"/file/download-local/?uuid={uuid}&file_extension={file_extension}"
         )
 
-        # Assert mocks called correctly
-        mock_exists.assert_called_with(f"/tmp/uploads/{uuid}.{file_extension}")
+        # Assert mocks called correctly - check that our specific path was called
+        expected_path = f"/tmp/uploads/{uuid}.{file_extension}"
+        assert any(
+            call[0][0] == expected_path for call in mock_exists.call_args_list
+        ), f"Expected exists() to be called with {expected_path}"
+        
         mock_file_response.assert_called_with(
             path=f"/tmp/uploads/{uuid}.{file_extension}",
             filename=f"{uuid}.{file_extension}",
