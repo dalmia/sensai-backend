@@ -25,6 +25,8 @@ router = APIRouter()
 async def get_upload_presigned_url(
     request: PresignedUrlRequest,
 ) -> PresignedUrlResponse:
+    if not settings.s3_bucket_name:
+        raise HTTPException(status_code=500, detail="S3 bucket name is not set")
     if not settings.s3_folder_name:
         raise HTTPException(status_code=500, detail="S3 folder name is not set")
 
@@ -70,6 +72,8 @@ async def get_download_presigned_url(
     uuid: str,
     file_extension: str,
 ) -> S3FetchPresignedUrlResponse:
+    if not settings.s3_bucket_name:
+        raise HTTPException(status_code=500, detail="S3 bucket name is not set")
     if not settings.s3_folder_name:
         raise HTTPException(status_code=500, detail="S3 folder name is not set")
 
