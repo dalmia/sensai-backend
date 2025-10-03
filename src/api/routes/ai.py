@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 import json
 from copy import deepcopy
 from pydantic import BaseModel, Field, create_model

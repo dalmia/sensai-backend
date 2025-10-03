@@ -1,12 +1,15 @@
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 import os
 from os.path import exists
 from api.config import UPLOAD_FOLDER_NAME
+from api.utils.logging import logger
 from api.routes import (
     auth,
     batch,
@@ -38,6 +41,9 @@ from bugsnag.asgi import BugsnagMiddleware
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Initialize comprehensive logging as the very first step
+    logger.info("Starting application")
+
     scheduler.start()
 
     # Create the uploads directory if it doesn't exist
@@ -48,6 +54,8 @@ async def lifespan(app: FastAPI):
     # asyncio.create_task(resume_pending_course_structure_generation_jobs())
 
     yield
+
+    logger.info("Shutting down application")
     scheduler.shutdown()
 
 
@@ -62,6 +70,32 @@ if settings.bugsnag_api_key:
 
 
 app = FastAPI(lifespan=lifespan)
+
+
+# Add request logging middleware
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    logger = logging.getLogger("fastapi.requests")
+
+    # Log the incoming request
+    logger.info(
+        f"Incoming request: {request.method} {request.url.path} "
+        f"from {request.client.host if request.client else 'unknown'}"
+    )
+
+    # Process the request
+    start_time = asyncio.get_event_loop().time()
+    response = await call_next(request)
+    process_time = asyncio.get_event_loop().time() - start_time
+
+    # Log the response
+    logger.info(
+        f"Request completed: {request.method} {request.url.path} "
+        f"- Status: {response.status_code} - Duration: {process_time:.4f}s"
+    )
+
+    return response
+
 
 # Add Bugsnag middleware if configured
 if settings.bugsnag_api_key:
@@ -122,6 +156,51 @@ app.include_router(code.router, prefix="/code", tags=["code"])
 app.include_router(hva.router, prefix="/hva", tags=["hva"])
 app.include_router(websocket_router, prefix="/ws", tags=["websockets"])
 app.include_router(integration.router, prefix="/integrations", tags=["integrations"])
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger = logging.getLogger("fastapi.errors")
+    logger.error(
+        f"Unhandled exception occurred: {type(exc).__name__}: {str(exc)} "
+        f"on {request.method} {request.url.path}",
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=500,
+        content={
+            "error": "Internal server error",
+            "detail": "An unexpected error occurred",
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger = logging.getLogger("fastapi.validation")
+    logger.warning(
+        f"Validation error on {request.method} {request.url.path}: {exc.errors()}"
+    )
+    return JSONResponse(
+        status_code=422, content={"error": "Validation error", "detail": exc.errors()}
+    )
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger = logging.getLogger("fastapi.http_errors")
+    if exc.status_code >= 500:
+        logger.error(
+            f"HTTP {exc.status_code} error on {request.method} {request.url.path}: {exc.detail}"
+        )
+    else:
+        logger.info(
+            f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}"
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"error": f"HTTP {exc.status_code}", "detail": exc.detail},
+    )
 
 
 @app.api_route("/health", methods=["GET", "HEAD"])
