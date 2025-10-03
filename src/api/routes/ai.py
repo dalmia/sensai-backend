@@ -466,10 +466,10 @@ async def ai_response_for_question(request: AIChatRequest):
                 else:
 
                     class Feedback(BaseModel):
-                        correct: str | None = Field(
+                        correct: Optional[str] = Field(
                             description="What worked well in the student's response for this category based on the scoring criteria"
                         )
-                        wrong: str | None = Field(
+                        wrong: Optional[str] = Field(
                             description="What needs improvement in the student's response for this category based on the scoring criteria"
                         )
 
@@ -510,7 +510,7 @@ async def ai_response_for_question(request: AIChatRequest):
                         feedback: str = Field(
                             description="A single, comprehensive summary based on the scoring criteria"
                         )
-                        scorecard: Scorecard | None = Field(
+                        scorecard: Optional[Scorecard] = Field(
                             description="score and feedback for each criterion from the scoring criteria; only include this in the response if the student's response is a valid response to the task"
                         )
 

@@ -22,6 +22,7 @@ if not exists(log_dir):
 
 sqlite_db_path = f"{data_root_dir}/db.sqlite"
 log_file_path = f"{log_dir}/backend.log"
+db_log_file_path = f"{log_dir}/db.log"
 
 chat_history_table_name = "chat_history"
 tasks_table_name = "tasks"
