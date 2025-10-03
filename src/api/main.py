@@ -75,26 +75,32 @@ app = FastAPI(lifespan=lifespan)
 # Add request logging middleware
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
-    logger = logging.getLogger("fastapi.requests")
-
     # Log the incoming request
-    logger.info(
+    logging.info(
         f"Incoming request: {request.method} {request.url.path} "
         f"from {request.client.host if request.client else 'unknown'}"
     )
 
     # Process the request
     start_time = asyncio.get_event_loop().time()
-    response = await call_next(request)
-    process_time = asyncio.get_event_loop().time() - start_time
+    try:
+        response = await call_next(request)
+        process_time = asyncio.get_event_loop().time() - start_time
 
-    # Log the response
-    logger.info(
-        f"Request completed: {request.method} {request.url.path} "
-        f"- Status: {response.status_code} - Duration: {process_time:.4f}s"
-    )
-
-    return response
+        # Log the response
+        logging.info(
+            f"Request completed: {request.method} {request.url.path} "
+            f"- Status: {response.status_code} - Duration: {process_time:.4f}s"
+        )
+        return response
+    except Exception as e:
+        process_time = asyncio.get_event_loop().time() - start_time
+        logging.error(
+            f"Error processing request: {request.method} {request.url.path} "
+            f"- Error: {str(e)} - Duration: {process_time:.4f}s",
+            exc_info=True,
+        )
+        raise
 
 
 # Add Bugsnag middleware if configured
@@ -160,9 +166,8 @@ app.include_router(integration.router, prefix="/integrations", tags=["integratio
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    logger = logging.getLogger("fastapi.errors")
-    logger.error(
-        f"Unhandled exception occurred: {type(exc).__name__}: {str(exc)} "
+    logging.error(
+        f"Unhandled exception: {type(exc).__name__}: {str(exc)} "
         f"on {request.method} {request.url.path}",
         exc_info=True,
     )
@@ -177,8 +182,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
-    logger = logging.getLogger("fastapi.validation")
-    logger.warning(
+    logging.warning(
         f"Validation error on {request.method} {request.url.path}: {exc.errors()}"
     )
     return JSONResponse(
@@ -188,13 +192,12 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request: Request, exc: HTTPException):
-    logger = logging.getLogger("fastapi.http_errors")
     if exc.status_code >= 500:
-        logger.error(
+        logging.error(
             f"HTTP {exc.status_code} error on {request.method} {request.url.path}: {exc.detail}"
         )
     else:
-        logger.info(
+        logging.info(
             f"HTTP {exc.status_code} on {request.method} {request.url.path}: {exc.detail}"
         )
     return JSONResponse(

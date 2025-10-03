@@ -1,14 +1,14 @@
 import sqlite3
 from typing import List, Tuple
 from api.config import sqlite_db_path
-from api.utils.logging import logger
+from api.utils.logging import db_logger
 import aiosqlite
 from contextlib import asynccontextmanager
 
 
 def trace_callback(sql):
     # Record the start time and SQL
-    logger.info(f"Executing operation: {sql}")
+    db_logger.info(f"Executing operation: {sql}")
 
 
 @asynccontextmanager
