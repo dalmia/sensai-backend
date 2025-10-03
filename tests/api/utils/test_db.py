@@ -50,12 +50,12 @@ class TestSerialiseDeserialise:
 
 
 class TestTraceCallback:
-    @patch("src.api.utils.db.logger")
-    def test_trace_callback(self, mock_logger):
+    @patch("src.api.utils.db.db_logger")
+    def test_trace_callback(self, mock_db_logger):
         """Test that trace_callback logs SQL operations."""
         sql = "SELECT * FROM test"
         trace_callback(sql)
-        mock_logger.info.assert_called_once_with(f"Executing operation: {sql}")
+        mock_db_logger.info.assert_called_once_with(f"Executing operation: {sql}")
 
 
 @pytest.mark.asyncio

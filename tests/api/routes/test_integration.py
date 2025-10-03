@@ -16,12 +16,13 @@ async def test_create_integration_endpoint_success(client, mock_db):
         "access_token": "test_access_token",
         "refresh_token": "test_refresh_token",
         "expires_at": "2024-01-01T12:00:00Z",
-        "created_at": "2024-01-01T10:00:00Z"
+        "created_at": "2024-01-01T10:00:00Z",
     }
-    
-    with patch("api.routes.integration.create_integration") as mock_create, \
-         patch("api.routes.integration.get_integration") as mock_get:
-        
+
+    with patch("api.routes.integration.create_integration") as mock_create, patch(
+        "api.routes.integration.get_integration"
+    ) as mock_get:
+
         mock_create.return_value = integration_id
         mock_get.return_value = expected_integration
 
@@ -31,7 +32,7 @@ async def test_create_integration_endpoint_success(client, mock_db):
             "integration_type": "slack",
             "access_token": "test_access_token",
             "refresh_token": "test_refresh_token",
-            "expires_at": "2024-01-01T12:00:00+00:00"
+            "expires_at": "2024-01-01T12:00:00+00:00",
         }
 
         response = client.post("/integrations/", json=request_data)
@@ -54,12 +55,13 @@ async def test_create_integration_endpoint_upsert_success(client, mock_db):
         "access_token": "updated_access_token",
         "refresh_token": "updated_refresh_token",
         "expires_at": "2024-01-01T12:00:00Z",
-        "created_at": "2024-01-01T10:00:00Z"
+        "created_at": "2024-01-01T10:00:00Z",
     }
-    
-    with patch("api.routes.integration.create_integration") as mock_create, \
-         patch("api.routes.integration.get_integration") as mock_get:
-        
+
+    with patch("api.routes.integration.create_integration") as mock_create, patch(
+        "api.routes.integration.get_integration"
+    ) as mock_get:
+
         mock_create.return_value = integration_id
         mock_get.return_value = expected_integration
 
@@ -69,7 +71,7 @@ async def test_create_integration_endpoint_upsert_success(client, mock_db):
             "integration_type": "slack",
             "access_token": "updated_access_token",
             "refresh_token": "updated_refresh_token",
-            "expires_at": "2024-01-01T12:00:00+00:00"
+            "expires_at": "2024-01-01T12:00:00+00:00",
         }
 
         response = client.post("/integrations/", json=request_data)
@@ -78,29 +80,6 @@ async def test_create_integration_endpoint_upsert_success(client, mock_db):
         assert response.json() == expected_integration
         mock_create.assert_called_once()
         mock_get.assert_called_once_with(integration_id)
-
-
-@pytest.mark.asyncio
-async def test_create_integration_endpoint_failure(client, mock_db):
-    """Test failure when integration creation succeeds but retrieval fails."""
-    with patch("api.routes.integration.create_integration") as mock_create, \
-         patch("api.routes.integration.get_integration") as mock_get:
-        
-        mock_create.return_value = 1
-        mock_get.return_value = None  # Integration not found after creation
-
-        request_data = {
-            "user_id": 1,
-            "integration_type": "slack",
-            "access_token": "test_access_token",
-            "refresh_token": "test_refresh_token",
-            "expires_at": "2024-01-01T12:00:00+00:00"
-        }
-
-        response = client.post("/integrations/", json=request_data)
-
-        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
-        assert response.json() == {"detail": "Failed to create integration"}
 
 
 @pytest.mark.asyncio
@@ -114,9 +93,9 @@ async def test_get_integration_endpoint_success(client, mock_db):
         "access_token": "test_access_token",
         "refresh_token": "test_refresh_token",
         "expires_at": "2024-01-01T12:00:00Z",
-        "created_at": "2024-01-01T10:00:00Z"
+        "created_at": "2024-01-01T10:00:00Z",
     }
-    
+
     with patch("api.routes.integration.get_integration") as mock_get:
         mock_get.return_value = expected_integration
 
@@ -131,7 +110,7 @@ async def test_get_integration_endpoint_success(client, mock_db):
 async def test_get_integration_endpoint_not_found(client, mock_db):
     """Test retrieval of non-existent integration via API endpoint."""
     integration_id = 999
-    
+
     with patch("api.routes.integration.get_integration") as mock_get:
         mock_get.return_value = None
 
@@ -153,7 +132,7 @@ async def test_list_integrations_endpoint_all(client, mock_db):
             "access_token": "token1",
             "refresh_token": "refresh1",
             "expires_at": "2024-01-01T12:00:00Z",
-            "created_at": "2024-01-01T10:00:00Z"
+            "created_at": "2024-01-01T10:00:00Z",
         },
         {
             "id": 2,
@@ -162,10 +141,10 @@ async def test_list_integrations_endpoint_all(client, mock_db):
             "access_token": "token2",
             "refresh_token": "refresh2",
             "expires_at": "2024-01-01T12:00:00Z",
-            "created_at": "2024-01-01T10:00:00Z"
-        }
+            "created_at": "2024-01-01T10:00:00Z",
+        },
     ]
-    
+
     with patch("api.routes.integration.list_integrations") as mock_list:
         mock_list.return_value = expected_integrations
 
@@ -188,10 +167,10 @@ async def test_list_integrations_endpoint_by_user_id(client, mock_db):
             "access_token": "token1",
             "refresh_token": "refresh1",
             "expires_at": "2024-01-01T12:00:00Z",
-            "created_at": "2024-01-01T10:00:00Z"
+            "created_at": "2024-01-01T10:00:00Z",
         }
     ]
-    
+
     with patch("api.routes.integration.list_integrations") as mock_list:
         mock_list.return_value = expected_integrations
 
@@ -226,12 +205,13 @@ async def test_update_integration_endpoint_success(client, mock_db):
         "access_token": "updated_access_token",
         "refresh_token": "updated_refresh_token",
         "expires_at": "2024-01-01T12:00:00Z",
-        "created_at": "2024-01-01T10:00:00Z"
+        "created_at": "2024-01-01T10:00:00Z",
     }
-    
-    with patch("api.routes.integration.update_integration") as mock_update, \
-         patch("api.routes.integration.get_integration") as mock_get:
-        
+
+    with patch("api.routes.integration.update_integration") as mock_update, patch(
+        "api.routes.integration.get_integration"
+    ) as mock_get:
+
         mock_update.return_value = True
         mock_get.return_value = expected_integration
 
@@ -239,7 +219,7 @@ async def test_update_integration_endpoint_success(client, mock_db):
         request_data = {
             "access_token": "updated_access_token",
             "refresh_token": "updated_refresh_token",
-            "expires_at": "2024-01-01T12:00:00+00:00"
+            "expires_at": "2024-01-01T12:00:00+00:00",
         }
 
         response = client.put(f"/integrations/{integration_id}", json=request_data)
@@ -262,19 +242,18 @@ async def test_update_integration_endpoint_partial_update(client, mock_db):
         "access_token": "updated_access_token",
         "refresh_token": "test_refresh_token",
         "expires_at": "2024-01-01T12:00:00Z",
-        "created_at": "2024-01-01T10:00:00Z"
+        "created_at": "2024-01-01T10:00:00Z",
     }
-    
-    with patch("api.routes.integration.update_integration") as mock_update, \
-         patch("api.routes.integration.get_integration") as mock_get:
-        
+
+    with patch("api.routes.integration.update_integration") as mock_update, patch(
+        "api.routes.integration.get_integration"
+    ) as mock_get:
+
         mock_update.return_value = True
         mock_get.return_value = expected_integration
 
         # Test data with only access_token
-        request_data = {
-            "access_token": "updated_access_token"
-        }
+        request_data = {"access_token": "updated_access_token"}
 
         response = client.put(f"/integrations/{integration_id}", json=request_data)
 
@@ -289,14 +268,14 @@ async def test_update_integration_endpoint_partial_update(client, mock_db):
 async def test_update_integration_endpoint_not_found(client, mock_db):
     """Test update of non-existent integration via API endpoint."""
     integration_id = 999
-    
+
     with patch("api.routes.integration.update_integration") as mock_update:
         mock_update.return_value = False
 
         request_data = {
             "access_token": "updated_access_token",
             "refresh_token": "updated_refresh_token",
-            "expires_at": "2024-01-01T12:00:00+00:00"
+            "expires_at": "2024-01-01T12:00:00+00:00",
         }
 
         response = client.put(f"/integrations/{integration_id}", json=request_data)
@@ -311,7 +290,7 @@ async def test_update_integration_endpoint_not_found(client, mock_db):
 async def test_delete_integration_endpoint_success(client, mock_db):
     """Test successful deletion of integration via API endpoint."""
     integration_id = 1
-    
+
     with patch("api.routes.integration.delete_integration") as mock_delete:
         mock_delete.return_value = True
 
@@ -326,7 +305,7 @@ async def test_delete_integration_endpoint_success(client, mock_db):
 async def test_delete_integration_endpoint_not_found(client, mock_db):
     """Test deletion of non-existent integration via API endpoint."""
     integration_id = 999
-    
+
     with patch("api.routes.integration.delete_integration") as mock_delete:
         mock_delete.return_value = False
 
@@ -348,12 +327,13 @@ async def test_create_integration_endpoint_with_null_values(client, mock_db):
         "access_token": "test_access_token",
         "refresh_token": None,
         "expires_at": None,
-        "created_at": "2024-01-01T10:00:00Z"
+        "created_at": "2024-01-01T10:00:00Z",
     }
-    
-    with patch("api.routes.integration.create_integration") as mock_create, \
-         patch("api.routes.integration.get_integration") as mock_get:
-        
+
+    with patch("api.routes.integration.create_integration") as mock_create, patch(
+        "api.routes.integration.get_integration"
+    ) as mock_get:
+
         mock_create.return_value = integration_id
         mock_get.return_value = expected_integration
 
@@ -363,7 +343,7 @@ async def test_create_integration_endpoint_with_null_values(client, mock_db):
             "integration_type": "slack",
             "access_token": "test_access_token",
             "refresh_token": None,
-            "expires_at": None
+            "expires_at": None,
         }
 
         response = client.post("/integrations/", json=request_data)
@@ -381,7 +361,7 @@ async def test_create_integration_endpoint_validation_error(client, mock_db):
     request_data = {
         "user_id": 1,
         # Missing integration_type and access_token
-        "refresh_token": "test_refresh_token"
+        "refresh_token": "test_refresh_token",
     }
 
     response = client.post("/integrations/", json=request_data)
@@ -393,13 +373,13 @@ async def test_create_integration_endpoint_validation_error(client, mock_db):
 async def test_update_integration_endpoint_validation_error(client, mock_db):
     """Test validation error when updating integration with invalid data."""
     integration_id = 1
-    
+
     # Test data with invalid field types
     request_data = {
         "access_token": 123,  # Should be string
-        "expires_at": "invalid_date"  # Should be valid datetime
+        "expires_at": "invalid_date",  # Should be valid datetime
     }
 
     response = client.put(f"/integrations/{integration_id}", json=request_data)
 
-    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY 
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY

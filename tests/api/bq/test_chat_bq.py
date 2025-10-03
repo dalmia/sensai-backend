@@ -1,14 +1,15 @@
 import pytest
 import os
 from unittest.mock import patch, MagicMock
-from src.api.bq.chat import get_bq_client, get_all_chat_history
+from src.api.bq.base import get_bq_client
+from src.api.bq.chat import get_all_chat_history
 
 
 class TestChatBQ:
     """Test BigQuery chat functionality."""
 
-    @patch("src.api.bq.chat.bigquery.Client")
-    @patch("src.api.bq.chat.settings")
+    @patch("src.api.bq.base.bigquery.Client")
+    @patch("src.api.bq.base.settings")
     def test_get_bq_client(self, mock_settings, mock_bq_client):
         """Test BigQuery client creation."""
         mock_settings.google_application_credentials = "/path/to/creds.json"
@@ -214,8 +215,8 @@ class TestChatBQ:
             async for message in get_all_chat_history(org_id):
                 pass
 
-    @patch("src.api.bq.chat.bigquery")
-    @patch("src.api.bq.chat.settings")
+    @patch("src.api.bq.base.bigquery")
+    @patch("src.api.bq.base.settings")
     def test_get_bq_client_sets_credentials(self, mock_settings, mock_bigquery):
         """Test that get_bq_client properly sets the credentials environment variable."""
         mock_settings.google_application_credentials = "/custom/path/to/creds.json"
