@@ -597,14 +597,7 @@ async def init_db():
     else:
         await run_migrations()
         return
-<<<<<<< HEAD
-<<<<<<< HEAD
 
-=======
->>>>>>> 6b0a1f1 (Path and condition fix)
-=======
-
->>>>>>> 65a7a15 (Remove print statements)
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
@@ -652,16 +645,7 @@ async def init_db():
             await create_integrations_table(cursor)
 
             await conn.commit()
-<<<<<<< HEAD
-<<<<<<< HEAD
             
-=======
-            print("Created tables")
-
->>>>>>> 6b0a1f1 (Path and condition fix)
-=======
-            
->>>>>>> 65a7a15 (Remove print statements)
         except Exception as exception:
             # delete db
             os.remove(sqlite_db_path)
