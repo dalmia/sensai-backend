@@ -9,80 +9,110 @@ class TestLoggingUtils:
     def test_setup_logging(self, mock_logging):
         """Test the setup_logging function."""
         # Setup mocks
-        mock_logger = MagicMock()
+        mock_root_logger = MagicMock()
         mock_file_handler = MagicMock()
         mock_formatter = MagicMock()
+        mock_root_logger.handlers = []  # Empty handlers list
 
-        mock_logging.getLogger.return_value = mock_logger
-        mock_logging.FileHandler.return_value = mock_file_handler
+        # Create mock loggers for libraries
+        mock_httpx_logger = MagicMock()
+        mock_httpcore_logger = MagicMock()
+        mock_urllib3_logger = MagicMock()
+
+        def getLogger_side_effect(name=None):
+            if name is None:
+                return mock_root_logger
+            elif name == "httpx":
+                return mock_httpx_logger
+            elif name == "httpcore":
+                return mock_httpcore_logger
+            elif name == "urllib3":
+                return mock_urllib3_logger
+            return MagicMock()
+
+        mock_logging.getLogger.side_effect = getLogger_side_effect
+        mock_logging.handlers.RotatingFileHandler.return_value = mock_file_handler
         mock_logging.Formatter.return_value = mock_formatter
         mock_logging.INFO = logging.INFO  # Use the actual INFO value
+        mock_logging.WARNING = logging.WARNING
 
         # Call the function
         logger = setup_logging("/path/to/log.log")
 
-        # Check results
-        mock_logging.getLogger.assert_called_once_with("src.api.utils.logging")
-        mock_logger.setLevel.assert_called_once_with(logging.INFO)
+        # Check results - root logger was obtained and set to INFO level
+        assert mock_logging.getLogger.called
+        mock_root_logger.setLevel.assert_called_once_with(logging.INFO)
 
-        # Check file handler setup
-        mock_logging.FileHandler.assert_called_once_with("/path/to/log.log")
-        mock_file_handler.setLevel.assert_called_once_with(logging.INFO)
+        # Check that library loggers were set to WARNING
+        mock_httpx_logger.setLevel.assert_called_once_with(logging.WARNING)
+        mock_httpcore_logger.setLevel.assert_called_once_with(logging.WARNING)
+        mock_urllib3_logger.setLevel.assert_called_once_with(logging.WARNING)
 
-        # Check formatter setup
+        # Check formatter setup - now includes datefmt
         mock_logging.Formatter.assert_called_once_with(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
         mock_file_handler.setFormatter.assert_called_once_with(mock_formatter)
 
-        # Check that handlers were added to the logger
-        # Note: In the actual code, only the file handler is added, not the console handler
-        mock_logger.addHandler.assert_called_once_with(mock_file_handler)
+        # Check that handlers were added to the root logger
+        mock_root_logger.addHandler.assert_called_once_with(mock_file_handler)
 
-        # Check that the function returns the logger
-        assert logger == mock_logger
+        # Check that the function returns the root logger
+        assert logger == mock_root_logger
 
     @patch("src.api.utils.logging.logging")
     def test_setup_logging_with_console_logging(self, mock_logging):
-        """Test the setup_logging function."""
+        """Test the setup_logging function with console logging enabled."""
         # Setup mocks
-        mock_logger = MagicMock()
+        mock_root_logger = MagicMock()
         mock_file_handler = MagicMock()
-        mock_console_handler = MagicMock()
         mock_formatter = MagicMock()
+        mock_root_logger.handlers = []  # Empty handlers list
 
-        mock_logging.getLogger.return_value = mock_logger
-        mock_logging.FileHandler.return_value = mock_file_handler
-        mock_logging.StreamHandler.return_value = mock_console_handler
+        # Create mock loggers for libraries
+        mock_httpx_logger = MagicMock()
+        mock_httpcore_logger = MagicMock()
+        mock_urllib3_logger = MagicMock()
+
+        def getLogger_side_effect(name=None):
+            if name is None:
+                return mock_root_logger
+            elif name == "httpx":
+                return mock_httpx_logger
+            elif name == "httpcore":
+                return mock_httpcore_logger
+            elif name == "urllib3":
+                return mock_urllib3_logger
+            return MagicMock()
+
+        mock_logging.getLogger.side_effect = getLogger_side_effect
+        mock_logging.handlers.RotatingFileHandler.return_value = mock_file_handler
         mock_logging.Formatter.return_value = mock_formatter
         mock_logging.INFO = logging.INFO  # Use the actual INFO value
+        mock_logging.WARNING = logging.WARNING
 
-        # Call the function
+        # Call the function with console logging enabled
         logger = setup_logging("/path/to/log.log", enable_console_logging=True)
 
-        # Check results
-        mock_logging.getLogger.assert_called_once_with("src.api.utils.logging")
-        mock_logger.setLevel.assert_called_once_with(logging.INFO)
+        # Check results - root logger was obtained and set to INFO level
+        assert mock_logging.getLogger.called
+        mock_root_logger.setLevel.assert_called_once_with(logging.INFO)
 
-        # Check file handler setup
-        mock_logging.FileHandler.assert_called_once_with("/path/to/log.log")
-        mock_file_handler.setLevel.assert_called_once_with(logging.INFO)
+        # Check that library loggers were set to WARNING
+        mock_httpx_logger.setLevel.assert_called_once_with(logging.WARNING)
+        mock_httpcore_logger.setLevel.assert_called_once_with(logging.WARNING)
+        mock_urllib3_logger.setLevel.assert_called_once_with(logging.WARNING)
 
-        # Check console handler setup
-        mock_logging.StreamHandler.assert_called_once()
-        mock_console_handler.setLevel.assert_called_once_with(logging.INFO)
-
-        # Check formatter setup
+        # Check formatter setup - now includes datefmt
         mock_logging.Formatter.assert_called_once_with(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
-        mock_console_handler.setFormatter.assert_called_once_with(mock_formatter)
         mock_file_handler.setFormatter.assert_called_once_with(mock_formatter)
 
-        # Check that handlers were added to the logger
-        mock_logger.addHandler.assert_has_calls(
-            [call(mock_file_handler), call(mock_console_handler)]
-        )
+        # Check that handlers were added to the root logger
+        mock_root_logger.addHandler.assert_called_once_with(mock_file_handler)
 
-        # Check that the function returns the logger
-        assert logger == mock_logger
+        # Check that the function returns the root logger
+        assert logger == mock_root_logger

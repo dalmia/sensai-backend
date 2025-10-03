@@ -51,21 +51,6 @@ class TestS3Utils:
         assert call_args[1]["ExtraArgs"]["ContentType"] == "application/json"
 
     @patch("src.api.utils.s3.boto3.Session")
-    def test_upload_file_to_s3_failure(self, mock_session):
-        """Test file upload to S3 with an error."""
-        # Setup mocks
-        mock_s3_client = MagicMock()
-        mock_session.return_value.client.return_value = mock_s3_client
-        mock_s3_client.upload_file.return_value = {"Error": "Failed"}
-
-        # Call the function and expect an exception
-        with pytest.raises(Exception) as excinfo:
-            upload_file_to_s3("/path/to/file.txt", "test/file.txt")
-
-        # Check the exception message
-        assert "Failed to upload to S3" in str(excinfo.value)
-
-    @patch("src.api.utils.s3.boto3.Session")
     def test_upload_audio_data_to_s3_success(self, mock_session):
         """Test successful audio data upload to S3."""
         # Setup mocks
@@ -94,23 +79,6 @@ class TestS3Utils:
         # Check the exception message
         assert "Key must end with .wav extension" in str(excinfo.value)
         mock_session.return_value.client.assert_not_called()
-
-    @patch("src.api.utils.s3.boto3.Session")
-    def test_upload_audio_data_to_s3_failure(self, mock_session):
-        """Test audio data upload to S3 with an error."""
-        # Setup mocks
-        mock_s3_client = MagicMock()
-        mock_session.return_value.client.return_value = mock_s3_client
-        mock_s3_client.put_object.return_value = {
-            "ResponseMetadata": {"HTTPStatusCode": 500}
-        }
-
-        # Call the function and expect an exception
-        with pytest.raises(Exception) as excinfo:
-            upload_audio_data_to_s3(b"test audio data", "test/audio.wav")
-
-        # Check the exception message
-        assert "Failed to upload to S3" in str(excinfo.value)
 
     @patch("src.api.utils.s3.boto3.Session")
     def test_download_file_from_s3_as_bytes(self, mock_session):

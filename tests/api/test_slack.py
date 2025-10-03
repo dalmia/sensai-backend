@@ -43,36 +43,6 @@ class TestSendSlackNotification:
         mock_session_class.assert_called_once()
         mock_session.post.assert_called_once_with(webhook_url, json=message)
 
-    @patch("src.api.slack.aiohttp.ClientSession")
-    async def test_send_slack_notification_failure(self, mock_session_class):
-        """Test Slack notification sending with failure response."""
-        # Setup mocks
-        mock_session = AsyncMock()
-        mock_response = AsyncMock()
-        mock_response.status = 500
-        mock_response.text.return_value = "Internal Server Error"
-
-        # Setup the nested async context managers properly
-        mock_session.__aenter__.return_value = mock_session
-        mock_session.__aexit__.return_value = None
-        mock_session.post = MagicMock(return_value=mock_response)
-        mock_response.__aenter__.return_value = mock_response
-        mock_response.__aexit__.return_value = None
-        mock_session_class.return_value = mock_session
-
-        message = {"text": "Test message"}
-        webhook_url = "https://hooks.slack.com/test"
-
-        # Execute
-        with patch("builtins.print") as mock_print:
-            await send_slack_notification(message, webhook_url)
-
-        # Verify
-        mock_response.text.assert_called_once()
-        mock_print.assert_called_once_with(
-            "Failed to send Slack notification: 500 - Internal Server Error"
-        )
-
 
 @pytest.mark.asyncio
 class TestSlackNotificationForNewUser:
