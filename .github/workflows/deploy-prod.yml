@@ -41,19 +41,42 @@ jobs:
             SLACK_COURSE_CREATED_WEBHOOK_URL=${{ secrets.SLACK_COURSE_CREATED_WEBHOOK_URL }}
             SLACK_USAGE_STATS_WEBHOOK_URL=${{ secrets.SLACK_USAGE_STATS_WEBHOOK_URL }}
             SLACK_ALERT_WEBHOOK_URL=${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
-            PHOENIX_ENDPOINT=${{ secrets.PHOENIX_ENDPOINT }}
-            PHOENIX_API_KEY=${{ secrets.PHOENIX_API_KEY }}
+            LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
+            LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
+            LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
+            LANGFUSE_TRACING_ENVIRONMENT=${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}
             GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
             BQ_PROJECT_NAME=${{ secrets.BQ_PROJECT_NAME }}
             BQ_DATASET_NAME=${{ secrets.BQ_DATASET_NAME }}
-          
-      - name: Notify Slack on Success
+
+      - name: Deploy to production server
+        if: contains(github.event.release.tag_name, '-deploy')
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          script: |
+            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.prod.yml ../ && cd ../ && sudo docker compose -f docker-compose.prod.yml pull && sudo docker compose -f docker-compose.prod.yml up -d
+
+      - name: Notify Slack on Success - Deployment
+        if: contains(github.event.release.tag_name, '-deploy')
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
             text: "🚀 *backend*: Production deployment completed successfully!"
+
+      - name: Notify Slack on Success - Build Only
+        if: ${{ !contains(github.event.release.tag_name, '-deploy') }}
+        uses: slackapi/slack-github-action@v2.1.1
+        with:
+          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
+          webhook-type: incoming-webhook
+          payload: |
+            text: "🔨 *backend*: Production image build completed and needs to be deployed!"
 
       - name: Notify Slack on Failure
         if: failure()

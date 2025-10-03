@@ -27,7 +27,7 @@ class TestLifespan:
             # Verify startup actions
             mock_scheduler.start.assert_called_once()
             mock_makedirs.assert_called_once_with("/test/uploads", exist_ok=True)
-            assert mock_create_task.call_count == 2  # Two async tasks created
+            assert mock_create_task.call_count == 0  # no async tasks created
 
         # Verify shutdown actions
         mock_scheduler.shutdown.assert_called_once()

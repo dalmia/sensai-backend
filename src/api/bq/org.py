@@ -1,16 +1,8 @@
 from google.cloud import bigquery
 import hashlib
-import os
 from api.settings import settings
 from api.config import org_api_keys_table_name
-
-
-def get_bq_client():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-        settings.google_application_credentials
-    )
-
-    return bigquery.Client()
+from api.bq.base import get_bq_client
 
 
 async def get_org_id_from_api_key(api_key: str) -> int:

@@ -1,5 +1,4 @@
 from google.cloud import bigquery
-import os
 from typing import Dict
 from collections import defaultdict
 from api.settings import settings
@@ -12,13 +11,7 @@ from api.config import (
     tasks_table_name,
 )
 from api.models import TaskType, TaskStatus, GenerateTaskJobStatus
-
-
-def get_bq_client():
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = (
-        settings.google_application_credentials
-    )
-    return bigquery.Client()
+from api.bq.base import get_bq_client
 
 
 async def get_course_org_id(course_id: int) -> int:
