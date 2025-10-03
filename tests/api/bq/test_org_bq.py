@@ -7,8 +7,8 @@ from src.api.bq.org import get_bq_client, get_org_id_from_api_key
 class TestOrgBQ:
     """Test BigQuery org functionality."""
 
-    @patch("src.api.bq.org.bigquery.Client")
-    @patch("src.api.bq.org.settings")
+    @patch("src.api.bq.base.bigquery.Client")
+    @patch("src.api.bq.base.settings")
     def test_get_bq_client(self, mock_settings, mock_bq_client):
         """Test BigQuery client creation."""
         mock_settings.google_application_credentials = "/path/to/creds.json"

@@ -14,8 +14,8 @@ from src.api.models import TaskType
 class TestTaskBQ:
     """Test BigQuery task functionality."""
 
-    @patch("src.api.bq.task.bigquery.Client")
-    @patch("src.api.bq.task.settings")
+    @patch("src.api.bq.base.bigquery.Client")
+    @patch("src.api.bq.base.settings")
     def test_get_bq_client(self, mock_settings, mock_bq_client):
         """Test BigQuery client creation."""
         mock_settings.google_application_credentials = "/path/to/creds.json"
