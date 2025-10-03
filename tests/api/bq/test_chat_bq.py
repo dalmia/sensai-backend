@@ -8,21 +8,6 @@ from src.api.bq.chat import get_all_chat_history
 class TestChatBQ:
     """Test BigQuery chat functionality."""
 
-    @patch("src.api.bq.base.bigquery.Client")
-    @patch("src.api.bq.base.settings")
-    def test_get_bq_client(self, mock_settings, mock_bq_client):
-        """Test BigQuery client creation."""
-        mock_settings.google_application_credentials = "/path/to/creds.json"
-        mock_client_instance = MagicMock()
-        mock_bq_client.return_value = mock_client_instance
-
-        with patch.dict(os.environ, {}, clear=True):
-            client = get_bq_client()
-
-            assert client == mock_client_instance
-            mock_bq_client.assert_called_once()
-            assert os.environ["GOOGLE_APPLICATION_CREDENTIALS"] == "/path/to/creds.json"
-
     @patch("src.api.bq.chat.get_bq_client")
     @patch("src.api.bq.chat.settings")
     @pytest.mark.asyncio

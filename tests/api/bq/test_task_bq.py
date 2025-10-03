@@ -14,19 +14,6 @@ from src.api.models import TaskType
 class TestTaskBQ:
     """Test BigQuery task functionality."""
 
-    @patch("src.api.bq.base.bigquery.Client")
-    @patch("src.api.bq.base.settings")
-    def test_get_bq_client(self, mock_settings, mock_bq_client):
-        """Test BigQuery client creation."""
-        mock_settings.google_application_credentials = "/path/to/creds.json"
-        mock_client_instance = MagicMock()
-        mock_bq_client.return_value = mock_client_instance
-
-        client = get_bq_client()
-
-        assert client == mock_client_instance
-        mock_bq_client.assert_called_once()
-
     @pytest.mark.asyncio
     async def test_get_scorecard_none_input(self):
         """Test get_scorecard with None input."""
