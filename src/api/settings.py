@@ -7,7 +7,9 @@ from api.config import UPLOAD_FOLDER_NAME
 
 root_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = join(root_dir, ".env.aws")
+
 if os.path.exists(env_path):
+    print(f"Loading environment variables from {env_path}")
     load_dotenv(env_path)
 
 
