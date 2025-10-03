@@ -63,7 +63,9 @@ async def test_get_upload_presigned_url_s3_folder_not_set(client, mock_db):
     """
     Test getting a presigned URL when S3 folder name is not set
     """
-    with patch("api.routes.file.settings.s3_folder_name", None):
+    with patch("api.routes.file.settings.s3_folder_name", None), patch(
+        "api.routes.file.settings.s3_bucket_name", "test-bucket"
+    ):
         request_body = {"content_type": "image/jpeg"}
 
         # Make request
@@ -175,7 +177,9 @@ async def test_get_download_presigned_url_s3_folder_not_set(client, mock_db):
     """
     Test getting a download presigned URL when S3 folder name is not set
     """
-    with patch("api.routes.file.settings.s3_folder_name", None):
+    with patch("api.routes.file.settings.s3_folder_name", None), patch(
+        "api.routes.file.settings.s3_bucket_name", "test-bucket"
+    ):
         uuid = "test-uuid"
         file_extension = "jpeg"
 
