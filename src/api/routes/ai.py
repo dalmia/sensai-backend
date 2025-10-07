@@ -477,13 +477,13 @@ async def ai_response_for_question(request: AIChatRequest):
                         feedback: Feedback = Field(
                             description="Detailed feedback for the student's response for this category"
                         )
-                        score: int = Field(
+                        score: float = Field(
                             description="Score given within the min/max range for this category based on the student's response - the score given should be in alignment with the feedback provided"
                         )
-                        max_score: int = Field(
+                        max_score: float = Field(
                             description="Maximum score possible for this category as per the scoring criteria"
                         )
-                        pass_score: int = Field(
+                        pass_score: float = Field(
                             description="Pass score possible for this category as per the scoring criteria"
                         )
 
