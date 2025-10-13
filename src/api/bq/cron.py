@@ -1,5 +1,7 @@
 from google.cloud import bigquery
-from typing import List, Dict, Any
+from google.api_core.exceptions import NotFound
+from typing import List, Dict, Any, Optional, Callable, Awaitable
+from datetime import datetime
 from api.settings import settings
 from api.utils.db import get_new_db_connection
 from api.config import (
@@ -21,6 +23,236 @@ from api.utils.logging import logger
 from api.bq.base import get_bq_client
 
 
+# -----------------------------
+# Diff-sync helpers (BigQuery)
+# -----------------------------
+
+def _format_sqlite_datetime(dt: datetime) -> str:
+    """Format a Python datetime into SQLite-compatible string (UTC naive)."""
+    # Ensure naive (SQLite stores DATETIME strings without timezone)
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(tz=None).replace(tzinfo=None)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _get_last_activity_timestamp(
+    bq_client: bigquery.Client, table_id: str
+) -> Optional[datetime]:
+    """
+    Return the maximum activity timestamp from BigQuery table across
+    updated_at, deleted_at, created_at. Handles TIMESTAMP/DATETIME types.
+
+    If table does not exist or has no such fields/rows, returns None.
+    """
+    try:
+        table = bq_client.get_table(table_id)
+    except NotFound:
+        return None
+
+    # Collect timestampish fields present in the destination table
+    dest_fields = {field.name for field in table.schema}
+    candidates = [f for f in ("updated_at", "deleted_at", "created_at") if f in dest_fields]
+    if not candidates:
+        return None
+
+    # Build a GREATEST() expression over normalized TIMESTAMPs for present fields
+    parts = []
+    for field_name in candidates:
+        # Normalize to TIMESTAMP regardless of source field type (TIMESTAMP or DATETIME)
+        # If SAFE_CAST to TIMESTAMP works (field is TIMESTAMP), use it; otherwise convert DATETIME using UTC
+        normalized = (
+            f"(CASE WHEN SAFE_CAST({field_name} AS TIMESTAMP) IS NOT NULL "
+            f"THEN SAFE_CAST({field_name} AS TIMESTAMP) ELSE TIMESTAMP({field_name}, 'UTC') END)"
+        )
+        # Ensure NULL-safe by providing a very old default timestamp
+        parts.append(
+            f"COALESCE({normalized}, TIMESTAMP('1970-01-01 00:00:00 UTC'))"
+        )
+
+    greatest_expr = "GREATEST(" + ", ".join(parts) + ")"
+    query = f"SELECT MAX({greatest_expr}) AS last_ts FROM `{table_id}`"
+
+    job = bq_client.query(query)
+    result = list(job.result())
+    if not result:
+        return None
+    last_ts = result[0].get("last_ts") if isinstance(result[0], dict) else getattr(result[0], "last_ts", None)
+    return last_ts
+
+
+def _build_staging_table_id(table_id: str) -> str:
+    """Return a staging table id in the same dataset as the destination table."""
+    # table_id format: project.dataset.table
+    project, dataset, table = table_id.split(".")
+    staging_table = f"_staging_{table}"
+    return f"{project}.{dataset}.{staging_table}"
+
+
+def _recreate_staging_with_dest_schema(
+    bq_client: bigquery.Client, dest_table_id: str, staging_table_id: str
+) -> None:
+    """Drop and recreate the staging table with the exact schema of the destination table."""
+    # Drop existing staging table if present
+    try:
+        bq_client.delete_table(staging_table_id, not_found_ok=True)  # type: ignore[arg-type]
+    except TypeError:
+        # Older SDKs don't support not_found_ok
+        try:
+            bq_client.delete_table(staging_table_id)
+        except NotFound:
+            pass
+
+    # Create staging with destination schema
+    dest_table = bq_client.get_table(dest_table_id)
+    staging = bigquery.Table(staging_table_id, schema=dest_table.schema)
+    bq_client.create_table(staging)
+
+
+def _load_rows_into_table(
+    bq_client: bigquery.Client, table_id: str, rows: List[Dict[str, Any]]
+) -> None:
+    """Load JSON rows into the specified table with WRITE_TRUNCATE."""
+    job_config = bigquery.LoadJobConfig(
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        ignore_unknown_values=True,
+    )
+    job = bq_client.load_table_from_json(rows, table_id, job_config=job_config)
+    job.result()
+    if job.errors:
+        raise Exception(f"BigQuery load job failed with errors: {job.errors}")
+
+
+def _merge_staging_into_destination(
+    bq_client: bigquery.Client,
+    dest_table_id: str,
+    staging_table_id: str,
+    primary_key: str = "id",
+) -> None:
+    """
+    Perform an upsert using MERGE: updates existing rows and inserts new rows
+    from staging into destination, matching on the primary key.
+    """
+    dest_table = bq_client.get_table(dest_table_id)
+    staging_table = bq_client.get_table(staging_table_id)
+
+    dest_cols = [f.name for f in dest_table.schema]
+    staging_cols = {f.name for f in staging_table.schema}
+    # Only use columns present in both tables
+    common_cols = [c for c in dest_cols if c in staging_cols]
+    if primary_key not in common_cols:
+        raise ValueError(f"Primary key '{primary_key}' must be present in staging and destination table schemas")
+
+    update_cols = [c for c in common_cols if c != primary_key]
+    insert_cols = common_cols
+
+    update_set_clause = ", ".join([f"T.{c} = S.{c}" for c in update_cols])
+    insert_cols_list = ", ".join(insert_cols)
+    insert_values_list = ", ".join([f"S.{c}" for c in insert_cols])
+
+    merge_sql = f"""
+        MERGE `{dest_table_id}` AS T
+        USING `{staging_table_id}` AS S
+        ON T.{primary_key} = S.{primary_key}
+        WHEN MATCHED THEN
+          UPDATE SET {update_set_clause}
+        WHEN NOT MATCHED THEN
+          INSERT ({insert_cols_list}) VALUES ({insert_values_list})
+    """
+
+    job = bq_client.query(merge_sql)
+    job.result()
+
+
+def _infer_bq_field_type(field_name: str, value: Any) -> str:
+    if value is None:
+        # Heuristic for timestamp-ish columns
+        if field_name.endswith("_at") or field_name.endswith("_time"):
+            return "TIMESTAMP"
+        return "STRING"
+    if isinstance(value, bool):
+        return "BOOL"
+    if isinstance(value, int):
+        return "INT64"
+    if isinstance(value, float):
+        return "FLOAT64"
+    if isinstance(value, (list, dict)):
+        # Conservatively store complex structures as STRING
+        return "STRING"
+    # Default to STRING for anything else
+    return "STRING"
+
+
+def _create_table_with_inferred_schema(
+    bq_client: bigquery.Client, table_id: str, sample_rows: List[Dict[str, Any]]
+) -> None:
+    if not sample_rows:
+        raise ValueError("Cannot infer schema without any rows")
+
+    first_row = sample_rows[0]
+    schema = []
+    for key, value in first_row.items():
+        field_type = _infer_bq_field_type(key, value)
+        schema.append(bigquery.SchemaField(name=key, field_type=field_type))
+
+    table = bigquery.Table(table_id, schema=schema)
+    bq_client.create_table(table)
+
+
+async def _diff_sync_table(
+    table_name: str,
+    fetcher: Callable[[Optional[str]], Awaitable[List[Dict[str, Any]]]],
+    primary_key: str = "id",
+) -> None:
+    """
+    Diff-based synchronization from SQLite to BigQuery for a single table.
+    - Determines last activity timestamp present in BigQuery
+    - Fetches only changed rows from SQLite (created/updated/deleted since that timestamp)
+    - Upserts changes via staging table and MERGE
+    """
+    bq_client = get_bq_client()
+    table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{table_name}"
+
+    last_bq_ts = _get_last_activity_timestamp(bq_client, table_id)
+    since_str: Optional[str] = _format_sqlite_datetime(last_bq_ts) if last_bq_ts else None
+
+    rows = await fetcher(since_str)
+
+    # If destination table does not exist, create it and perform an initial load
+    dest_exists = True
+    try:
+        bq_client.get_table(table_id)
+    except NotFound:
+        dest_exists = False
+
+    if not dest_exists:
+        if not rows:
+            logger.info(f"Destination {table_name} does not exist and no rows to load")
+            return
+        _create_table_with_inferred_schema(bq_client, table_id, rows)
+        _load_rows_into_table(bq_client, table_id, rows)
+        logger.info(f"Created and initially loaded BigQuery table for {table_name}")
+        print(f"Initial load for {table_name} completed")
+        return
+
+    if not rows:
+        logger.info(f"No new or updated/deleted rows to sync for {table_name}")
+        print(f"No changes for {table_name}")
+        return
+
+    staging_table_id = _build_staging_table_id(table_id)
+    _recreate_staging_with_dest_schema(bq_client, table_id, staging_table_id)
+    _load_rows_into_table(bq_client, staging_table_id, rows)
+    _merge_staging_into_destination(bq_client, table_id, staging_table_id, primary_key=primary_key)
+    # Clean up staging to avoid clutter
+    try:
+        bq_client.delete_table(staging_table_id, not_found_ok=True)  # type: ignore[arg-type]
+    except TypeError:
+        try:
+            bq_client.delete_table(staging_table_id)
+        except NotFound:
+            pass
+
+
 async def sync_org_api_keys_to_bigquery():
     """
     Sync org_api_keys table from SQLite to BigQuery.
@@ -33,28 +265,7 @@ async def sync_org_api_keys_to_bigquery():
         logger.info("Starting sync of org_api_keys table to BigQuery")
         print("Starting sync of org_api_keys table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_org_api_keys_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite org_api_keys table"
-        )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{org_api_keys_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery org_api_keys table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery org_api_keys table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery org_api_keys table")
+        await _diff_sync_table(org_api_keys_table_name, _fetch_org_api_keys_from_sqlite)
 
         logger.info("Successfully completed sync of org_api_keys table to BigQuery")
         print("Org API Keys sync completed successfully!")
@@ -77,26 +288,7 @@ async def sync_courses_to_bigquery():
         logger.info("Starting sync of courses table to BigQuery")
         print("Starting sync of courses table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_courses_from_sqlite()
-        logger.info(f"Fetched {len(sqlite_data)} records from SQLite courses table")
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{courses_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery courses table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery courses table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery courses table")
+        await _diff_sync_table(courses_table_name, _fetch_courses_from_sqlite)
 
         logger.info("Successfully completed sync of courses table to BigQuery")
         print("Courses sync completed successfully!")
@@ -119,26 +311,7 @@ async def sync_milestones_to_bigquery():
         logger.info("Starting sync of milestones table to BigQuery")
         print("Starting sync of milestones table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_milestones_from_sqlite()
-        logger.info(f"Fetched {len(sqlite_data)} records from SQLite milestones table")
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{milestones_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id, has_created_at=False)
-        logger.info("Deleted all existing records from BigQuery milestones table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery milestones table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery milestones table")
+        await _diff_sync_table(milestones_table_name, _fetch_milestones_from_sqlite)
 
         logger.info("Successfully completed sync of milestones table to BigQuery")
         print("Milestones sync completed successfully!")
@@ -161,28 +334,7 @@ async def sync_course_tasks_to_bigquery():
         logger.info("Starting sync of course_tasks table to BigQuery")
         print("Starting sync of course_tasks table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_course_tasks_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite course_tasks table"
-        )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{course_tasks_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery course_tasks table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery course_tasks table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery course_tasks table")
+        await _diff_sync_table(course_tasks_table_name, _fetch_course_tasks_from_sqlite)
 
         logger.info("Successfully completed sync of course_tasks table to BigQuery")
         print("Course Tasks sync completed successfully!")
@@ -205,30 +357,9 @@ async def sync_course_milestones_to_bigquery():
         logger.info("Starting sync of course_milestones table to BigQuery")
         print("Starting sync of course_milestones table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_course_milestones_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite course_milestones table"
+        await _diff_sync_table(
+            course_milestones_table_name, _fetch_course_milestones_from_sqlite
         )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{course_milestones_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info(
-            "Deleted all existing records from BigQuery course_milestones table"
-        )
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery course_milestones table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery course_milestones table")
 
         logger.info(
             "Successfully completed sync of course_milestones table to BigQuery"
@@ -253,28 +384,7 @@ async def sync_organizations_to_bigquery():
         logger.info("Starting sync of organizations table to BigQuery")
         print("Starting sync of organizations table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_organizations_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite organizations table"
-        )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{organizations_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery organizations table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery organizations table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery organizations table")
+        await _diff_sync_table(organizations_table_name, _fetch_organizations_from_sqlite)
 
         logger.info("Successfully completed sync of organizations table to BigQuery")
         print("Organizations sync completed successfully!")
@@ -297,26 +407,7 @@ async def sync_scorecards_to_bigquery():
         logger.info("Starting sync of scorecards table to BigQuery")
         print("Starting sync of scorecards table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_scorecards_from_sqlite()
-        logger.info(f"Fetched {len(sqlite_data)} records from SQLite scorecards table")
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{scorecards_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery scorecards table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery scorecards table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery scorecards table")
+        await _diff_sync_table(scorecards_table_name, _fetch_scorecards_from_sqlite)
 
         logger.info("Successfully completed sync of scorecards table to BigQuery")
         print("Scorecards sync completed successfully!")
@@ -339,30 +430,9 @@ async def sync_question_scorecards_to_bigquery():
         logger.info("Starting sync of question_scorecards table to BigQuery")
         print("Starting sync of question_scorecards table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_question_scorecards_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite question_scorecards table"
+        await _diff_sync_table(
+            question_scorecards_table_name, _fetch_question_scorecards_from_sqlite
         )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{question_scorecards_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info(
-            "Deleted all existing records from BigQuery question_scorecards table"
-        )
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery question_scorecards table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery question_scorecards table")
 
         logger.info(
             "Successfully completed sync of question_scorecards table to BigQuery"
@@ -387,28 +457,9 @@ async def sync_task_completions_to_bigquery():
         logger.info("Starting sync of task_completions table to BigQuery")
         print("Starting sync of task_completions table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_task_completions_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite task_completions table"
+        await _diff_sync_table(
+            task_completions_table_name, _fetch_task_completions_from_sqlite
         )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{task_completions_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery task_completions table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery task_completions table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery task_completions table")
 
         logger.info("Successfully completed sync of task_completions table to BigQuery")
         print("Task Completions sync completed successfully!")
@@ -431,28 +482,7 @@ async def sync_chat_history_to_bigquery():
         logger.info("Starting sync of chat_history table to BigQuery")
         print("Starting sync of chat_history table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_chat_history_from_sqlite()
-        logger.info(
-            f"Fetched {len(sqlite_data)} records from SQLite chat_history table"
-        )
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{chat_history_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery chat_history table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery chat_history table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery chat_history table")
+        await _diff_sync_table(chat_history_table_name, _fetch_chat_history_from_sqlite)
 
         logger.info("Successfully completed sync of chat_history table to BigQuery")
         print("Chat History sync completed successfully!")
@@ -475,28 +505,7 @@ async def sync_users_to_bigquery():
         logger.info("Starting sync of users table to BigQuery")
         print("Starting sync of users table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_users_from_sqlite()
-        logger.info(f"Fetched {len(sqlite_data)} records from SQLite users table")
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = (
-            f"{settings.bq_project_name}.{settings.bq_dataset_name}.{users_table_name}"
-        )
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery users table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery users table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery users table")
+        await _diff_sync_table(users_table_name, _fetch_users_from_sqlite)
 
         logger.info("Successfully completed sync of users table to BigQuery")
         print("Users sync completed successfully!")
@@ -519,28 +528,7 @@ async def sync_tasks_to_bigquery():
         logger.info("Starting sync of tasks table to BigQuery")
         print("Starting sync of tasks table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_tasks_from_sqlite()
-        logger.info(f"Fetched {len(sqlite_data)} records from SQLite tasks table")
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = (
-            f"{settings.bq_project_name}.{settings.bq_dataset_name}.{tasks_table_name}"
-        )
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery tasks table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery tasks table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery tasks table")
+        await _diff_sync_table(tasks_table_name, _fetch_tasks_from_sqlite)
 
         logger.info("Successfully completed sync of tasks table to BigQuery")
         print("Tasks sync completed successfully!")
@@ -563,26 +551,7 @@ async def sync_questions_to_bigquery():
         logger.info("Starting sync of questions table to BigQuery")
         print("Starting sync of questions table to BigQuery")
 
-        # Step 1: Fetch all data from SQLite
-        sqlite_data = await _fetch_questions_from_sqlite()
-        logger.info(f"Fetched {len(sqlite_data)} records from SQLite questions table")
-
-        # Step 2: Get BigQuery client and table reference
-        bq_client = get_bq_client()
-        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{questions_table_name}"
-
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery questions table")
-
-        # Step 4: Insert SQLite data into BigQuery
-        if sqlite_data:
-            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
-            logger.info(
-                f"Inserted {len(sqlite_data)} records into BigQuery questions table"
-            )
-        else:
-            logger.info("No data to insert into BigQuery questions table")
+        await _diff_sync_table(questions_table_name, _fetch_questions_from_sqlite)
 
         logger.info("Successfully completed sync of questions table to BigQuery")
         print("Questions sync completed successfully!")
@@ -593,18 +562,21 @@ async def sync_questions_to_bigquery():
         raise
 
 
-async def _fetch_org_api_keys_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite org_api_keys table"""
+async def _fetch_org_api_keys_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite org_api_keys table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, org_id, hashed_key, created_at 
+        base_query = f"""
+            SELECT id, org_id, hashed_key, created_at, updated_at, deleted_at
             FROM {org_api_keys_table_name}
-            ORDER BY id
         """
-        )
+
+        if since:
+            where_clause = "WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?))"
+            await cursor.execute(f"{base_query} {where_clause} ORDER BY id", (since, since, since))
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -617,24 +589,30 @@ async def _fetch_org_api_keys_from_sqlite() -> List[Dict[str, Any]]:
                     "org_id": row[1],
                     "hashed_key": row[2],
                     "created_at": row[3],
+                    "updated_at": row[4],
+                    "deleted_at": row[5],
                 }
             )
 
         return data
 
 
-async def _fetch_courses_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite courses table"""
+async def _fetch_courses_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite courses table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, org_id, name, created_at 
+        base_query = f"""
+            SELECT id, org_id, name, created_at, updated_at, deleted_at
             FROM {courses_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -642,24 +620,35 @@ async def _fetch_courses_from_sqlite() -> List[Dict[str, Any]]:
         data = []
         for row in rows:
             data.append(
-                {"id": row[0], "org_id": row[1], "name": row[2], "created_at": row[3]}
+                {
+                    "id": row[0],
+                    "org_id": row[1],
+                    "name": row[2],
+                    "created_at": row[3],
+                    "updated_at": row[4],
+                    "deleted_at": row[5],
+                }
             )
 
         return data
 
 
-async def _fetch_milestones_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite milestones table"""
+async def _fetch_milestones_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite milestones table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, org_id, name, color 
+        base_query = f"""
+            SELECT id, org_id, name, color, created_at, updated_at, deleted_at
             FROM {milestones_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -667,24 +656,36 @@ async def _fetch_milestones_from_sqlite() -> List[Dict[str, Any]]:
         data = []
         for row in rows:
             data.append(
-                {"id": row[0], "org_id": row[1], "name": row[2], "color": row[3]}
+                {
+                    "id": row[0],
+                    "org_id": row[1],
+                    "name": row[2],
+                    "color": row[3],
+                    "created_at": row[4],
+                    "updated_at": row[5],
+                    "deleted_at": row[6],
+                }
             )
 
         return data
 
 
-async def _fetch_course_tasks_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite course_tasks table"""
+async def _fetch_course_tasks_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite course_tasks table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, task_id, course_id, ordering, created_at, milestone_id 
+        base_query = f"""
+            SELECT id, task_id, course_id, ordering, created_at, updated_at, deleted_at, milestone_id
             FROM {course_tasks_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -698,25 +699,31 @@ async def _fetch_course_tasks_from_sqlite() -> List[Dict[str, Any]]:
                     "course_id": row[2],
                     "ordering": row[3],
                     "created_at": row[4],
-                    "milestone_id": row[5],
+                    "updated_at": row[5],
+                    "deleted_at": row[6],
+                    "milestone_id": row[7],
                 }
             )
 
         return data
 
 
-async def _fetch_course_milestones_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite course_milestones table"""
+async def _fetch_course_milestones_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite course_milestones table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, course_id, milestone_id, ordering, created_at 
+        base_query = f"""
+            SELECT id, course_id, milestone_id, ordering, created_at, updated_at, deleted_at
             FROM {course_milestones_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -730,24 +737,30 @@ async def _fetch_course_milestones_from_sqlite() -> List[Dict[str, Any]]:
                     "milestone_id": row[2],
                     "ordering": row[3],
                     "created_at": row[4],
+                    "updated_at": row[5],
+                    "deleted_at": row[6],
                 }
             )
 
         return data
 
 
-async def _fetch_organizations_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite organizations table"""
+async def _fetch_organizations_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite organizations table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, slug, name, default_logo_color, created_at 
+        base_query = f"""
+            SELECT id, slug, name, default_logo_color, created_at, updated_at, deleted_at
             FROM {organizations_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -761,24 +774,30 @@ async def _fetch_organizations_from_sqlite() -> List[Dict[str, Any]]:
                     "name": row[2],
                     "default_logo_color": row[3],
                     "created_at": row[4],
+                    "updated_at": row[5],
+                    "deleted_at": row[6],
                 }
             )
 
         return data
 
 
-async def _fetch_scorecards_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite scorecards table"""
+async def _fetch_scorecards_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite scorecards table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, org_id, title, criteria, created_at, status 
+        base_query = f"""
+            SELECT id, org_id, title, criteria, created_at, updated_at, deleted_at, status
             FROM {scorecards_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -792,25 +811,31 @@ async def _fetch_scorecards_from_sqlite() -> List[Dict[str, Any]]:
                     "title": row[2],
                     "criteria": row[3],
                     "created_at": row[4],
-                    "status": row[5],
+                    "updated_at": row[5],
+                    "deleted_at": row[6],
+                    "status": row[7],
                 }
             )
 
         return data
 
 
-async def _fetch_question_scorecards_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite question_scorecards table"""
+async def _fetch_question_scorecards_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite question_scorecards table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, question_id, scorecard_id, created_at 
+        base_query = f"""
+            SELECT id, question_id, scorecard_id, created_at, updated_at, deleted_at
             FROM {question_scorecards_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -823,24 +848,30 @@ async def _fetch_question_scorecards_from_sqlite() -> List[Dict[str, Any]]:
                     "question_id": row[1],
                     "scorecard_id": row[2],
                     "created_at": row[3],
+                    "updated_at": row[4],
+                    "deleted_at": row[5],
                 }
             )
 
         return data
 
 
-async def _fetch_task_completions_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite task_completions table"""
+async def _fetch_task_completions_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite task_completions table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, user_id, task_id, question_id, created_at 
+        base_query = f"""
+            SELECT id, user_id, task_id, question_id, created_at, updated_at, deleted_at
             FROM {task_completions_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -854,24 +885,30 @@ async def _fetch_task_completions_from_sqlite() -> List[Dict[str, Any]]:
                     "task_id": row[2],
                     "question_id": row[3],
                     "created_at": row[4],
+                    "updated_at": row[5],
+                    "deleted_at": row[6],
                 }
             )
 
         return data
 
 
-async def _fetch_chat_history_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite chat_history table"""
+async def _fetch_chat_history_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite chat_history table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, user_id, question_id, role, content, response_type, created_at 
+        base_query = f"""
+            SELECT id, user_id, question_id, role, content, response_type, created_at, updated_at, deleted_at
             FROM {chat_history_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -887,24 +924,30 @@ async def _fetch_chat_history_from_sqlite() -> List[Dict[str, Any]]:
                     "content": row[4],
                     "response_type": row[5],
                     "created_at": row[6],
+                    "updated_at": row[7],
+                    "deleted_at": row[8],
                 }
             )
 
         return data
 
 
-async def _fetch_users_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite users table"""
+async def _fetch_users_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite users table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, email, first_name, middle_name, last_name, default_dp_color, created_at 
+        base_query = f"""
+            SELECT id, email, first_name, middle_name, last_name, default_dp_color, created_at, updated_at, deleted_at
             FROM {users_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -920,24 +963,30 @@ async def _fetch_users_from_sqlite() -> List[Dict[str, Any]]:
                     "last_name": row[4],
                     "default_dp_color": row[5],
                     "created_at": row[6],
+                    "updated_at": row[7],
+                    "deleted_at": row[8],
                 }
             )
 
         return data
 
 
-async def _fetch_tasks_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite tasks table"""
+async def _fetch_tasks_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite tasks table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, org_id, type, blocks, title, status, created_at, deleted_at, scheduled_publish_at 
+        base_query = f"""
+            SELECT id, org_id, type, blocks, title, status, created_at, updated_at, deleted_at, scheduled_publish_at
             FROM {tasks_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -953,28 +1002,33 @@ async def _fetch_tasks_from_sqlite() -> List[Dict[str, Any]]:
                     "title": row[4],
                     "status": row[5],
                     "created_at": row[6],
-                    "deleted_at": row[7],
-                    "scheduled_publish_at": row[8],
+                    "updated_at": row[7],
+                    "deleted_at": row[8],
+                    "scheduled_publish_at": row[9],
                 }
             )
 
         return data
 
 
-async def _fetch_questions_from_sqlite() -> List[Dict[str, Any]]:
-    """Fetch all records from SQLite questions table"""
+async def _fetch_questions_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Fetch records from SQLite questions table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"""
-            SELECT id, task_id, type, blocks, answer, input_type, coding_language, 
-                   generation_model, response_type, position, created_at, deleted_at, 
-                   max_attempts, is_feedback_shown, context, title 
+        base_query = f"""
+            SELECT id, task_id, type, blocks, answer, input_type, coding_language,
+                   generation_model, response_type, position, created_at, updated_at, deleted_at,
+                   max_attempts, is_feedback_shown, context, title
             FROM {questions_table_name}
-            ORDER BY id
         """
-        )
+        if since:
+            await cursor.execute(
+                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                (since, since, since),
+            )
+        else:
+            await cursor.execute(f"{base_query} ORDER BY id")
 
         rows = await cursor.fetchall()
 
@@ -994,54 +1048,28 @@ async def _fetch_questions_from_sqlite() -> List[Dict[str, Any]]:
                     "response_type": row[8],
                     "position": row[9],
                     "created_at": row[10],
-                    "deleted_at": row[11],
-                    "max_attempts": row[12],
-                    "is_feedback_shown": row[13],
-                    "context": row[14],
-                    "title": row[15],
+                    "updated_at": row[11],
+                    "deleted_at": row[12],
+                    "max_attempts": row[13],
+                    "is_feedback_shown": row[14],
+                    "context": row[15],
+                    "title": row[16],
                 }
             )
 
         return data
 
 
-def _delete_all_from_bq_table(
-    bq_client: bigquery.Client, table_id: str, has_created_at: bool = True
-):
-    """Delete all records from BigQuery table"""
-    if has_created_at:
-        if org_api_keys_table_name in table_id:
-            query = f"DELETE FROM `{table_id}` WHERE TRUE AND created_at > DATETIME('2024-01-01 00:00:00')"
-        else:
-            query = f"DELETE FROM `{table_id}` WHERE TRUE AND created_at > TIMESTAMP('2024-01-01 00:00:00')"
-    else:
-        query = f"DELETE FROM `{table_id}` WHERE TRUE"
-
-    job_config = bigquery.QueryJobConfig()
-    query_job = bq_client.query(query, job_config=job_config)
-
-    # Wait for the job to complete
-    query_job.result()
-
-
 def _insert_data_to_bq_table(
     bq_client: bigquery.Client, table_id: str, data: List[Dict[str, Any]]
 ):
-    """Insert data into BigQuery table"""
-    table = bq_client.get_table(table_id)
-
-    # Configure the job to append data and ignore unknown values
+    """Deprecated: Prefer diff-based sync. Kept for backward compatibility if needed."""
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
         ignore_unknown_values=True,
     )
-
-    # Insert the data
-    job = bq_client.load_table_from_json(data, table, job_config=job_config)
-
-    # Wait for the job to complete
+    job = bq_client.load_table_from_json(data, table_id, job_config=job_config)
     job.result()
-
     if job.errors:
         raise Exception(f"BigQuery insert job failed with errors: {job.errors}")
 
