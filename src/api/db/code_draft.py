@@ -14,7 +14,8 @@ async def upsert_user_code_draft(user_id: int, question_id: int, code: List[Dict
         VALUES (?, ?, ?)
         ON CONFLICT(user_id, question_id) DO UPDATE SET
             code = excluded.code,
-            updated_at = CURRENT_TIMESTAMP
+            updated_at = CURRENT_TIMESTAMP,
+            deleted_at = NULL
         """,
         (user_id, question_id, json.dumps(code)),
     )

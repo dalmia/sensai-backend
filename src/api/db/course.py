@@ -136,7 +136,7 @@ async def get_courses_for_cohort(
         SELECT c.id, c.name, cc.is_drip_enabled, cc.frequency_value, cc.frequency_unit, cc.publish_at
         FROM {courses_table_name} c
         JOIN {course_cohorts_table_name} cc ON c.id = cc.course_id
-        WHERE cc.cohort_id = ?
+        WHERE cc.cohort_id = ? AND c.deleted_at IS NULL AND cc.deleted_at IS NULL
         """,
         (cohort_id,),
         fetch_all=True,
@@ -194,7 +194,7 @@ async def get_course_generation_job_details(job_uuid: str) -> Dict:
         cursor = await conn.cursor()
 
         await cursor.execute(
-            f"SELECT job_details FROM {course_generation_jobs_table_name} WHERE uuid = ?",
+            f"SELECT job_details FROM {course_generation_jobs_table_name} WHERE uuid = ? AND deleted_at IS NULL",
             (job_uuid,),
         )
 
@@ -206,8 +206,93 @@ async def get_course_generation_job_details(job_uuid: str) -> Dict:
         return json.loads(job[0])
 
 
+async def get_course(course_id: int, only_published: bool = True) -> Dict:
+    course = await execute_db_operation(
+        f"SELECT c.id, c.name, cgj.status as course_generation_status FROM {courses_table_name} c LEFT JOIN {course_generation_jobs_table_name} cgj ON c.id = cgj.course_id WHERE c.id = ? AND c.deleted_at IS NULL",
+        (course_id,),
+        fetch_one=True,
+    )
+
+    if not course:
+        return None
+
+    # Fix the milestones query to match the actual schema
+    milestones = await execute_db_operation(
+        f"""SELECT m.id, m.name, m.color, cm.ordering 
+            FROM {course_milestones_table_name} cm
+            JOIN milestones m ON cm.milestone_id = m.id
+            WHERE cm.course_id = ? ORDER BY cm.ordering""",
+        (course_id,),
+        fetch_all=True,
+    )
+
+    # Fetch all tasks for this course
+    tasks = await execute_db_operation(
+        f"""SELECT t.id, t.title, t.type, t.status, t.scheduled_publish_at, ct.milestone_id, ct.ordering,
+            (CASE WHEN t.type = '{TaskType.QUIZ}' THEN 
+                (SELECT COUNT(*) FROM {questions_table_name} q 
+                 WHERE q.task_id = t.id)
+             ELSE NULL END) as num_questions,
+            tgj.status as task_generation_status
+            FROM {course_tasks_table_name} ct
+            JOIN {tasks_table_name} t ON ct.task_id = t.id
+            LEFT JOIN {task_generation_jobs_table_name} tgj ON t.id = tgj.task_id
+            WHERE ct.course_id = ? AND t.deleted_at IS NULL
+            {
+                f"AND t.status = '{TaskStatus.PUBLISHED}' AND t.scheduled_publish_at IS NULL"
+                if only_published
+                else ""
+            }
+            ORDER BY ct.milestone_id, ct.ordering""",
+        (course_id,),
+        fetch_all=True,
+    )
+
+    # Group tasks by milestone_id
+    tasks_by_milestone = defaultdict(list)
+    for task in tasks:
+        milestone_id = task[5]
+
+        tasks_by_milestone[milestone_id].append(
+            {
+                "id": task[0],
+                "title": task[1],
+                "type": task[2],
+                "status": task[3],
+                "scheduled_publish_at": task[4],
+                "ordering": task[6],
+                "num_questions": task[7],
+                "is_generating": task[8] is not None
+                and task[8] == GenerateTaskJobStatus.STARTED,
+            }
+        )
+
+    course_dict = {
+        "id": course[0],
+        "name": course[1],
+        "course_generation_status": course[2],
+    }
+    course_dict["milestones"] = []
+
+    for milestone in milestones:
+        milestone_id = milestone[0]
+        milestone_dict = {
+            "id": milestone_id,
+            "name": milestone[1],
+            "color": milestone[2],
+            "ordering": milestone[3],
+            "tasks": tasks_by_milestone.get(milestone_id, []),
+        }
+        course_dict["milestones"].append(milestone_dict)
+
+    return course_dict
+
+
 async def duplicate_course_to_org(course_id: int, org_id: int):
     course = await get_course(course_id, only_published=False)
+
+    if not course:
+        raise ValueError("Course does not exist")
 
     new_course_id = await create_course(f'{course["name"]} (Copy)', org_id)
 
@@ -412,7 +497,7 @@ async def get_cohorts_for_course(course_id: int):
         SELECT ch.id, ch.name, cc.is_drip_enabled, cc.frequency_value, cc.frequency_unit, cc.publish_at
         FROM {cohorts_table_name} ch
         JOIN {course_cohorts_table_name} cc ON ch.id = cc.cohort_id
-        WHERE cc.course_id = ?
+        WHERE cc.course_id = ? AND cc.deleted_at IS NULL AND ch.deleted_at IS NULL
         """,
         (course_id,),
         fetch_all=True,
@@ -464,7 +549,7 @@ async def get_tasks_for_course(course_id: int, milestone_id: int = None):
         FROM {tasks_table_name} t
         JOIN {course_tasks_table_name} ct ON ct.task_id = t.id 
         LEFT JOIN {milestones_table_name} m ON ct.milestone_id = m.id
-        WHERE t.deleted_at IS NULL
+        WHERE t.deleted_at IS NULL AND ct.deleted_at IS NULL and m.deleted_at IS NULL
         """
 
     params = []
@@ -500,7 +585,7 @@ async def get_tasks_for_course(course_id: int, milestone_id: int = None):
 
 async def get_milestones_for_course(course_id: int):
     milestones = await execute_db_operation(
-        f"SELECT cm.id, cm.milestone_id, m.name, cm.ordering FROM {course_milestones_table_name} cm JOIN {milestones_table_name} m ON cm.milestone_id = m.id WHERE cm.course_id = ? ORDER BY cm.ordering",
+        f"SELECT cm.id, cm.milestone_id, m.name, cm.ordering FROM {course_milestones_table_name} cm JOIN {milestones_table_name} m ON cm.milestone_id = m.id WHERE cm.course_id = ? AND cm.deleted_at IS NULL AND m.deleted_at IS NULL AND cm.deleted_at IS NULL ORDER BY cm.ordering",
         (course_id,),
         fetch_all=True,
     )
@@ -517,7 +602,7 @@ async def get_milestones_for_course(course_id: int):
 
 async def get_all_courses_for_org(org_id: int):
     courses = await execute_db_operation(
-        f"SELECT id, name FROM {courses_table_name} WHERE org_id = ? ORDER BY id DESC",
+        f"SELECT id, name FROM {courses_table_name} WHERE org_id = ? AND deleted_at IS NULL ORDER BY id DESC",
         (org_id,),
         fetch_all=True,
     )
@@ -576,7 +661,7 @@ async def swap_milestone_ordering_for_course(
 ):
     # First, check if both milestones exist for the course
     milestone_entries = await execute_db_operation(
-        f"SELECT milestone_id, ordering FROM {course_milestones_table_name} WHERE course_id = ? AND milestone_id IN (?, ?)",
+        f"SELECT milestone_id, ordering FROM {course_milestones_table_name} WHERE course_id = ? AND milestone_id IN (?, ?) AND deleted_at IS NULL",
         (course_id, milestone_1_id, milestone_2_id),
         fetch_all=True,
     )
@@ -602,7 +687,7 @@ async def swap_milestone_ordering_for_course(
 async def swap_task_ordering_for_course(course_id: int, task_1_id: int, task_2_id: int):
     # First, check if both tasks exist for the course
     task_entries = await execute_db_operation(
-        f"SELECT task_id, milestone_id, ordering FROM {course_tasks_table_name} WHERE course_id = ? AND task_id IN (?, ?)",
+        f"SELECT task_id, milestone_id, ordering FROM {course_tasks_table_name} WHERE course_id = ? AND task_id IN (?, ?) AND deleted_at IS NULL",
         (course_id, task_1_id, task_2_id),
         fetch_all=True,
     )
@@ -666,7 +751,7 @@ def convert_course_db_to_dict(course: Tuple) -> Dict:
 
 async def get_course_org_id(course_id: int) -> int:
     course = await execute_db_operation(
-        f"SELECT org_id FROM {courses_table_name} WHERE id = ?",
+        f"SELECT org_id FROM {courses_table_name} WHERE id = ? AND deleted_at IS NULL",
         (course_id,),
         fetch_one=True,
     )
@@ -677,91 +762,9 @@ async def get_course_org_id(course_id: int) -> int:
     return course[0]
 
 
-async def get_course(course_id: int, only_published: bool = True) -> Dict:
-    course = await execute_db_operation(
-        f"SELECT c.id, c.name, cgj.status as course_generation_status FROM {courses_table_name} c LEFT JOIN {course_generation_jobs_table_name} cgj ON c.id = cgj.course_id WHERE c.id = ?",
-        (course_id,),
-        fetch_one=True,
-    )
-
-    if not course:
-        return None
-
-    # Fix the milestones query to match the actual schema
-    milestones = await execute_db_operation(
-        f"""SELECT m.id, m.name, m.color, cm.ordering 
-            FROM {course_milestones_table_name} cm
-            JOIN milestones m ON cm.milestone_id = m.id
-            WHERE cm.course_id = ? ORDER BY cm.ordering""",
-        (course_id,),
-        fetch_all=True,
-    )
-
-    # Fetch all tasks for this course
-    tasks = await execute_db_operation(
-        f"""SELECT t.id, t.title, t.type, t.status, t.scheduled_publish_at, ct.milestone_id, ct.ordering,
-            (CASE WHEN t.type = '{TaskType.QUIZ}' THEN 
-                (SELECT COUNT(*) FROM {questions_table_name} q 
-                 WHERE q.task_id = t.id)
-             ELSE NULL END) as num_questions,
-            tgj.status as task_generation_status
-            FROM {course_tasks_table_name} ct
-            JOIN {tasks_table_name} t ON ct.task_id = t.id
-            LEFT JOIN {task_generation_jobs_table_name} tgj ON t.id = tgj.task_id
-            WHERE ct.course_id = ? AND t.deleted_at IS NULL
-            {
-                f"AND t.status = '{TaskStatus.PUBLISHED}' AND t.scheduled_publish_at IS NULL"
-                if only_published
-                else ""
-            }
-            ORDER BY ct.milestone_id, ct.ordering""",
-        (course_id,),
-        fetch_all=True,
-    )
-
-    # Group tasks by milestone_id
-    tasks_by_milestone = defaultdict(list)
-    for task in tasks:
-        milestone_id = task[5]
-
-        tasks_by_milestone[milestone_id].append(
-            {
-                "id": task[0],
-                "title": task[1],
-                "type": task[2],
-                "status": task[3],
-                "scheduled_publish_at": task[4],
-                "ordering": task[6],
-                "num_questions": task[7],
-                "is_generating": task[8] is not None
-                and task[8] == GenerateTaskJobStatus.STARTED,
-            }
-        )
-
-    course_dict = {
-        "id": course[0],
-        "name": course[1],
-        "course_generation_status": course[2],
-    }
-    course_dict["milestones"] = []
-
-    for milestone in milestones:
-        milestone_id = milestone[0]
-        milestone_dict = {
-            "id": milestone_id,
-            "name": milestone[1],
-            "color": milestone[2],
-            "ordering": milestone[3],
-            "tasks": tasks_by_milestone.get(milestone_id, []),
-        }
-        course_dict["milestones"].append(milestone_dict)
-
-    return course_dict
-
-
 async def update_course_name(course_id: int, name: str):
     await execute_db_operation(
-        f"UPDATE {courses_table_name} SET name = ? WHERE id = ?",
+        f"UPDATE {courses_table_name} SET name = ? WHERE id = ? AND deleted_at IS NULL",
         (name, course_id),
     )
 
@@ -823,7 +826,7 @@ async def add_tasks_to_courses(course_tasks_to_add: List[Tuple[int, int, int]]):
         # For each course, get max ordering and insert tasks with incremented order
         for course_id, task_details in course_to_tasks.items():
             await cursor.execute(
-                f"SELECT COALESCE(MAX(ordering), -1) FROM {course_tasks_table_name} WHERE course_id = ?",
+                f"SELECT COALESCE(MAX(ordering), -1) FROM {course_tasks_table_name} WHERE course_id = ? AND deleted_at IS NULL",
                 (course_id,),
             )
             max_ordering = (await cursor.fetchone())[0]
@@ -875,7 +878,7 @@ async def add_milestone_to_course(
         milestone_id = cursor.lastrowid
 
         await cursor.execute(
-            f"SELECT COALESCE(MAX(ordering), -1) FROM {course_milestones_table_name} WHERE course_id = ?",
+            f"SELECT COALESCE(MAX(ordering), -1) FROM {course_milestones_table_name} WHERE course_id = ? AND deleted_at IS NULL",
             (course_id,),
         )
         max_ordering = await cursor.fetchone()
@@ -962,7 +965,7 @@ async def get_user_courses(user_id: int) -> List[Dict]:
         for course_id, role in course_roles.items():
             # Fetch course from DB including org_id
             await cursor.execute(
-                f"SELECT c.id, c.name, o.id, o.name, o.slug FROM {courses_table_name} c JOIN {organizations_table_name} o ON c.org_id = o.id WHERE c.id = ?",
+                f"SELECT c.id, c.name, o.id, o.name, o.slug FROM {courses_table_name} c JOIN {organizations_table_name} o ON c.org_id = o.id WHERE c.id = ? AND c.deleted_at IS NULL AND o.deleted_at IS NULL",
                 (course_id,),
             )
             course_row = await cursor.fetchone()

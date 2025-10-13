@@ -65,7 +65,7 @@ async def delete_milestone(milestone_id: int):
 
 async def get_user_metrics_for_all_milestones(user_id: int, course_id: int):
     # Get milestones with tasks
-    base_results = await execute_db_operation(
+    results = await execute_db_operation(
         f"""
         SELECT 
             m.id AS milestone_id,
@@ -75,7 +75,7 @@ async def get_user_metrics_for_all_milestones(user_id: int, course_id: int):
             (
                 SELECT COUNT(DISTINCT ch.task_id)
                 FROM {chat_history_table_name} ch
-                WHERE ch.user_id = ?
+                WHERE ch.user_id = ? AND ch.deleted_at IS NULL
                 AND ch.is_solved = 1
                 AND ch.task_id IN (
                     SELECT t2.id 
@@ -84,6 +84,7 @@ async def get_user_metrics_for_all_milestones(user_id: int, course_id: int):
                     WHERE ct2.milestone_id = m.id 
                     AND ct2.course_id = ?
                     AND t2.deleted_at IS NULL
+                    AND ct2.deleted_at IS NULL
                 )
             ) AS completed_tasks
         FROM 
@@ -95,7 +96,7 @@ async def get_user_metrics_for_all_milestones(user_id: int, course_id: int):
         LEFT JOIN
             {course_milestones_table_name} cm ON m.id = cm.milestone_id AND ct.course_id = cm.course_id
         WHERE 
-            t.verified = 1 AND ct.course_id = ? AND t.deleted_at IS NULL
+            t.verified = 1 AND ct.course_id = ? AND t.deleted_at IS NULL AND ct.deleted_at IS NULL AND cm.deleted_at IS NULL AND m.deleted_at IS NULL
         GROUP BY 
             m.id, m.name, m.color
         HAVING 
@@ -106,48 +107,6 @@ async def get_user_metrics_for_all_milestones(user_id: int, course_id: int):
         params=(user_id, course_id, course_id),
         fetch_all=True,
     )
-
-    # Get tasks with null milestone_id
-    null_milestone_results = await execute_db_operation(
-        f"""
-        SELECT 
-            NULL AS milestone_id,
-            '{uncategorized_milestone_name}' AS milestone_name,
-            '{uncategorized_milestone_color}' AS milestone_color,
-            COUNT(DISTINCT t.id) AS total_tasks,
-            (
-                SELECT COUNT(DISTINCT ch.task_id)
-                FROM {chat_history_table_name} ch
-                WHERE ch.user_id = ?
-                AND ch.is_solved = 1
-                AND ch.task_id IN (
-                    SELECT t2.id 
-                    FROM {tasks_table_name} t2 
-                    JOIN {course_tasks_table_name} ct2 ON t2.id = ct2.task_id
-                    WHERE ct2.milestone_id IS NULL 
-                    AND ct2.course_id = ?
-                    AND t2.deleted_at IS NULL
-                )
-            ) AS completed_tasks
-        FROM 
-            {tasks_table_name} t
-        LEFT JOIN
-            {course_tasks_table_name} ct ON t.id = ct.task_id
-        WHERE 
-            ct.milestone_id IS NULL 
-            AND t.verified = 1 
-            AND t.deleted_at IS NULL
-            AND ct.course_id = ?
-        HAVING
-            COUNT(DISTINCT t.id) > 0
-        ORDER BY 
-            ct.ordering
-        """,
-        params=(user_id, course_id, course_id),
-        fetch_all=True,
-    )
-
-    results = base_results + null_milestone_results
 
     return [
         {

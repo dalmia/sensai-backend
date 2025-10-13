@@ -222,7 +222,7 @@ async def get_task(task_id: int):
 
     if task_data["type"] == TaskType.LEARNING_MATERIAL:
         result = await execute_db_operation(
-            f"SELECT blocks FROM {tasks_table_name} WHERE id = ?",
+            f"SELECT blocks FROM {tasks_table_name} WHERE id = ? AND deleted_at IS NULL",
             (task_id,),
             fetch_one=True,
         )
@@ -453,8 +453,8 @@ async def update_draft_quiz(
                 if existing_scorecard_id != new_scorecard_id:
                     # Soft delete existing scorecard association
                     await cursor.execute(
-                        f"UPDATE {question_scorecards_table_name} SET deleted_at = ? WHERE question_id = ? AND deleted_at IS NULL",
-                        (datetime.now(), question_id),
+                        f"UPDATE {question_scorecards_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND deleted_at IS NULL",
+                        (question_id),
                     )
 
             # Upsert question (handles both update and create)
@@ -487,13 +487,11 @@ async def update_draft_quiz(
         if questions_to_delete:
             # Soft delete scorecard associations first
             await cursor.execute(
-                f"UPDATE {question_scorecards_table_name} SET deleted_at = ? WHERE question_id IN ({','.join(map(str, questions_to_delete))}) AND deleted_at IS NULL",
-                (datetime.now(),),
+                f"UPDATE {question_scorecards_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id IN ({','.join(map(str, questions_to_delete))}) AND deleted_at IS NULL",
             )
             # Soft delete the questions
             await cursor.execute(
-                f"UPDATE {questions_table_name} SET deleted_at = ? WHERE id IN ({','.join(map(str, questions_to_delete))}) AND deleted_at IS NULL",
-                (datetime.now(),),
+                f"UPDATE {questions_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id IN ({','.join(map(str, questions_to_delete))}) AND deleted_at IS NULL",
             )
 
         if scorecards_to_publish:
@@ -662,9 +660,9 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
 async def delete_task(task_id: int):
     await execute_db_operation(
         f"""
-        UPDATE {tasks_table_name} SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL
+        UPDATE {tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL
         """,
-        (datetime.now(), task_id),
+        (task_id),
     )
 
 
@@ -673,9 +671,8 @@ async def delete_tasks(task_ids: List[int]):
 
     await execute_db_operation(
         f"""
-        UPDATE {tasks_table_name} SET deleted_at = ? WHERE id IN ({task_ids_as_str}) AND deleted_at IS NULL
+        UPDATE {tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id IN ({task_ids_as_str}) AND deleted_at IS NULL
         """,
-        (datetime.now(),),
     )
 
 
@@ -744,13 +741,13 @@ async def delete_completion_history_for_task(
 ):
     if task_id is not None:
         await execute_db_operation(
-            f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL",
-            (datetime.now(), task_id, user_id),
+            f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL",
+            (task_id, user_id),
         )
 
     await execute_db_operation(
-        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
-        (datetime.now(), question_id, user_id),
+        f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
+        (question_id, user_id),
     )
 
 

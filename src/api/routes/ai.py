@@ -69,9 +69,27 @@ def format_chat_history_with_audio(chat_history: list[dict]) -> str:
                     item.pop("input_audio")
                     item["content"] = "<audio_message>"
 
-        parts.append(f"**{label}**\n\n```python\n{message['content']}\n```\n\n")
+        if message["role"] == "user":
+            parts.append(f"**{label}**\n\n```\n{message["content"]}\n```\n\n")
+        else:
+            # Wherever there is a single \n followed by content before and either nothing after or non \n after, replace that \n with 2 \n\n
+            import re
 
-    return "\n".join(parts)
+            # Replace a single newline between content with double newlines, except when already double or more
+            def single_newline_to_double(text):
+                # This regex matches single \n (not preceded nor followed by \n) with non-\n after, or end of string
+                #  - positive lookbehind: previous char is not \n
+                #  - match \n
+                #  - negative lookahead: next char is not \n
+                #  - next char is not \n or is end of string
+                return re.sub(r"(?<!\n)\n(?!\n)", "\n\n", text)
+
+            content_str = single_newline_to_double(
+                message["content"].replace("```", "\n")
+            )
+            parts.append(f"**{label}**\n\n{content_str}\n\n")
+
+    return "\n\n---\n\n".join(parts)
 
 
 @observe(name="rewrite_query")
@@ -106,7 +124,7 @@ async def rewrite_query(
         langfuse_prompt=prompt,
     )
 
-    llm_input = f"""`Chat History`:\n\n{convert_chat_history_to_prompt(chat_history)}\n\n`Reference Material`:\n\n{question_details}"""
+    llm_input = f"# Chat History\n\n{convert_chat_history_to_prompt(chat_history)}\n\n# Reference Material\n\n{question_details}"
 
     if is_root_trace:
         langfuse_update_fn = langfuse.update_current_trace
@@ -171,7 +189,7 @@ async def get_model_for_task(
     else:
         model = openai_plan_to_model_name["text"]
 
-    llm_input = f"""`Chat History`:\n\n{convert_chat_history_to_prompt(chat_history)}\n\n`Task Details`:\n\n{question_details}"""
+    llm_input = f"# Chat History\n\n{convert_chat_history_to_prompt(chat_history)}\n\n# Task Details\n\n{question_details}"
 
     if is_root_trace:
         langfuse_update_fn = langfuse.update_current_trace
@@ -221,8 +239,7 @@ def format_ai_scorecard_report(scorecard: list[dict]) -> str:
     scorecard_as_prompt = []
     for criterion in scorecard:
         row_as_prompt = []
-        row_as_prompt.append(f"""**{criterion['category']}**""")
-        row_as_prompt.append(f"""Score: {criterion['score']}""")
+        row_as_prompt.append(f"""**{criterion['category']}**: {criterion['score']}""")
 
         if criterion["feedback"].get("correct"):
             row_as_prompt.append(
@@ -352,9 +369,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 # update the last user message with the rewritten query
                 new_user_message[0]["content"] = rewritten_query
 
-                question_details = (
-                    f"<Reference Material>\n{reference_material}\n</Reference Material>"
-                )
+                question_details = f"**Reference Material**\n\n{reference_material}\n\n"
             else:
                 metadata["type"] = "quiz"
 
@@ -423,13 +438,13 @@ async def ai_response_for_question(request: AIChatRequest):
                     answer_as_prompt = construct_description_from_blocks(
                         question["answer"]
                     )
-                    question_details += f"\n\n<Reference Solution (never to be shared with the learner)>\n{answer_as_prompt}\n</Reference Solution>"
+                    question_details += f"---\n\n**Reference Solution (never to be shared with the learner)**\n\n{answer_as_prompt}\n\n"
                 else:
                     scorecard_as_prompt = convert_scorecard_to_prompt(
                         question["scorecard"]
                     )
                     question_details += (
-                        f"\n\n**Scoring Criteria**\n\n{scorecard_as_prompt}\n\n"
+                        f"---\n\n**Scoring Criteria**\n\n{scorecard_as_prompt}\n\n"
                     )
 
             chat_history = chat_history + new_user_message
@@ -542,7 +557,7 @@ async def ai_response_for_question(request: AIChatRequest):
 
                     if knowledge_base:
                         question_details += (
-                            f"\n\n<Knowledge Base>\n{knowledge_base}\n</Knowledge Base>"
+                            f"---\n\n**Knowledge Base**\n\n{knowledge_base}\n\n"
                         )
 
                 if question["type"] == QuestionType.OBJECTIVE:

@@ -88,7 +88,7 @@ async def get_all_chat_history(org_id: int):
         INNER JOIN {tasks_table_name} task ON question.task_id = task.id
         INNER JOIN {users_table_name} user ON message.user_id = user.id 
         LEFT JOIN {course_tasks_table_name} course_task ON task.id = course_task.task_id
-        WHERE task.deleted_at IS NULL AND task.org_id = ?
+        WHERE task.deleted_at IS NULL AND task.org_id = ? AND message.deleted_at IS NULL
         ORDER BY message.created_at ASC
         """,
         (org_id,),
@@ -169,8 +169,8 @@ async def get_task_chat_history_for_user(
 
 async def delete_message(message_id: int):
     await execute_db_operation(
-        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
-        (datetime.now(), message_id),
+        f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+        (message_id),
     )
 
 
@@ -183,13 +183,12 @@ async def update_message_timestamp(message_id: int, new_timestamp: datetime):
 
 async def delete_user_chat_history_for_task(question_id: int, user_id: int):
     await execute_db_operation(
-        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
-        (datetime.now(), question_id, user_id),
+        f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
+        (question_id, user_id),
     )
 
 
 async def delete_all_chat_history():
     await execute_db_operation(
-        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE deleted_at IS NULL",
-        (datetime.now(),),
+        f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
     )

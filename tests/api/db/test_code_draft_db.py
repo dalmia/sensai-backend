@@ -25,7 +25,8 @@ class TestCodeDraftOperations:
         VALUES (?, ?, ?)
         ON CONFLICT(user_id, question_id) DO UPDATE SET
             code = excluded.code,
-            updated_at = CURRENT_TIMESTAMP
+            updated_at = CURRENT_TIMESTAMP,
+            deleted_at = NULL
         """,
             (1, 1, json.dumps(code_data)),
         )
@@ -43,7 +44,8 @@ class TestCodeDraftOperations:
         VALUES (?, ?, ?)
         ON CONFLICT(user_id, question_id) DO UPDATE SET
             code = excluded.code,
-            updated_at = CURRENT_TIMESTAMP
+            updated_at = CURRENT_TIMESTAMP,
+            deleted_at = NULL
         """,
             (1, 1, json.dumps(code_data)),
         )

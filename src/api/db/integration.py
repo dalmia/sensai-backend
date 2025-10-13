@@ -14,7 +14,8 @@ async def create_integration(data: CreateIntegrationRequest) -> int:
             ON CONFLICT(user_id, integration_type) DO UPDATE SET
                 access_token = excluded.access_token,
                 refresh_token = excluded.refresh_token,
-                expires_at = excluded.expires_at
+                expires_at = excluded.expires_at,
+                deleted_at = NULL
             """,
             (
                 data.user_id,

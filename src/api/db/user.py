@@ -34,7 +34,7 @@ async def get_user_organizations(user_id: int):
     user_organizations = await execute_db_operation(
         f"""SELECT uo.org_id, o.name, uo.role
         FROM {user_organizations_table_name} uo
-        JOIN organizations o ON uo.org_id = o.id 
+        JOIN {organizations_table_name} o ON uo.org_id = o.id 
         WHERE uo.user_id = ? AND uo.deleted_at IS NULL AND o.deleted_at IS NULL ORDER BY uo.id DESC""",
         (user_id,),
         fetch_all=True,
@@ -254,7 +254,7 @@ async def get_user_cohorts(user_id: int) -> List[Dict]:
         FROM {cohorts_table_name} c
         JOIN {user_cohorts_table_name} uc ON uc.cohort_id = c.id
         JOIN {organizations_table_name} o ON o.id = c.org_id
-        WHERE uc.user_id = ?
+        WHERE uc.user_id = ? AND c.deleted_at IS NULL AND uc.deleted_at IS NULL AND o.deleted_at IS NULL
         """,
         (user_id,),
         fetch_all=True,
@@ -291,10 +291,10 @@ async def get_user_active_in_last_n_days(user_id: int, n: int, cohort_id: int):
                 WHERE course_id IN (
                     SELECT course_id 
                     FROM {course_cohorts_table_name} 
-                    WHERE cohort_id = ?
-                )
-            )
-        )
+                    WHERE cohort_id = ? AND deleted_at IS NULL
+                ) AND deleted_at IS NULL
+            ) AND deleted_at IS NULL
+        ) AND deleted_at IS NULL
         GROUP BY activity_date
     ),
     task_activity AS (
@@ -308,9 +308,9 @@ async def get_user_active_in_last_n_days(user_id: int, n: int, cohort_id: int):
             WHERE course_id IN (
                 SELECT course_id 
                 FROM {course_cohorts_table_name} 
-                WHERE cohort_id = ?
-            )
-        )
+                WHERE cohort_id = ? AND deleted_at IS NULL
+            ) AND deleted_at IS NULL
+        ) AND deleted_at IS NULL
         GROUP BY activity_date
     )
     SELECT activity_date, count FROM chat_activity
@@ -342,6 +342,7 @@ async def get_user_activity_for_year(user_id: int, year: int):
         WHERE user_id = ? 
         AND strftime('%Y', datetime(timestamp, '+5 hours', '+30 minutes')) = ?
         AND role = 'user'
+        AND deleted_at IS NULL
         GROUP BY day_of_year
         ORDER BY day_of_year
         """,
@@ -397,7 +398,8 @@ async def get_user_streak(user_id: int, cohort_id: int):
         f"""
     SELECT MAX(datetime(created_at, '+5 hours', '+30 minutes')) as created_at
     FROM {chat_history_table_name}
-    WHERE user_id = ? AND question_id IN (SELECT id FROM {questions_table_name} WHERE task_id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)))
+    WHERE user_id = ? AND question_id IN (SELECT id FROM {questions_table_name} WHERE task_id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL) AND deleted_at IS NULL)
+    AND deleted_at IS NULL
     GROUP BY DATE(datetime(created_at, '+5 hours', '+30 minutes'))
     
     UNION
@@ -406,8 +408,8 @@ async def get_user_streak(user_id: int, cohort_id: int):
     FROM {task_completions_table_name}
     WHERE user_id = ? AND task_id IN (
         SELECT task_id FROM {course_tasks_table_name} 
-        WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)
-    )
+        WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL
+    ) AND deleted_at IS NULL
     GROUP BY DATE(datetime(created_at, '+5 hours', '+30 minutes'))
     
     ORDER BY created_at DESC
