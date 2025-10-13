@@ -30,6 +30,7 @@ from api.config import (
     org_api_keys_table_name,
     code_drafts_table_name,
     integrations_table_name,
+    assignment_table_name,
     bq_sync_table_name,
 )
 from api.db.migration import run_migrations
@@ -427,6 +428,29 @@ async def create_questions_table(cursor):
     )
 
 
+async def create_assignment_table(cursor):
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {assignment_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id INTEGER NOT NULL UNIQUE,
+                blocks TEXT NOT NULL,
+                input_type TEXT NOT NULL,
+                response_type TEXT,
+                context TEXT,
+                evaluation_criteria TEXT NOT NULL,
+                max_attempts INTEGER,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
+                FOREIGN KEY (task_id) REFERENCES {tasks_table_name}(id) ON DELETE CASCADE
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_assignment_task_id ON {assignment_table_name} (task_id)"""
+    )
+
+
 async def create_scorecards_table(cursor):
     await cursor.execute(
         f"""CREATE TABLE IF NOT EXISTS {scorecards_table_name} (
@@ -477,7 +501,8 @@ async def create_chat_history_table(cursor):
                 CREATE TABLE IF NOT EXISTS {chat_history_table_name} (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     user_id INTEGER NOT NULL,
-                    question_id INTEGER NOT NULL,
+                    question_id INTEGER,
+                    task_id INTEGER,
                     role TEXT NOT NULL,
                     content TEXT,
                     response_type TEXT,
@@ -485,12 +510,17 @@ async def create_chat_history_table(cursor):
                     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                     deleted_at DATETIME,
                     FOREIGN KEY (question_id) REFERENCES {questions_table_name}(id),
+                    FOREIGN KEY (task_id) REFERENCES {tasks_table_name}(id),
                     FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
                 )"""
     )
 
     await cursor.execute(
         f"""CREATE INDEX idx_chat_history_user_id ON {chat_history_table_name} (user_id)"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX idx_chat_history_task_id ON {chat_history_table_name} (task_id)"""
     )
 
     await cursor.execute(
@@ -659,6 +689,8 @@ async def init_db():
             await create_batches_table(cursor)
 
             await create_integrations_table(cursor)
+
+            await create_assignment_table(cursor)
 
             await create_bq_sync_table(cursor)
 

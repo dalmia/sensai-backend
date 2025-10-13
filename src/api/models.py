@@ -189,6 +189,7 @@ class Milestone(BaseModel):
 class TaskType(Enum):
     QUIZ = "quiz"
     LEARNING_MATERIAL = "learning_material"
+    ASSIGNMENT = "assignment"
 
     def __str__(self):
         return self.value
@@ -355,6 +356,50 @@ class QuizTask(Task):
     questions: List[PublishedQuestion]
 
 
+class EvaluationCriteria(BaseModel):
+    scorecard_id: Optional[int] = None
+    min_score: float
+    max_score: float
+    pass_score: float
+
+
+class AssignmentContext(BaseModel):
+    blocks: List[Block]
+    linkedMaterialIds: List[str]
+
+
+class AssignmentData(BaseModel):
+    blocks: List[Block]
+    context: Optional[AssignmentContext] = None
+    evaluation_criteria: EvaluationCriteria
+    input_type: str
+    response_type: Optional[str] = None
+    max_attempts: Optional[int] = None
+
+
+class CreateAssignmentRequest(BaseModel):
+    title: str
+    assignment: AssignmentData
+    scheduled_publish_at: Optional[datetime] = None
+    status: Optional[str] = None
+
+
+class UpdateAssignmentRequest(BaseModel):
+    title: str
+    assignment: AssignmentData
+    scheduled_publish_at: Optional[datetime] = None
+    status: Optional[str] = None
+
+
+class AssignmentTask(Task):
+    blocks: List[Block]
+    context: Optional[AssignmentContext] = None
+    evaluation_criteria: EvaluationCriteria
+    input_type: str
+    response_type: Optional[str] = None
+    max_attempts: Optional[int] = None
+
+
 class GenerateCourseJobStatus(str, Enum):
     STARTED = "started"
     PENDING = "pending"
@@ -469,13 +514,14 @@ class ChatResponseType(str, Enum):
     TEXT = "text"
     CODE = "code"
     AUDIO = "audio"
+    FILE = "file"
 
 
 class ChatMessage(BaseModel):
     id: int
     created_at: str
     user_id: int
-    question_id: int
+    question_id: Optional[int] = None
     role: ChatRole | None
     content: Optional[str] | None
     response_type: Optional[ChatResponseType] | None
@@ -602,7 +648,8 @@ class StoreMessageRequest(BaseModel):
 class StoreMessagesRequest(BaseModel):
     messages: List[StoreMessageRequest]
     user_id: int
-    question_id: int
+    question_id: Optional[int] = None
+    task_id: Optional[int] = None
     is_complete: bool
 
 
@@ -678,7 +725,7 @@ class UserCohort(BaseModel):
 
 class AIChatRequest(BaseModel):
     user_response: str
-    task_type: TaskType
+    task_type: Optional[TaskType] = None
     question: Optional[DraftQuestion] = None
     chat_history: Optional[List[Dict]] = None
     question_id: Optional[int] = None

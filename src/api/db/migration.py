@@ -24,6 +24,7 @@ from api.config import (
     task_generation_jobs_table_name,
     code_drafts_table_name,
     integrations_table_name,
+    assignment_table_name,
 )
 
 
@@ -275,3 +276,17 @@ async def add_settings_column_to_questions():
 async def run_migrations():
     await add_missing_timestamp_columns()
     await create_bq_sync_table_migration()
+
+    # Ensure assignment table exists
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+        # check table exists
+        await cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (assignment_table_name,),
+        )
+        if not await cursor.fetchone():
+            from api.db import create_assignment_table
+
+            await create_assignment_table(cursor)
+            await conn.commit()
