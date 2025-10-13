@@ -129,7 +129,7 @@ async def send_slack_notification_for_usage_stats(
     ) -> str:
         # Use different emojis for different time periods
         emoji_map = {
-            "Last 24 Hours": "⚡",
+            "Last Week": "⚡",
             "This Month": "📈",
             "This Year": "📊",
         }
@@ -207,7 +207,7 @@ async def send_slack_notification_for_usage_stats(
 
     # Send separate messages for each time period
     periods = [
-        ("Last 24 Hours", last_day_stats),
+        ("Last Week", last_day_stats),
         ("This Month", current_month_stats),
         ("This Year", current_year_stats),
     ]

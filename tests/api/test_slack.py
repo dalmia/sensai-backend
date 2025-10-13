@@ -316,7 +316,7 @@ class TestSlackNotificationForUsageStats:
 
         assert webhook_url == "https://hooks.slack.com/test"
         assert "text" in message
-        assert "Last 24 Hours" in message["text"]
+        assert "Last Week" in message["text"]
         assert "This Month" in message["text"]
         assert "This Year" in message["text"]
         assert "School A" in message["text"]
