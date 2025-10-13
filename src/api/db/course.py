@@ -436,7 +436,10 @@ async def get_cohorts_for_course(course_id: int):
 def drop_course_cohorts_table():
     execute_multiple_db_operations(
         [
-            (f"DELETE FROM {course_cohorts_table_name}", ()),
+            (
+                f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
+                (),
+            ),
             (f"DROP TABLE IF EXISTS {course_cohorts_table_name}", ()),
         ]
     )
@@ -447,7 +450,10 @@ def drop_courses_table():
 
     execute_multiple_db_operations(
         [
-            (f"DELETE FROM {courses_table_name}", ()),
+            (
+                f"UPDATE {courses_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
+                (),
+            ),
             (f"DROP TABLE IF EXISTS {courses_table_name}", ()),
         ]
     )
@@ -523,26 +529,29 @@ async def delete_course(course_id: int):
     await execute_multiple_db_operations(
         [
             (
-                f"DELETE FROM {course_cohorts_table_name} WHERE course_id = ?",
+                f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND deleted_at IS NULL",
                 (course_id,),
             ),
             (
-                f"DELETE FROM {course_tasks_table_name} WHERE course_id = ?",
+                f"UPDATE {course_tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND deleted_at IS NULL",
                 (course_id,),
             ),
             (
-                f"DELETE FROM {course_milestones_table_name} WHERE course_id = ?",
+                f"UPDATE {course_milestones_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND deleted_at IS NULL",
                 (course_id,),
             ),
             (
-                f"DELETE FROM {course_generation_jobs_table_name} WHERE course_id = ?",
+                f"UPDATE {course_generation_jobs_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND deleted_at IS NULL",
                 (course_id,),
             ),
             (
-                f"DELETE FROM {task_generation_jobs_table_name} WHERE course_id = ?",
+                f"UPDATE {task_generation_jobs_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND deleted_at IS NULL",
                 (course_id,),
             ),
-            (f"DELETE FROM {courses_table_name} WHERE id = ?", (course_id,)),
+            (
+                f"UPDATE {courses_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+                (course_id,),
+            ),
         ]
     )
 
@@ -551,10 +560,13 @@ def delete_all_courses_for_org(org_id: int):
     execute_multiple_db_operations(
         [
             (
-                f"DELETE FROM {course_cohorts_table_name} WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?)",
+                f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?) AND deleted_at IS NULL",
                 (org_id,),
             ),
-            (f"DELETE FROM {courses_table_name} WHERE org_id = ?", (org_id,)),
+            (
+                f"UPDATE {courses_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE org_id = ? AND deleted_at IS NULL",
+                (org_id,),
+            ),
         ]
     )
 
@@ -833,7 +845,7 @@ async def add_tasks_to_courses(course_tasks_to_add: List[Tuple[int, int, int]]):
 
 async def remove_tasks_from_courses(course_tasks_to_remove: List[Tuple[int, int]]):
     await execute_many_db_operation(
-        f"DELETE FROM {course_tasks_table_name} WHERE task_id = ? AND course_id = ?",
+        f"UPDATE {course_tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE task_id = ? AND course_id = ? AND deleted_at IS NULL",
         params_list=course_tasks_to_remove,
     )
 

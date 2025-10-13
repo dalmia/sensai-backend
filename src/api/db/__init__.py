@@ -330,6 +330,7 @@ async def create_integrations_table(cursor):
                 expires_at DATETIME,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                deleted_at DATETIME,
                 UNIQUE(user_id, integration_type),
                 FOREIGN KEY (user_id) REFERENCES {users_table_name}(id) ON DELETE CASCADE
             )"""
@@ -342,7 +343,7 @@ async def create_integrations_table(cursor):
     await cursor.execute(
         f"""CREATE INDEX IF NOT EXISTS idx_integration_integration_type ON {integrations_table_name} (integration_type)"""
     )
-    
+
     update_trigger_name = f"set_updated_at_update_{integrations_table_name}"
     await cursor.execute(f"DROP TRIGGER IF EXISTS {update_trigger_name}")
     await cursor.execute(
@@ -356,7 +357,7 @@ async def create_integrations_table(cursor):
                 WHERE rowid = NEW.rowid;
             END
         """
-        )
+    )
 
 
 async def create_tasks_table(cursor):
@@ -645,7 +646,7 @@ async def init_db():
             await create_integrations_table(cursor)
 
             await conn.commit()
-            
+
         except Exception as exception:
             # delete db
             os.remove(sqlite_db_path)

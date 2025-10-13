@@ -140,7 +140,9 @@ class TestOrganizationOperations:
 
         assert result == expected
         mock_execute.assert_called_once_with(
-            "SELECT * FROM organizations WHERE id = ?", (1,), fetch_one=True
+            "SELECT * FROM organizations WHERE id = ? AND deleted_at IS NULL",
+            (1,),
+            fetch_one=True,
         )
 
     @patch("src.api.db.org.execute_db_operation")
@@ -181,7 +183,8 @@ class TestOrganizationOperations:
         await update_org(1, "Updated Org Name")
 
         mock_execute.assert_called_once_with(
-            "UPDATE organizations SET name = ? WHERE id = ?", ("Updated Org Name", 1)
+            "UPDATE organizations SET name = ? WHERE id = ? AND deleted_at IS NULL",
+            ("Updated Org Name", 1),
         )
 
     @patch("src.api.db.org.get_new_db_connection")
@@ -258,7 +261,7 @@ class TestOrganizationOperations:
 
         assert result == 456
         mock_execute.assert_called_once_with(
-            "SELECT id FROM organizations WHERE name = ?",
+            "SELECT id FROM organizations WHERE name = ? AND deleted_at IS NULL",
             ("HyperVerge Academy",),
             fetch_one=True,
         )
@@ -283,7 +286,9 @@ class TestOrganizationOperations:
 
         assert result == [1, 2, 3]
         mock_execute.assert_called_once_with(
-            "SELECT id FROM cohorts WHERE org_id = ?", (456,), fetch_all=True
+            "SELECT id FROM cohorts WHERE org_id = ? AND deleted_at IS NULL",
+            (456,),
+            fetch_all=True,
         )
 
     @patch("src.api.db.org.get_hva_org_id")
@@ -389,7 +394,7 @@ class TestOrganizationOperations:
         await remove_members_from_org(1, [123, 456])
 
         mock_execute.assert_called_once_with(
-            "DELETE FROM user_organizations WHERE org_id = ? AND user_id IN (123, 456)",
+            "UPDATE user_organizations SET deleted_at = CURRENT_TIMESTAMP WHERE org_id = ? AND user_id IN (123, 456) AND deleted_at IS NULL",
             (1,),
         )
 

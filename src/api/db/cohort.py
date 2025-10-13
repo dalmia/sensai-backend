@@ -86,14 +86,14 @@ async def add_course_to_cohorts(
 
 async def remove_course_from_cohorts(course_id: int, cohort_ids: List[int]):
     await execute_many_db_operation(
-        f"DELETE FROM {course_cohorts_table_name} WHERE course_id = ? AND cohort_id = ?",
+        f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND cohort_id = ? AND deleted_at IS NULL",
         [(course_id, cohort_id) for cohort_id in cohort_ids],
     )
 
 
 async def remove_courses_from_cohort(cohort_id: int, course_ids: List[int]):
     await execute_many_db_operation(
-        f"DELETE FROM {course_cohorts_table_name} WHERE cohort_id = ? AND course_id = ?",
+        f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND course_id = ? AND deleted_at IS NULL",
         [(cohort_id, course_id) for course_id in course_ids],
     )
 
@@ -110,22 +110,24 @@ def drop_user_cohorts_table():
 
 
 def delete_all_cohort_info():
-    execute_db_operation(f"DELETE FROM {cohorts_table_name}")
+    execute_db_operation(
+        f"UPDATE {cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL"
+    )
 
 
 async def delete_cohort(cohort_id: int):
     await execute_multiple_db_operations(
         [
             (
-                f"DELETE FROM {user_cohorts_table_name} WHERE cohort_id = ?",
+                f"UPDATE {user_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
             (
-                f"DELETE FROM {course_cohorts_table_name} WHERE cohort_id = ?",
+                f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
             (
-                f"DELETE FROM {cohorts_table_name} WHERE id = ?",
+                f"UPDATE {cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
         ]
@@ -263,9 +265,10 @@ async def remove_members_from_cohort(cohort_id: int, member_ids: List[int]):
         [
             (
                 f"""
-            DELETE FROM {user_cohorts_table_name}
+            UPDATE {user_cohorts_table_name}
+            SET deleted_at = CURRENT_TIMESTAMP
             WHERE user_id IN ({','.join(['?' for _ in member_ids])})
-            AND cohort_id = ?
+            AND cohort_id = ? AND deleted_at IS NULL
             """,
                 (*member_ids, cohort_id),
             ),
@@ -354,12 +357,12 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
         "name": cohort[1],
         "members": [
             {
-                "id": member[0], 
-                "email": member[1], 
+                "id": member[0],
+                "email": member[1],
                 "role": member[2],
                 "first_name": member[3],
                 "middle_name": member[4],
-                "last_name": member[5]
+                "last_name": member[5],
             }
             for member in members
         ],

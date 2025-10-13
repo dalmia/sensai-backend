@@ -129,7 +129,7 @@ async def get_question_chat_history_for_user(
 ) -> List[ChatMessage]:
     chat_history = await execute_db_operation(
         f"""
-    SELECT id, created_at, user_id, question_id, role, content, response_type FROM {chat_history_table_name} WHERE question_id = ? AND user_id = ?
+    SELECT id, created_at, user_id, question_id, role, content, response_type FROM {chat_history_table_name} WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL
     """,
         (question_id, user_id),
         fetch_all=True,
@@ -154,7 +154,7 @@ async def get_task_chat_history_for_user(
         FROM {chat_history_table_name} ch
         JOIN {questions_table_name} q ON ch.question_id = q.id
         WHERE q.task_id = ? 
-        AND ch.user_id = ?
+        AND ch.user_id = ? AND ch.deleted_at IS NULL
         ORDER BY ch.created_at ASC
     """
 
@@ -169,7 +169,8 @@ async def get_task_chat_history_for_user(
 
 async def delete_message(message_id: int):
     await execute_db_operation(
-        f"DELETE FROM {chat_history_table_name} WHERE id = ?", (message_id,)
+        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
+        (datetime.now(), message_id),
     )
 
 
@@ -182,10 +183,13 @@ async def update_message_timestamp(message_id: int, new_timestamp: datetime):
 
 async def delete_user_chat_history_for_task(question_id: int, user_id: int):
     await execute_db_operation(
-        f"DELETE FROM {chat_history_table_name} WHERE question_id = ? AND user_id = ?",
-        (question_id, user_id),
+        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
+        (datetime.now(), question_id, user_id),
     )
 
 
 async def delete_all_chat_history():
-    await execute_db_operation(f"DELETE FROM {chat_history_table_name}")
+    await execute_db_operation(
+        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE deleted_at IS NULL",
+        (datetime.now(),),
+    )

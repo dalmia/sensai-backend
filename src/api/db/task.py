@@ -151,7 +151,7 @@ async def get_scorecard(scorecard_id: int) -> Dict:
         return
 
     scorecard = await execute_db_operation(
-        f"SELECT id, title, criteria, status FROM {scorecards_table_name} WHERE id = ?",
+        f"SELECT id, title, criteria, status FROM {scorecards_table_name} WHERE id = ? AND deleted_at IS NULL",
         (scorecard_id,),
         fetch_one=True,
     )
@@ -172,8 +172,8 @@ async def get_question(question_id: int) -> Dict:
         f"""
         SELECT q.id, q.type, q.blocks, q.answer, q.input_type, q.response_type, qs.scorecard_id, q.context, q.coding_language, q.max_attempts, q.is_feedback_shown, q.title, q.settings
         FROM {questions_table_name} q
-        LEFT JOIN {question_scorecards_table_name} qs ON q.id = qs.question_id
-        WHERE q.id = ?
+        LEFT JOIN {question_scorecards_table_name} qs ON q.id = qs.question_id AND qs.deleted_at IS NULL
+        WHERE q.id = ? AND q.deleted_at IS NULL
         """,
         (question_id,),
         fetch_one=True,
@@ -234,8 +234,8 @@ async def get_task(task_id: int):
             f"""
             SELECT q.id, q.type, q.blocks, q.answer, q.input_type, q.response_type, qs.scorecard_id, q.context, q.coding_language, q.max_attempts, q.is_feedback_shown, q.title, q.settings
             FROM {questions_table_name} q
-            LEFT JOIN {question_scorecards_table_name} qs ON q.id = qs.question_id
-            WHERE task_id = ? ORDER BY position ASC
+            LEFT JOIN {question_scorecards_table_name} qs ON q.id = qs.question_id AND qs.deleted_at IS NULL
+            WHERE task_id = ? AND q.deleted_at IS NULL ORDER BY position ASC
             """,
             (task_id,),
             fetch_all=True,
@@ -337,7 +337,7 @@ async def upsert_question(cursor, question: Dict, task_id: int, position: int) -
     """Upsert question (insert or update) and return question_id"""
     question_id = question.get("id")
     question_data = prepare_question_data(question, position)
-    
+
     if question_id:
         # Update existing question
         await cursor.execute(
@@ -360,7 +360,7 @@ async def upsert_question(cursor, question: Dict, task_id: int, position: int) -
             (task_id,) + question_data,
         )
         question_id = cursor.lastrowid
-    
+
     return question_id
 
 
@@ -435,31 +435,36 @@ async def update_draft_quiz(
             question_id = question.get("id")
             new_scorecard_id = question.get("scorecard_id")
             existing_scorecard_id = None
-            
+
             if question_id:
                 provided_question_ids.add(question_id)
-                
+
                 # Check if scorecard_id changed
                 await cursor.execute(
                     f"SELECT scorecard_id FROM {question_scorecards_table_name} WHERE question_id = ?",
                     (question_id,),
                 )
                 existing_scorecard = await cursor.fetchone()
-                existing_scorecard_id = existing_scorecard[0] if existing_scorecard else None
-                
+                existing_scorecard_id = (
+                    existing_scorecard[0] if existing_scorecard else None
+                )
+
                 # Only update if scorecard_id actually changed
                 if existing_scorecard_id != new_scorecard_id:
-                    # Delete existing scorecard association
+                    # Soft delete existing scorecard association
                     await cursor.execute(
-                        f"DELETE FROM {question_scorecards_table_name} WHERE question_id = ?",
-                        (question_id,),
+                        f"UPDATE {question_scorecards_table_name} SET deleted_at = ? WHERE question_id = ? AND deleted_at IS NULL",
+                        (datetime.now(), question_id),
                     )
-            
+
             # Upsert question (handles both update and create)
             question_id = await upsert_question(cursor, question, task_id, index)
 
             # Add new scorecard association only when needed
-            if new_scorecard_id is not None and existing_scorecard_id != new_scorecard_id:
+            if (
+                new_scorecard_id is not None
+                and existing_scorecard_id != new_scorecard_id
+            ):
                 await cursor.execute(
                     f"""
                     INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)
@@ -480,13 +485,15 @@ async def update_draft_quiz(
         # Delete questions that exist in DB but not in the request
         questions_to_delete = existing_question_ids - provided_question_ids
         if questions_to_delete:
-            # Delete scorecard associations first
+            # Soft delete scorecard associations first
             await cursor.execute(
-                f"DELETE FROM {question_scorecards_table_name} WHERE question_id IN ({','.join(map(str, questions_to_delete))})",
+                f"UPDATE {question_scorecards_table_name} SET deleted_at = ? WHERE question_id IN ({','.join(map(str, questions_to_delete))}) AND deleted_at IS NULL",
+                (datetime.now(),),
             )
-            # Delete the questions
+            # Soft delete the questions
             await cursor.execute(
-                f"DELETE FROM {questions_table_name} WHERE id IN ({','.join(map(str, questions_to_delete))})",
+                f"UPDATE {questions_table_name} SET deleted_at = ? WHERE id IN ({','.join(map(str, questions_to_delete))}) AND deleted_at IS NULL",
+                (datetime.now(),),
             )
 
         if scorecards_to_publish:
@@ -737,13 +744,13 @@ async def delete_completion_history_for_task(
 ):
     if task_id is not None:
         await execute_db_operation(
-            f"DELETE FROM {chat_history_table_name} WHERE task_id = ? AND user_id = ?",
-            (task_id, user_id),
+            f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE task_id = ? AND user_id = ? AND deleted_at IS NULL",
+            (datetime.now(), task_id, user_id),
         )
 
     await execute_db_operation(
-        f"DELETE FROM {chat_history_table_name} WHERE question_id = ? AND user_id = ?",
-        (question_id, user_id),
+        f"UPDATE {chat_history_table_name} SET deleted_at = ? WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
+        (datetime.now(), question_id, user_id),
     )
 
 

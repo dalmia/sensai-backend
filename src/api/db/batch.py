@@ -64,11 +64,11 @@ async def delete_batch(batch_id: int):
     await execute_multiple_db_operations(
         [
             (
-                f"DELETE FROM {user_batches_table_name} WHERE batch_id = ?",
+                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND deleted_at IS NULL",
                 (batch_id,),
             ),
             (
-                f"DELETE FROM {batches_table_name} WHERE id = ?",
+                f"UPDATE {batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
                 (batch_id,),
             ),
         ]
@@ -246,7 +246,7 @@ async def update_batch_name_and_members(
                 raise Exception("One or more members are not in the batch")
 
             await cursor.execute(
-                f"DELETE FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])})",
+                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])}) AND deleted_at IS NULL",
                 (batch_id, *members_removed),
             )
 

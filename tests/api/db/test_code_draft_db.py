@@ -65,7 +65,7 @@ class TestCodeDraftOperations:
         assert result == expected
         mock_execute.assert_called_once_with(
             """SELECT id, code, updated_at FROM code_drafts
-            WHERE user_id = ? AND question_id = ?""",
+            WHERE user_id = ? AND question_id = ? AND deleted_at IS NULL""",
             (1, 1),
             fetch_one=True,
         )
@@ -80,7 +80,7 @@ class TestCodeDraftOperations:
         assert result is None
         mock_execute.assert_called_once_with(
             """SELECT id, code, updated_at FROM code_drafts
-            WHERE user_id = ? AND question_id = ?""",
+            WHERE user_id = ? AND question_id = ? AND deleted_at IS NULL""",
             (1, 1),
             fetch_one=True,
         )
@@ -122,7 +122,8 @@ class TestCodeDraftOperations:
         await delete_user_code_draft(1, 1)
 
         mock_execute.assert_called_once_with(
-            "DELETE FROM code_drafts WHERE user_id = ? AND question_id = ?", (1, 1)
+            "UPDATE code_drafts SET deleted_at = CURRENT_TIMESTAMP WHERE user_id = ? AND question_id = ? AND deleted_at IS NULL",
+            (1, 1),
         )
 
     @patch("src.api.db.code_draft.execute_db_operation")
@@ -131,7 +132,8 @@ class TestCodeDraftOperations:
         await delete_user_code_draft(5, 10)
 
         mock_execute.assert_called_once_with(
-            "DELETE FROM code_drafts WHERE user_id = ? AND question_id = ?", (5, 10)
+            "UPDATE code_drafts SET deleted_at = CURRENT_TIMESTAMP WHERE user_id = ? AND question_id = ? AND deleted_at IS NULL",
+            (5, 10),
         )
 
 

@@ -47,7 +47,8 @@ class TestMilestoneOperations:
 
         assert result == expected
         mock_execute.assert_called_once_with(
-            "SELECT id, name, color FROM milestones", fetch_all=True
+            "SELECT id, name, color FROM milestones WHERE deleted_at IS NULL",
+            fetch_all=True,
         )
 
     @patch("src.api.db.milestone.execute_db_operation")
@@ -67,7 +68,7 @@ class TestMilestoneOperations:
 
         assert result == expected
         mock_execute.assert_called_once_with(
-            "SELECT id, name, color FROM milestones WHERE org_id = ?",
+            "SELECT id, name, color FROM milestones WHERE org_id = ? AND deleted_at IS NULL",
             (1,),
             fetch_all=True,
         )
@@ -78,7 +79,8 @@ class TestMilestoneOperations:
         await update_milestone(1, "Updated Milestone Name")
 
         mock_execute.assert_called_once_with(
-            "UPDATE milestones SET name = ? WHERE id = ?", ("Updated Milestone Name", 1)
+            "UPDATE milestones SET name = ? WHERE id = ? AND deleted_at IS NULL",
+            ("Updated Milestone Name", 1),
         )
 
     @patch("src.api.db.milestone.execute_multiple_db_operations")
@@ -87,12 +89,18 @@ class TestMilestoneOperations:
         await delete_milestone(1)
 
         expected_operations = [
-            ("DELETE FROM milestones WHERE id = ?", (1,)),
+            (
+                "UPDATE milestones SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+                (1,),
+            ),
             (
                 "UPDATE course_tasks SET milestone_id = NULL WHERE milestone_id = ?",
                 (1,),
             ),
-            ("DELETE FROM course_milestones WHERE milestone_id = ?", (1,)),
+            (
+                "UPDATE course_milestones SET deleted_at = CURRENT_TIMESTAMP WHERE milestone_id = ? AND deleted_at IS NULL",
+                (1,),
+            ),
         ]
 
         mock_execute_multiple.assert_called_once_with(expected_operations)

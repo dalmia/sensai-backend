@@ -69,7 +69,7 @@ def format_chat_history_with_audio(chat_history: list[dict]) -> str:
                     item.pop("input_audio")
                     item["content"] = "<audio_message>"
 
-        parts.append(f"<{label}>\n{message['content']}\n</{label}>")
+        parts.append(f"**{label}**\n\n```python\n{message['content']}\n```\n\n")
 
     return "\n".join(parts)
 
@@ -396,7 +396,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 question_description = construct_description_from_blocks(
                     question["blocks"]
                 )
-                question_details = f"<Task>\n\n{question_description}\n\n</Task>"
+                question_details = f"**Task**\n\n{question_description}\n\n"
 
             task_metadata = await get_task_metadata(request.task_id)
             if task_metadata:
@@ -428,7 +428,9 @@ async def ai_response_for_question(request: AIChatRequest):
                     scorecard_as_prompt = convert_scorecard_to_prompt(
                         question["scorecard"]
                     )
-                    question_details += f"\n\n<Scoring Criteria>\n{scorecard_as_prompt}\n</Scoring Criteria>"
+                    question_details += (
+                        f"\n\n**Scoring Criteria**\n\n{scorecard_as_prompt}\n\n"
+                    )
 
             chat_history = chat_history + new_user_message
 
@@ -441,7 +443,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 openai_api_mode = "responses"
 
             # response
-            llm_input = f"""`Chat History`:\n\n{format_chat_history_with_audio(chat_history)}\n\n`Task Details`:\n\n{question_details}"""
+            llm_input = f"""# Chat History\n\n{format_chat_history_with_audio(chat_history)}\n\n# Task Details\n\n{question_details}"""
             response_metadata = {
                 "input": llm_input,
             }

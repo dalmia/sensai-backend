@@ -25,7 +25,7 @@ async def get_user_code_draft(user_id: int, question_id: int):
 
     row = await execute_db_operation(
         f"""SELECT id, code, updated_at FROM {code_drafts_table_name}
-            WHERE user_id = ? AND question_id = ?""",
+            WHERE user_id = ? AND question_id = ? AND deleted_at IS NULL""",
         (user_id, question_id),
         fetch_one=True,
     )
@@ -42,6 +42,6 @@ async def get_user_code_draft(user_id: int, question_id: int):
 
 async def delete_user_code_draft(user_id: int, question_id: int):
     await execute_db_operation(
-        f"DELETE FROM {code_drafts_table_name} WHERE user_id = ? AND question_id = ?",
+        f"UPDATE {code_drafts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE user_id = ? AND question_id = ? AND deleted_at IS NULL",
         (user_id, question_id),
     )

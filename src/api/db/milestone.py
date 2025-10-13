@@ -17,7 +17,8 @@ def convert_milestone_db_to_dict(milestone: Tuple) -> Dict:
 
 async def get_all_milestones():
     milestones = await execute_db_operation(
-        f"SELECT id, name, color FROM {milestones_table_name}", fetch_all=True
+        f"SELECT id, name, color FROM {milestones_table_name} WHERE deleted_at IS NULL",
+        fetch_all=True,
     )
 
     return [convert_milestone_db_to_dict(milestone) for milestone in milestones]
@@ -28,7 +29,7 @@ execute_db_operation
 
 async def get_all_milestones_for_org(org_id: int):
     milestones = await execute_db_operation(
-        f"SELECT id, name, color FROM {milestones_table_name} WHERE org_id = ?",
+        f"SELECT id, name, color FROM {milestones_table_name} WHERE org_id = ? AND deleted_at IS NULL",
         (org_id,),
         fetch_all=True,
     )
@@ -38,7 +39,7 @@ async def get_all_milestones_for_org(org_id: int):
 
 async def update_milestone(milestone_id: int, name: str):
     await execute_db_operation(
-        f"UPDATE {milestones_table_name} SET name = ? WHERE id = ?",
+        f"UPDATE {milestones_table_name} SET name = ? WHERE id = ? AND deleted_at IS NULL",
         (name, milestone_id),
     )
 
@@ -46,13 +47,16 @@ async def update_milestone(milestone_id: int, name: str):
 async def delete_milestone(milestone_id: int):
     await execute_multiple_db_operations(
         [
-            (f"DELETE FROM {milestones_table_name} WHERE id = ?", (milestone_id,)),
+            (
+                f"UPDATE {milestones_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+                (milestone_id,),
+            ),
             (
                 f"UPDATE {course_tasks_table_name} SET milestone_id = NULL WHERE milestone_id = ?",
                 (milestone_id,),
             ),
             (
-                f"DELETE FROM {course_milestones_table_name} WHERE milestone_id = ?",
+                f"UPDATE {course_milestones_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE milestone_id = ? AND deleted_at IS NULL",
                 (milestone_id,),
             ),
         ]
