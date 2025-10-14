@@ -268,7 +268,7 @@ class TestChatMessageOperations:
 
         mock_execute.assert_called_once_with(
             "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-            1,
+            (1,),
         )
 
     @patch("src.api.db.chat.execute_db_operation")
