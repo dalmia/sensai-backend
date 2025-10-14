@@ -637,7 +637,7 @@ class TestImageUrlExtractionFromBlocks:
             {
                 "id": "9e8c0d87-ff88-43b0-b8c8-9f0f7e0d12e6", "type": "image", 
                 "props": {
-                    "backgroundColor": "default", "textAlignment": "left", "name": "newplot (1).png", "url": "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png", "caption": "", "showPreview": true
+                    "backgroundColor": "default", "textAlignment": "left", "name": "newplot (1).png", "url": "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png", "caption": "", "showPreview": True
                 }, 
                 "content": [], "children": [], "position": 1
             }
