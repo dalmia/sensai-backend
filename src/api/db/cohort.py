@@ -127,11 +127,11 @@ async def delete_cohort(cohort_id: int):
                 (cohort_id,),
             ),
             (
-                f"UPDATE {batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
+                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id IN (SELECT id FROM {batches_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL",
                 (cohort_id,),
             ),
             (
-                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id IN (SELECT id FROM {batches_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL",
+                f"UPDATE {batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
             (
@@ -244,11 +244,15 @@ async def add_members_to_cohort(
                 user, role, org_slug, org_id, cohort[0], cohort_id
             )
 
-        # Add users to cohort
+        # Add users to cohort or revive soft-deleted membership
         await cursor.executemany(
             f"""
             INSERT INTO {user_cohorts_table_name} (user_id, cohort_id, role)
             VALUES (?, ?, ?)
+            ON CONFLICT(user_id, cohort_id) DO UPDATE SET
+                deleted_at = NULL,
+                role = excluded.role,
+                updated_at = CURRENT_TIMESTAMP
             """,
             [(user["id"], cohort_id, role) for user, role in zip(users_to_add, roles)],
         )

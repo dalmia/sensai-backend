@@ -70,7 +70,8 @@ def format_chat_history_with_audio(chat_history: list[dict]) -> str:
                     item["content"] = "<audio_message>"
 
         if message["role"] == "user":
-            parts.append(f"**{label}**\n\n```\n{message["content"]}\n```\n\n")
+            content = message["content"]
+            parts.append(f"**{label}**\n\n```\n{content}\n```\n\n")
         else:
             # Wherever there is a single \n followed by content before and either nothing after or non \n after, replace that \n with 2 \n\n
             import re
