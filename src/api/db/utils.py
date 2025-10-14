@@ -3,7 +3,14 @@ import json
 from enum import Enum
 from api.config import courses_table_name
 from api.utils.db import execute_db_operation
-
+import base64
+import mimetypes
+import os
+from api.settings import settings
+from api.utils.s3 import (
+    download_file_from_s3_as_bytes,
+    get_media_upload_s3_key_from_uuid
+)
 
 # Configuration for different integration block types
 BLOCK_TYPE_CONFIG = {
@@ -241,6 +248,50 @@ def extract_text_from_notion_blocks(blocks: List[Dict]) -> str:
     
     return "\n".join(text_content)
 
+def get_image_base64_encoding(image_url: str):
+    """
+    Reads an image and returns the base64 encoding after reading the image.
+    The encoding is passed to the model as context for the image.
+    Args:
+        Path of the image (can be local or s3)
+    Returns:
+        Returns the base64 encoding for the image
+    """
+    if settings.s3_folder_name:
+        uuid = image_url.split("media/")[1].split("?")[0]
+        file_content = download_file_from_s3_as_bytes(
+            get_media_upload_s3_key_from_uuid(uuid, "")
+        )
+    else:
+        local_dir = settings.local_upload_folder + "/"
+        uuid = image_url.split(local_dir)[1]
+        local_file_path = os.path.join(settings.local_upload_folder, uuid)
+        with open(local_file_path, 'rb') as file:
+            file_content = file.read()
+        
+    # Determine content type from file extension
+    content_type = mimetypes.guess_type(uuid)[0] or 'image/png'
+    # Encode to base64
+    encoded = base64.b64encode(file_content).decode('utf-8')
+    return f"data:{content_type};base64,{encoded}"
+
+def extract_image_urls_from_blocks(blocks: List[Dict]) -> List[Dict]:
+    """
+    Extracts image urls from the block data of questions
+    Args:
+        blocks: A list of block dictionaries for the question
+    Returns:
+        A list of URLs for all the images that are present in the block data
+    """
+    urls = []
+    if not blocks:
+        return urls
+    for block in blocks:
+        block_type = block.get("type", "")
+        if block_type == "image":
+            url = block.get("props", {}).get("url", "")
+            urls.append(url)
+    return urls
 
 def construct_description_from_blocks(
     blocks: List[Dict], nesting_level: int = 0
