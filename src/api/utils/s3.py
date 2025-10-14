@@ -82,4 +82,7 @@ def get_media_upload_s3_dir():
 
 
 def get_media_upload_s3_key_from_uuid(uuid: str, extension: str):
-    return join(get_media_upload_s3_dir(), f"{uuid}.{extension}")
+    if extension == "":
+        return join(get_media_upload_s3_dir(), uuid)
+    else:
+        return join(get_media_upload_s3_dir(), f"{uuid}.{extension}")

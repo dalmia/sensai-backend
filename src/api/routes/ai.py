@@ -24,7 +24,11 @@ from api.db.task import (
     get_scorecard,
 )
 from api.db.chat import get_question_chat_history_for_user
-from api.db.utils import construct_description_from_blocks
+from api.db.utils import (
+    construct_description_from_blocks,
+    extract_image_urls_from_blocks,
+    get_image_base64_encoding
+)
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
@@ -348,7 +352,9 @@ async def ai_response_for_question(request: AIChatRequest):
                 rewritten_query = await rewrite_query(
                     chat_history + new_user_message, reference_material
                 )
-
+                image_urls = extract_image_urls_from_blocks(
+                    task["blocks"]
+                )
                 # update the last user message with the rewritten query
                 new_user_message[0]["content"] = rewritten_query
 
@@ -384,7 +390,6 @@ async def ai_response_for_question(request: AIChatRequest):
                     {"role": message["role"], "content": message["content"]}
                     for message in chat_history
                 ]
-
                 metadata["question_title"] = question["title"]
                 metadata["question_type"] = question["type"]
                 metadata["question_purpose"] = (
@@ -394,6 +399,9 @@ async def ai_response_for_question(request: AIChatRequest):
                 metadata["question_has_context"] = bool(question["context"])
 
                 question_description = construct_description_from_blocks(
+                    question["blocks"]
+                )
+                image_urls = extract_image_urls_from_blocks(
                     question["blocks"]
                 )
                 question_details = f"<Task>\n\n{question_description}\n\n</Task>"
@@ -561,9 +569,16 @@ async def ai_response_for_question(request: AIChatRequest):
                 messages = prompt.compile(
                     reference_material=question_details,
                 )
-
+            
+            structured_content = [{"type": "input_text", "text": messages[1]["content"]}]
+            for url in image_urls:
+                image_data = get_image_base64_encoding(url)
+                structured_content.append({
+                    "type": "input_image",
+                    "image_url": f"{image_data}"
+                })
+            messages[1]["content"] = structured_content            
             messages += chat_history
-
             with langfuse.start_as_current_observation(
                 as_type="generation", name="response", prompt=prompt
             ) as observation:
