@@ -170,7 +170,7 @@ async def get_task_chat_history_for_user(
 async def delete_message(message_id: int):
     await execute_db_operation(
         f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
-        (message_id),
+        (message_id,),
     )
 
 

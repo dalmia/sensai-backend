@@ -227,15 +227,32 @@ async def update_batch_name_and_members(
             # Check for existing users
             q = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_added])}) AND deleted_at IS NULL"
             await cursor.execute(q, (batch_id, *members_added))
-            existing = await cursor.fetchall()
-            if existing:
+            existing_active = await cursor.fetchall()
+            if existing_active:
                 raise Exception("One or more users are already in the batch")
 
-            values = [(user_id, batch_id) for user_id in members_added]
-            await cursor.executemany(
-                f"INSERT INTO {user_batches_table_name} (user_id, batch_id) VALUES (?, ?)",
-                values,
-            )
+            # Revive soft-deleted rows for any users being re-added
+            q_soft = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_added])}) AND deleted_at IS NOT NULL"
+            await cursor.execute(q_soft, (batch_id, *members_added))
+            soft_deleted = await cursor.fetchall()
+
+            if soft_deleted:
+                soft_deleted_ids = [row[0] for row in soft_deleted]
+                q_revive = f"UPDATE {user_batches_table_name} SET deleted_at = NULL WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in soft_deleted_ids])}) AND deleted_at IS NOT NULL"
+                await cursor.execute(q_revive, (batch_id, *soft_deleted_ids))
+
+            # Insert rows for users that have no prior association
+            revived_ids = set(row[0] for row in soft_deleted) if soft_deleted else set()
+            to_insert = [
+                user_id for user_id in members_added if user_id not in revived_ids
+            ]
+
+            if to_insert:
+                values = [(user_id, batch_id) for user_id in to_insert]
+                await cursor.executemany(
+                    f"INSERT INTO {user_batches_table_name} (user_id, batch_id) VALUES (?, ?)",
+                    values,
+                )
         # Remove members
         if members_removed:
             q = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])}) AND deleted_at IS NULL"

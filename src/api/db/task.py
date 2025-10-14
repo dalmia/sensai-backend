@@ -454,7 +454,7 @@ async def update_draft_quiz(
                     # Soft delete existing scorecard association
                     await cursor.execute(
                         f"UPDATE {question_scorecards_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND deleted_at IS NULL",
-                        (question_id),
+                        (question_id,),
                     )
 
             # Upsert question (handles both update and create)
@@ -662,7 +662,7 @@ async def delete_task(task_id: int):
         f"""
         UPDATE {tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL
         """,
-        (task_id),
+        (task_id,),
     )
 
 
