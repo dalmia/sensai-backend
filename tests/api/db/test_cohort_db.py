@@ -64,8 +64,22 @@ class TestCohortBasicOperations:
             "org_id": 1,
             "name": "Test Cohort",
             "members": [
-                {"id": 1, "email": "user1@example.com", "role": "learner", "first_name": "John", "middle_name": "M", "last_name": "Doe"},
-                {"id": 2, "email": "user2@example.com", "role": "mentor", "first_name": "Jane", "middle_name": None, "last_name": "Smith"},
+                {
+                    "id": 1,
+                    "email": "user1@example.com",
+                    "role": "learner",
+                    "first_name": "John",
+                    "middle_name": "M",
+                    "last_name": "Doe",
+                },
+                {
+                    "id": 2,
+                    "email": "user2@example.com",
+                    "role": "mentor",
+                    "first_name": "Jane",
+                    "middle_name": None,
+                    "last_name": "Smith",
+                },
             ],
         }
 
@@ -132,7 +146,9 @@ class TestCohortBasicOperations:
 
         mock_execute_multiple.assert_called_once()
         operations = mock_execute_multiple.call_args[0][0]
-        assert len(operations) == 3  # Should have 3 delete operations
+        assert (
+            len(operations) == 5
+        )  # Should have 5 delete operations including batches and user_batches
 
 
 @pytest.mark.asyncio
@@ -622,7 +638,14 @@ class TestCohortAnalytics:
         """Test getting cohort by ID with batch_id filter for members."""
         cohort_tuple = (1, "Test Cohort", 1)
         members_data = [
-            (1, "user1@example.com", "learner", "John", "M", "Doe"),  # Only users in the specified batch
+            (
+                1,
+                "user1@example.com",
+                "learner",
+                "John",
+                "M",
+                "Doe",
+            ),  # Only users in the specified batch
             (2, "user2@example.com", "learner", "Jane", None, "Smith"),
         ]
 
@@ -649,8 +672,22 @@ class TestCohortAnalytics:
             "org_id": 1,
             "name": "Test Cohort",
             "members": [
-                {"id": 1, "email": "user1@example.com", "role": "learner", "first_name": "John", "middle_name": "M", "last_name": "Doe"},
-                {"id": 2, "email": "user2@example.com", "role": "learner", "first_name": "Jane", "middle_name": None, "last_name": "Smith"},
+                {
+                    "id": 1,
+                    "email": "user1@example.com",
+                    "role": "learner",
+                    "first_name": "John",
+                    "middle_name": "M",
+                    "last_name": "Doe",
+                },
+                {
+                    "id": 2,
+                    "email": "user2@example.com",
+                    "role": "learner",
+                    "first_name": "Jane",
+                    "middle_name": None,
+                    "last_name": "Smith",
+                },
             ],
         }
 

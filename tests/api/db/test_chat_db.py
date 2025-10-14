@@ -267,8 +267,8 @@ class TestChatMessageOperations:
         await delete_message(1)
 
         mock_execute.assert_called_once_with(
-            "UPDATE chat_history SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL",
-            (ANY, 1),
+            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+            1,
         )
 
     @patch("src.api.db.chat.execute_db_operation")
@@ -288,8 +288,8 @@ class TestChatMessageOperations:
         await delete_user_chat_history_for_task(1, 1)
 
         mock_execute.assert_called_once_with(
-            "UPDATE chat_history SET deleted_at = ? WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
-            (ANY, 1, 1),
+            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
+            (1, 1),
         )
 
     @patch("src.api.db.chat.execute_db_operation")
@@ -298,6 +298,5 @@ class TestChatMessageOperations:
         await delete_all_chat_history()
 
         mock_execute.assert_called_once_with(
-            "UPDATE chat_history SET deleted_at = ? WHERE deleted_at IS NULL",
-            (ANY,),
+            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
         )
