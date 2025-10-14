@@ -9,6 +9,7 @@ from src.api.db.utils import (
     _format_block_content,
     extract_text_from_notion_blocks,
     construct_description_from_blocks,
+    extract_image_urls_from_blocks,
     BLOCK_TYPE_CONFIG
 )
 
@@ -616,3 +617,30 @@ class TestConstructDescriptionFromBlocks:
         result = construct_description_from_blocks(blocks)
         assert "# Notion Heading" in result
         assert "Notion paragraph" in result
+
+class TestImageUrlExtractionFromBlocks:
+    def test_extract_image_urls_from_blocks(self):
+        "Test extract image urls from blocks by passing an image block"
+        blocks = [
+            {
+                "id": "3453c80c-7087-4702-b6d1-f3336decee9a", "type": "paragraph", 
+                "props": {
+                    "textColor": "default", "backgroundColor": "default", "textAlignment": "left"
+                }, 
+                "content": [
+                        {
+                            "type": "text", "text": "explain the following image", "styles": {}
+                        }
+                ], 
+                "children": [], "position": 0
+            }, 
+            {
+                "id": "9e8c0d87-ff88-43b0-b8c8-9f0f7e0d12e6", "type": "image", 
+                "props": {
+                    "backgroundColor": "default", "textAlignment": "left", "name": "newplot (1).png", "url": "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png", "caption": "", "showPreview": true
+                }, 
+                "content": [], "children": [], "position": 1
+            }
+        ]
+        result = extract_image_urls_from_blocks(blocks)
+        assert result[0] == "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png"

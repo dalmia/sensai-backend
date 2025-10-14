@@ -147,3 +147,25 @@ class TestS3Utils:
         mock_join.assert_called_once_with(
             "bucket-folder/media", "12345678-1234-5678-1234-567812345678.jpg"
         )
+
+    @patch("src.api.utils.s3.get_media_upload_s3_dir")
+    @patch("src.api.utils.s3.join")
+    def test_get_media_upload_s3_key_from_uuid_empty_extension(self, mock_join, mock_get_dir):
+        """Test getting the S3 key for a media file using a UUID when extension is empty."""
+        # Setup mocks
+        mock_get_dir.return_value = "bucket-folder/media"
+        mock_join.return_value = (
+            "bucket-folder/media/12345678-1234-5678-1234-567812345678.jpg"
+        )
+
+        # Call the function
+        result = get_media_upload_s3_key_from_uuid(
+            "12345678-1234-5678-1234-567812345678.jpg", ""
+        )
+
+        # Check results
+        assert result == "bucket-folder/media/12345678-1234-5678-1234-567812345678.jpg"
+        mock_get_dir.assert_called_once()
+        mock_join.assert_called_once_with(
+            "bucket-folder/media", "12345678-1234-5678-1234-567812345678.jpg"
+        )
