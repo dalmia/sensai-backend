@@ -644,3 +644,9 @@ class TestImageUrlExtractionFromBlocks:
         ]
         result = extract_image_urls_from_blocks(blocks)
         assert result[0] == "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png"
+
+    def test_extract_image_urls_from_blocks_empty_block(self):
+        "Test extract image urls from blocks for empty block"
+        blocks = []
+        result = extract_image_urls_from_blocks(blocks)
+        assert result == []

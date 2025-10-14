@@ -26,8 +26,7 @@ from api.db.task import (
 from api.db.chat import get_question_chat_history_for_user
 from api.db.utils import (
     construct_description_from_blocks,
-    extract_image_urls_from_blocks,
-    get_image_base64_encoding
+    extract_image_urls_from_blocks
 )
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
@@ -35,6 +34,9 @@ from api.utils.s3 import (
 )
 from api.utils.audio import prepare_audio_input_for_ai
 from langfuse import get_client, observe
+import base64
+import mimetypes
+import os
 
 router = APIRouter()
 
@@ -220,6 +222,23 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
         },
     ]
 
+def get_image_base64_encoding(image_url: str):
+    if settings.s3_folder_name:
+        uuid = image_url.split("media/")[1].split("?")[0]
+        file_content = download_file_from_s3_as_bytes(
+            get_media_upload_s3_key_from_uuid(uuid, "")
+        )
+    else:
+        local_dir = settings.local_upload_folder + "/"
+        uuid = image_url.split(local_dir)[1]
+        local_file_path = os.path.join(settings.local_upload_folder, uuid)
+        with open(local_file_path, 'rb') as file:
+            file_content = file.read()
+    # Determine content type from file extension
+    content_type = mimetypes.guess_type(uuid)[0] or 'image/png'
+    # Encode to base64
+    encoded = base64.b64encode(file_content).decode('utf-8')
+    return f"data:{content_type};base64,{encoded}"
 
 def format_ai_scorecard_report(scorecard: list[dict]) -> str:
     scorecard_as_prompt = []
