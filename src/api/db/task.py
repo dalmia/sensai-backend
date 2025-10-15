@@ -666,6 +666,23 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
             None,
             TaskStatus.DRAFT,
         )
+    elif task["type"] == TaskType.ASSIGNMENT:
+            
+        assignment_data = {
+            "blocks": task.get("blocks", []),
+            "context": task.get("context"),
+            "evaluation_criteria": task.get("evaluation_criteria"),
+            "input_type": task.get("input_type"),
+            "response_type": task.get("response_type"),
+            "max_attempts": task.get("max_attempts"),
+        }
+        
+        await update_assignment(
+            new_task_id,
+            task["title"],
+            assignment_data,
+            None,
+        )
     else:
         raise ValueError("Task type not supported")
 
@@ -1136,11 +1153,11 @@ async def update_assignment(
     
     # Validate evaluation criteria
     criteria = assignment["evaluation_criteria"]
-    if criteria["min"] < 0:
+    if criteria["min_score"] < 0:
         return None
-    if criteria["max"] <= criteria["min"]:
+    if criteria["max_score"] <= criteria["min_score"]:
         return None
-    if not (criteria["min"] <= criteria["pass_mark"] <= criteria["max"]):
+    if not (criteria["min_score"] <= criteria["pass_score"] <= criteria["max_score"]):
         return None
     
     async with get_new_db_connection() as conn:

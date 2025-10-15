@@ -785,8 +785,10 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 assignment_details += f"\n--- {filename} ---\n{content}\n--- End of {filename} ---\n"
             assignment_details += f"</Student Submission Data>"
 
-        # Combine chat history with new message
-        full_chat_history = formatted_chat_history + new_user_message
+        if request.response_type == ChatResponseType.FILE and submission_data:
+            full_chat_history = new_user_message
+        else:
+            full_chat_history = formatted_chat_history + new_user_message
 
         # Determine model based on input type
         if request.response_type == ChatResponseType.AUDIO:
@@ -821,61 +823,14 @@ async def ai_response_for_assignment(request: AIChatRequest):
             )
 
         # Dynamic output model based on evaluation phase
-        class BaseOutput(BaseModel):
+        class Output(BaseModel):
             feedback: Optional[str] = Field(description="Current feedback and response", default="")
             evaluation_status: Optional[str] = Field(description="in_progress, needs_resubmission, or completed", default="in_progress")
             key_area_scores: Optional[Dict[str, KeyAreaScore]] = Field(description="Completed key area scores with detailed feedback", default={})
-        
-        class InitialSubmissionOutput(BaseOutput):
-            project_score: Optional[int] = Field(description="Project score 1-4, only if project_score >= 3")
             current_key_area: Optional[str] = Field(description="Current key area being evaluated")
-        
-        class KeyAreaQnAOutput(BaseOutput):
-            current_key_area: str = Field(description="Current key area being evaluated")
-            key_area_score: Optional[int] = Field(description="Score for current key area 1-4, only after all questions")
-        
-        class FinalEvaluationOutput(BaseOutput):
-            project_score: int = Field(description="Final project score 1-4")
-            overall_feedback: str = Field(description="Comprehensive final evaluation with three sections: Project Code Feedback, Answers Feedback, and Next Steps")
-        
-        # Determine evaluation phase and use appropriate output model
-        def determine_evaluation_phase():
-            # Check if this is the first submission (has submission_data but no previous evaluation)
-            if submission_data and not formatted_chat_history:
-                return "initial_submission"
-            
-            # Check if we're in key area Q&A phase (has chat history but not completed)
-            if formatted_chat_history:
-                # Look for evaluation_status in chat history to determine phase
-                for message in reversed(formatted_chat_history):
-                    if message.get("role") == "assistant" and message.get("content"):
-                        content = message["content"]
-                        if isinstance(content, dict):
-                            evaluation_status = content.get("evaluation_status")
-                            if evaluation_status == "completed":
-                                return "final_evaluation"
-                            elif evaluation_status == "needs_resubmission":
-                                return "initial_submission"  # Back to initial if needs resubmission
-                            elif evaluation_status == "in_progress":
-                                return "key_area_qna"
-            
-            # Default to initial submission if we can't determine
-            return "initial_submission"
-        
-        evaluation_phase = determine_evaluation_phase()
-        
-        # Use appropriate output model based on phase
-        if evaluation_phase == "initial_submission":
-            Output = InitialSubmissionOutput
-        elif evaluation_phase == "key_area_qna":
-            Output = KeyAreaQnAOutput
-        elif evaluation_phase == "final_evaluation":
-            Output = FinalEvaluationOutput
-        else:
-            Output = BaseOutput
 
         # Build comprehensive evaluation prompt with phase management
-        evaluation_prompt = """You are a Project Evaluator managing a multi-phase assignment evaluation. You must track evaluation state and respond appropriately based on the current phase.
+        evaluation_prompt = """You are a Project Evaluator - strict, fair, and constructive. Your goal is to test whether the learner truly understands and implemented their project. Act like a technical interviewer: analyze their submission, assign evidence-based scores (1-4), and run a focused Q&A for each Key Area. Be rigorous, encouraging, and never let the learner skip or simplify the evaluation.
 
         EVALUATION PHASES:
         1. INITIAL_SUBMISSION: First ZIP file upload - evaluate project score
@@ -890,31 +845,53 @@ async def ai_response_for_assignment(request: AIChatRequest):
         PHASE-SPECIFIC RESPONSES:
 
         PHASE 1 - INITIAL SUBMISSION (when you receive ZIP file):
-        - FIRST: Check if the submission contains actual code relevant to the problem statement
+        - Wait for the learner’s full submission. Do nothing before that.
+        - Evaluate the code against the Problem Statement and assign a Project Score (1-4):
+        - 1 = irrelevant or incorrect
+        - 2 = partial implementation; major gaps
+        - 3 = mostly correct; minor issues
+        - 4 = fully correct; handles edge cases
+            * 1-2: Set evaluation_status="needs_resubmission", ask for resubmission
+                - Give a brief, specific diagnostic
+                - Ask up to 2 clarifying questions about missing parts
+                - End with: “Please fix these issues and resubmit. I won’t continue until you resubmit.”
+            * 3-4: Set evaluation_status="in_progress", start first key area
+                - Output exactly:
+                    `Project Score: X/4 — [brief justification].`
+                    `[1-2 sentence summary of strengths and gaps].`
+                - For each Key Area in order:
+                    - Ask 1-4 main probing questions (one at a time), grounded in the submitted code
+                    - After each learner response, ask 1-2 follow-ups to test depth of understanding
+                    - End every question with: `— your turn.`
+                    - If the learner explicitly asks to skip, simplify, or avoid answering:
+                        reply `I cannot simplify this. Please answer the question I asked.` and repeat the exact question.
         - If NO CODE or IRRELEVANT CONTENT: Set evaluation_status="needs_resubmission", ask for proper code submission
         - If CODE EXISTS: Evaluate code against Problem Statement
-        - Assign Project Score (1-4):
-          * 1-2: Set evaluation_status="needs_resubmission", ask for resubmission
-          * 3-4: Set evaluation_status="in_progress", start first key area
-        - REQUIRED FIELDS: project_score (int), current_key_area (str)
+        - REQUIRED FIELDS: current_key_area (str)
         - Put ALL content (feedback + question) in the feedback field with proper formatting
 
         PHASE 2 - KEY AREA Q&A (ongoing questions):
         - Ask 1-4 questions per key area based on actual code
-        - After each key area completion, assign key_area_score silently (do NOT mention score in feedback)
         - REQUIRED FIELDS: current_key_area (str)
-        - Update key_area_scores with completed key area: {"Key Area Name": {"feedback": {"correct": "what worked well", "wrong": "what needs improvement"}, "score": X, "max_score": 4, "pass_score": 3}}
-        - If user avoids questions: set evaluation_status="needs_resubmission"
+        - Do not give any feedback on the key area scores, just ask the questions
+        - Update key_area_scores with completed key area
+        - If user gives brief/unclear responses, give them another chance to answer properly by repeating the exact question.
+        - Only set evaluation_status="needs_resubmission" if user explicitly refuses to answer or gives completely irrelevant responses after multiple attempts
         - Put ALL content (feedback + question) in the feedback field with proper formatting
 
         PHASE 3 - FINAL EVALUATION (all key areas done):
         - Calculate final scores and provide comprehensive feedback
         - Set evaluation_status="completed"
-        - REQUIRED FIELDS: project_score (int), key_area_scores (dict), overall_feedback (str)
-        - Format overall_feedback with three sections:
-          • **Project Code Feedback**: issues, missing features, or strengths in the submitted code
-          • **Answers Feedback**: assessment of depth, accuracy, and reasoning in responses
-          • **Next Steps**: specific, actionable advice for improvement
+        - REQUIRED FIELDS: key_area_scores (dict)
+        - Format feedback with three sections:
+            - Project Score
+            - Each Key Area name and its score key_area_scores field
+            - Answers Average = (sum of Key Area scores) ÷ (number of areas)
+            - Final Score = ceil(Project Score × (Answers Average ÷ 4))
+            - Three-part feedback:
+                • **Project Code Feedback**: issues, missing features, or strengths in the submitted code
+                • **Answers Feedback**: assessment of depth, accuracy, and reasoning in responses
+                • **Next Steps**: specific, actionable advice for improvement
         - IMPORTANT: Do NOT end with "— your turn" since the evaluation is complete and no response is needed
 
         IMPORTANT RULES:
@@ -926,7 +903,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
         - Be encouraging but rigorous
         - NEVER mention key area scores in feedback - assign them silently
         - After completing a key area, move to next area without mentioning the score
-        - When completing a key area, update key_area_scores: {"Key Area Name": {"feedback": {"correct": "what worked well", "wrong": "what needs improvement"}, "score": X, "max_score": 4, "pass_score": 3}}
+        - When completing a key area, update key_area_scores
         
         CRITICAL CODE VALIDATION:
         - ALWAYS check if submission contains actual code relevant to the problem statement
