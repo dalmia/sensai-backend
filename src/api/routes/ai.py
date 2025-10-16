@@ -421,7 +421,7 @@ async def ai_response_for_question(request: AIChatRequest):
 
             for message in chat_history:
                 if message["role"] == "user":
-                    if request.response_type == ChatResponseType.AUDIO:
+                    if request.response_type == ChatResponseType.AUDIO and message.get("response_type") == ChatResponseType.AUDIO:
                         message["content"] = get_user_audio_message_for_chat_history(
                             message["content"]
                         )
@@ -698,14 +698,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 ),
             }
         ]
-
-        # Audio not supported for assignments
-        if request.response_type == ChatResponseType.AUDIO:
-            raise HTTPException(
-                status_code=400,
-                detail="Audio response is not supported for assignment tasks",
-            )
-
+        
         # Build problem statement from blocks
         problem_statement = construct_description_from_blocks(problem_blocks)
 
@@ -789,6 +782,14 @@ async def ai_response_for_assignment(request: AIChatRequest):
             full_chat_history = new_user_message
         else:
             full_chat_history = formatted_chat_history + new_user_message
+
+        # Process chat history for audio content if needed
+        if request.response_type == ChatResponseType.AUDIO:
+            for message in full_chat_history:
+                if message["role"] == "user" and message.get("response_type") == ChatResponseType.AUDIO:
+                    message["content"] = get_user_audio_message_for_chat_history(
+                        message["content"]
+                    )
 
         # Determine model based on input type
         if request.response_type == ChatResponseType.AUDIO:
@@ -924,7 +925,20 @@ async def ai_response_for_assignment(request: AIChatRequest):
         - DO NOT use key_area_question field - everything goes in feedback field
         - FINAL EVALUATION: Do NOT end with "— your turn" since evaluation is complete"""
 
-        prompt_text = f"""{evaluation_prompt}
+        if request.response_type == ChatResponseType.AUDIO:
+            # For audio responses, build messages with actual audio content
+            messages = [
+                {"role": "system", "content": f"{evaluation_prompt}\n\nAssignment Details:\n{assignment_details}"}
+            ]
+            # Add chat history with audio content
+            for message in full_chat_history:
+                messages.append({
+                    "role": message["role"],
+                    "content": message["content"]
+                })
+        else:
+            # For text responses, use formatted chat history
+            prompt_text = f"""{evaluation_prompt}
 
         Assignment Details:
         {assignment_details}
@@ -932,9 +946,9 @@ async def ai_response_for_assignment(request: AIChatRequest):
         Chat History:
         {format_chat_history_with_audio(full_chat_history)}"""
 
-        messages = [
-            {"role": "system", "content": prompt_text}
-        ]
+            messages = [
+                {"role": "system", "content": prompt_text}
+            ]
 
         # Process streaming response
         try:
