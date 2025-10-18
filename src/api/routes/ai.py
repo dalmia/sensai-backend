@@ -5,7 +5,7 @@ from typing import AsyncGenerator, Optional
 import json
 from copy import deepcopy
 from pydantic import BaseModel, Field, create_model
-from api.config import openai_plan_to_model_name
+from api.config import UPLOAD_FOLDER_NAME, openai_plan_to_model_name
 from api.models import (
     AIChatRequest,
     ChatResponseType,
@@ -229,7 +229,7 @@ def get_image_base64_encoding(image_url: str):
             get_media_upload_s3_key_from_uuid(uuid, "")
         )
     else:
-        local_dir = settings.local_upload_folder + "/"
+        local_dir = UPLOAD_FOLDER_NAME + "/"
         uuid = image_url.split(local_dir)[1]
         local_file_path = os.path.join(settings.local_upload_folder, uuid)
         with open(local_file_path, 'rb') as file:
