@@ -76,7 +76,8 @@ class TestStoreMessages:
             )
         ]
 
-        result = await store_messages(messages, 1, 1, True)
+        # Test with task_id to trigger task completion logic
+        result = await store_messages(messages, 1, question_id=None, task_id=1, is_complete=True)
 
         # Should insert completion record
         assert (

@@ -211,8 +211,8 @@ class TestTableCreationFunctions:
 
         await create_chat_history_table(mock_cursor)
 
-        # Should execute CREATE TABLE and 2 CREATE INDEX statements
-        assert mock_cursor.execute.call_count == 3
+        # Should execute CREATE TABLE and 3 CREATE INDEX statements
+        assert mock_cursor.execute.call_count == 4
 
     async def test_create_task_completion_table(self):
         """Test creating task completion table."""
