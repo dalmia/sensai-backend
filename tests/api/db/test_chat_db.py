@@ -86,6 +86,55 @@ class TestStoreMessages:
         calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
         assert any("task_completions" in call for call in calls)
 
+    async def test_store_messages_validation_error(self):
+        """Test that ValueError is raised when neither question_id nor task_id is provided."""
+        messages = [
+            StoreMessageRequest(
+                role="user",
+                content="Hello",
+                response_type="text",
+                created_at=datetime.now(),
+            )
+        ]
+
+        with pytest.raises(ValueError, match="Either question_id or task_id must be provided"):
+            await store_messages(messages, 1, question_id=None, task_id=None)
+
+    @patch("src.api.db.chat.get_new_db_connection")
+    @patch("src.api.db.chat.execute_db_operation")
+    async def test_store_messages_with_question_completion(self, mock_execute, mock_get_conn):
+        """Test message storage with question completion (quiz questions)."""
+        mock_cursor = AsyncMock()
+        mock_cursor.lastrowid = 123
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_conn.__aenter__.return_value = mock_conn
+        mock_get_conn.return_value = mock_conn
+
+        mock_execute.return_value = [
+            (123, "2024-01-01 12:00:00", 1, 1, "user", "Hello", "text")
+        ]
+
+        messages = [
+            StoreMessageRequest(
+                role="user",
+                content="Hello",
+                response_type="text",
+                created_at=datetime.now(),
+            )
+        ]
+
+        # Test with question_id to trigger question completion logic
+        result = await store_messages(messages, 1, question_id=1, task_id=None, is_complete=True)
+
+        # Should insert completion record for question
+        assert (
+            mock_cursor.execute.call_count == 2
+        )  # One for message, one for completion
+        calls = [call[0][0] for call in mock_cursor.execute.call_args_list]
+        assert any("task_completions" in call for call in calls)
+        assert any("question_id" in call for call in calls)
+
     @patch("src.api.db.chat.get_new_db_connection")
     @patch("src.api.db.chat.execute_db_operation")
     async def test_store_multiple_messages(self, mock_execute, mock_get_conn):
@@ -208,6 +257,34 @@ class TestGetChatHistory:
         assert len(result) == 1
         assert result[0]["id"] == 1
         mock_get_task.assert_called_once_with(1)
+
+    @patch("src.api.db.chat.get_basic_task_details")
+    @patch("src.api.db.chat.execute_db_operation")
+    async def test_get_task_chat_history_for_user_assignment_success(
+        self, mock_execute, mock_get_task
+    ):
+        """Test successful retrieval of assignment task chat history for user."""
+        mock_get_task.return_value = {"type": "assignment"}
+        mock_execute.return_value = [
+            (1, "2024-01-01 12:00:00", 1, 1, "user", "Hello", "text"),
+            (2, "2024-01-01 12:01:00", 1, 1, "assistant", "Response", "text")
+        ]
+
+        result = await get_task_chat_history_for_user(1, 1)
+
+        assert len(result) == 2
+        assert result[0]["id"] == 1
+        assert result[0]["role"] == "user"
+        assert result[1]["id"] == 2
+        assert result[1]["role"] == "assistant"
+        mock_get_task.assert_called_once_with(1)
+        
+        # Verify the correct query was used for assignment tasks
+        mock_execute.assert_called_once()
+        call_args = mock_execute.call_args[0]
+        query = call_args[0]
+        assert "WHERE ch.task_id = ?" in query
+        assert "AND ch.user_id = ?" in query
 
     @patch("src.api.db.chat.get_basic_task_details")
     async def test_get_task_chat_history_for_user_task_not_exist(self, mock_get_task):
