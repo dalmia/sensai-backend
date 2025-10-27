@@ -56,6 +56,7 @@ def cleanup_temp_directory(temp_dir: str):
 def extract_submission_file(file_uuid: str) -> Dict[str, any]:
     """
     Extract a submission ZIP file and return the raw extracted data.
+    Only extracts files with allowed code extensions.
     
     Args:
         file_uuid: UUID of the uploaded file
@@ -65,6 +66,20 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
     """
     from api.settings import settings
     from api.utils.s3 import download_file_from_s3_as_bytes, get_media_upload_s3_key_from_uuid
+    
+    # Define allowed file extensions for code submissions
+    ALLOWED_EXTENSIONS = {
+        '.js', '.jsx', '.ts', '.tsx',   # JavaScript/TypeScript
+        '.html', '.htm',                # HTML
+        '.css', '.scss', '.sass',       # CSS
+        '.py',                          # Python
+        '.java',                        # Java
+        '.c', '.cpp', '.h', '.hpp',     # C/C++
+        '.go', '.rs', '.php', '.rb',    # Other languages
+        '.json', '.yaml', '.yml',       # Config files
+        '.txt', '.md',                  # Text files
+        '.sh', '.bat', '.ps1',          # Shell scripts
+    }
     
     # Download the file
     if settings.s3_folder_name:
@@ -99,30 +114,33 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
         # Extract ZIP file
         temp_extract_dir, extracted_files = extract_zip_file(temp_zip_path)
         
-        # Read all file contents
+        # Filter files to include only relevant code files
+        code_files = []
         file_contents = {}
+        
         for file_path in extracted_files:
+            # Get file extension
+            file_ext = os.path.splitext(file_path)[1].lower()
+            
+            # Only include files with allowed extensions
+            if file_ext in ALLOWED_EXTENSIONS:
+                code_files.append(file_path)
+        
+        # Read content of filtered code files
+        for file_path in code_files:
             try:
-                file_name = os.path.basename(file_path)
+                relative_path = os.path.relpath(file_path, temp_extract_dir).replace(os.sep, '/')
                 with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                    file_contents[file_name] = content
-            except UnicodeDecodeError:
-                # Skip files that can't be decoded as text
-                continue
+                    file_contents[relative_path] = f.read()
             except Exception:
-                # Skip files that can't be read
                 continue
         
         # Prepare extraction result
-        result = {
+        return {
             "file_uuid": file_uuid,
-            "extracted_files_count": len(extracted_files),
+            "extracted_files_count": len(code_files),
             "file_contents": file_contents,
-            "extracted_files": extracted_files
         }
-        
-        return result
         
     finally:
         # Clean up temporary files

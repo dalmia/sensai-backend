@@ -135,7 +135,6 @@ class TestFileAnalysis:
         assert result["file_uuid"] == "test-uuid"
         assert result["extracted_files_count"] == 2
         assert "file_contents" in result
-        assert "extracted_files" in result
         
         # Verify S3 calls
         mock_get_s3_key.assert_called_once_with("test-uuid", "zip")
@@ -184,7 +183,6 @@ class TestFileAnalysis:
         assert result["file_uuid"] == "test-uuid"
         assert result["extracted_files_count"] == 1
         assert "file_contents" in result
-        assert "extracted_files" in result
         
         # Verify S3 was attempted first
         mock_get_s3_key.assert_called_once_with("test-uuid", "zip")
@@ -250,7 +248,6 @@ class TestFileAnalysis:
         assert result["file_uuid"] == "test-uuid"
         assert result["extracted_files_count"] == 2
         assert "file_contents" in result
-        assert "extracted_files" in result
 
     @patch("api.settings.settings")
     def test_extract_submission_file_local_not_found(self, mock_settings):
@@ -336,9 +333,9 @@ class TestFileAnalysis:
             with patch("builtins.open", side_effect=mock_file_open):
                 result = extract_submission_file("test-uuid")
         
-        # Verify result - should only contain the text file
+        # Verify result - should only contain the text file (binary files are filtered out)
         assert result["file_uuid"] == "test-uuid"
-        assert result["extracted_files_count"] == 2
+        assert result["extracted_files_count"] == 1  # Only .txt file is allowed
         assert len(result["file_contents"]) == 1  # Only text file should be included
         assert "text_file.txt" in result["file_contents"]
 
