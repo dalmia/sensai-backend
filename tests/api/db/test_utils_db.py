@@ -708,3 +708,39 @@ class TestExtractOrderedElementsFromNotionBlocks:
             {"type": "text", "text": "1. Parent item"},
             # children not included in the flat result, by default function logic
         ]
+
+    def test_extract_ordered_elements_nested_blocktype_children(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        # Block has children nested under "block_type" key (ex: toggle)
+        blocks = [
+            {"type": "toggle",
+             "toggle": {
+                 "rich_text": [{"plain_text": "Toggle parent"}],
+                 "children": [
+                     {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Toggle child"}]}}
+                 ]
+             }
+            }
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "▶ Toggle parent"},
+            {"type": "text", "text": "Toggle child"},
+        ]
+
+    def test_extract_ordered_elements_with_generic_children(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        # Block has 'children' at the top level, not under its type
+        blocks = [
+            {"type": "custom_type_with_children",
+             "children": [
+                 {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Child text one"}]}},
+                 {"type": "image", "image": {"external": {"url": "http://example.com/generic.png"}}}
+             ]
+            }
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "Child text one"},
+            {"type": "image", "url": "http://example.com/generic.png"},
+        ]
