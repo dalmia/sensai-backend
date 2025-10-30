@@ -650,3 +650,61 @@ class TestImageUrlExtractionFromBlocks:
         blocks = []
         result = extract_image_urls_from_blocks(blocks)
         assert result == []
+
+
+class TestExtractOrderedElementsFromNotionBlocks:
+    def test_extract_ordered_elements_empty(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = []
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == []
+
+    def test_extract_ordered_elements_text_only(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Hello World!"}]}}
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [{"type": "text", "text": "Hello World!"}]
+
+    def test_extract_ordered_elements_image_only(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = [
+            {"type": "image", "image": {"external": {"url": "http://example.com/image.png"}}, "position": 0}
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [{"type": "image", "url": "http://example.com/image.png"}]
+
+    def test_extract_ordered_elements_mixed(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "First paragraph"}]}},
+            {"type": "image", "image": {"file": {"url": "http://img.png"}}, "position": 1},
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Second paragraph"}]}}
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "First paragraph"},
+            {"type": "image", "url": "http://img.png"},
+            {"type": "text", "text": "Second paragraph"},
+        ]
+
+    def test_extract_ordered_elements_with_children(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        # Only the parent item will be included as an ordered element (children are not included as flat list)
+        blocks = [
+            {"type": "numbered_list_item",
+             "numbered_list_item": {
+                 "rich_text": [{"plain_text": "Parent item"}],
+                 "children": [
+                    {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "List item text"}]}},
+                    {"type": "image", "image": {"external": {"url": "http://example.com/image2.png"}}}
+                 ]
+             }
+            }
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "1. Parent item"},
+            # children not included in the flat result, by default function logic
+        ]

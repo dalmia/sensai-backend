@@ -26,11 +26,13 @@ from api.db.task import (
 from api.db.chat import get_question_chat_history_for_user
 from api.db.utils import (
     construct_description_from_blocks,
-    extract_image_urls_from_blocks
+    extract_image_urls_from_blocks,
+    extract_ordered_elements_from_notion_blocks,
 )
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
+    get_uuid_from_url
 )
 from api.utils.audio import prepare_audio_input_for_ai
 from langfuse import get_client, observe
@@ -224,13 +226,12 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
 
 def get_image_base64_encoding(image_url: str):
     if settings.s3_folder_name:
-        uuid = image_url.split("media/")[1].split("?")[0]
+        uuid = get_uuid_from_url(image_url, True)
         file_content = download_file_from_s3_as_bytes(
             get_media_upload_s3_key_from_uuid(uuid, "")
         )
     else:
-        local_dir = UPLOAD_FOLDER_NAME + "/"
-        uuid = image_url.split(local_dir)[1]
+        uuid = get_uuid_from_url(image_url, False)
         local_file_path = os.path.join(settings.local_upload_folder, uuid)
         with open(local_file_path, 'rb') as file:
             file_content = file.read()
@@ -370,9 +371,6 @@ async def ai_response_for_question(request: AIChatRequest):
 
                 rewritten_query = await rewrite_query(
                     chat_history + new_user_message, reference_material
-                )
-                image_urls = extract_image_urls_from_blocks(
-                    task["blocks"]
                 )
                 # update the last user message with the rewritten query
                 new_user_message[0]["content"] = rewritten_query
@@ -589,13 +587,73 @@ async def ai_response_for_question(request: AIChatRequest):
                     reference_material=question_details,
                 )
             
-            structured_content = [{"type": "input_text", "text": messages[1]["content"]}]
-            for url in image_urls:
-                image_data = get_image_base64_encoding(url)
+            # Create structured content preserving the original order of text and images
+            structured_content = []
+            text_content_parts = []
+            
+            # Process blocks in order to maintain text/image sequence
+            blocks_to_process = task["blocks"] if request.task_type == TaskType.LEARNING_MATERIAL else question["blocks"]
+            
+            for block in blocks_to_process:
+                block_type = block.get("type", "")
+                
+                if block_type == "image":
+                    # If we have accumulated text content, add it first
+                    if text_content_parts:
+                        structured_content.append({
+                            "type": "input_text", 
+                            "text": "\n".join(text_content_parts)
+                        })
+                        text_content_parts = []
+                    
+                    # Extract image URL and add to structured content
+                    image_url = block.get("props", {}).get("url", "")
+                    if image_url:
+                        image_data = get_image_base64_encoding(image_url)
+                        structured_content.append({
+                            "type": "input_image",
+                            "image_url": f"{image_data}"
+                        })
+                elif block_type == "notion":
+                    # Flush accumulated text first to preserve order
+                    if text_content_parts:
+                        structured_content.append({
+                            "type": "input_text",
+                            "text": "\n".join(text_content_parts)
+                        })
+                        text_content_parts = []
+
+                    # Extract ordered elements (text/images) from Notion content
+                    notion_elements = extract_ordered_elements_from_notion_blocks(block.get("content", []) or [])
+                    for el in notion_elements:
+                        if el.get("type") == "image" and el.get("url"):
+                            image_data = el.get("url")
+                            structured_content.append({
+                                "type": "input_image",
+                                "image_url": f"{image_data}"
+                            })
+                        elif el.get("type") == "text" and el.get("text"):
+                            structured_content.append({
+                                "type": "input_text",
+                                "text": el["text"]
+                            })
+                else:
+                    # For non-image blocks, extract text content and accumulate
+                    block_text = construct_description_from_blocks([block])
+                    if block_text.strip():
+                        text_content_parts.append(block_text.strip())
+            
+            # Add any remaining text content
+            if text_content_parts:
                 structured_content.append({
-                    "type": "input_image",
-                    "image_url": f"{image_data}"
+                    "type": "input_text", 
+                    "text": "\n".join(text_content_parts)
                 })
+            
+            # If no structured content was created, fall back to original text
+            if not structured_content:
+                structured_content = [{"type": "input_text", "text": messages[1]["content"]}]
+            
             messages[1]["content"] = structured_content            
             messages += chat_history
             with langfuse.start_as_current_observation(

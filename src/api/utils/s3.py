@@ -1,6 +1,7 @@
 import os
 from os.path import join
 import uuid
+from api.config import UPLOAD_FOLDER_NAME
 import boto3
 import boto3.session
 from api.settings import settings
@@ -82,7 +83,17 @@ def get_media_upload_s3_dir():
 
 
 def get_media_upload_s3_key_from_uuid(uuid: str, extension: str):
-    if extension == "":
+    if not extension:
         return join(get_media_upload_s3_dir(), uuid)
     else:
         return join(get_media_upload_s3_dir(), f"{uuid}.{extension}")
+
+def get_uuid_from_url(image_url: str, is_s3: bool):
+    if not image_url:
+        return ""
+    if is_s3:
+        uuid = image_url.split("media/")[1].split("?")[0]
+    else:
+        local_dir = UPLOAD_FOLDER_NAME + "/"
+        uuid = image_url.split(local_dir)[1]
+    return uuid
