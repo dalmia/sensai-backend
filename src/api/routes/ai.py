@@ -5,7 +5,7 @@ from typing import AsyncGenerator, Optional
 import json
 from copy import deepcopy
 from pydantic import BaseModel, Field, create_model
-from api.config import openai_plan_to_model_name
+from api.config import UPLOAD_FOLDER_NAME, openai_plan_to_model_name
 from api.models import (
     AIChatRequest,
     ChatResponseType,
@@ -24,13 +24,21 @@ from api.db.task import (
     get_scorecard,
 )
 from api.db.chat import get_question_chat_history_for_user
-from api.db.utils import construct_description_from_blocks
+from api.db.utils import (
+    construct_description_from_blocks,
+    extract_image_urls_from_blocks,
+    extract_ordered_elements_from_notion_blocks,
+)
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
+    get_uuid_from_url
 )
 from api.utils.audio import prepare_audio_input_for_ai
 from langfuse import get_client, observe
+import base64
+import mimetypes
+import os
 
 router = APIRouter()
 
@@ -216,6 +224,22 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
         },
     ]
 
+def get_image_base64_encoding(image_url: str):
+    if settings.s3_folder_name:
+        uuid = get_uuid_from_url(image_url, True)
+        file_content = download_file_from_s3_as_bytes(
+            get_media_upload_s3_key_from_uuid(uuid, "")
+        )
+    else:
+        uuid = get_uuid_from_url(image_url, False)
+        local_file_path = os.path.join(settings.local_upload_folder, uuid)
+        with open(local_file_path, 'rb') as file:
+            file_content = file.read()
+    # Determine content type from file extension
+    content_type = mimetypes.guess_type(uuid)[0] or 'image/png'
+    # Encode to base64
+    encoded = base64.b64encode(file_content).decode('utf-8')
+    return f"data:{content_type};base64,{encoded}"
 
 def format_ai_scorecard_report(scorecard: list[dict]) -> str:
     scorecard_as_prompt = []
@@ -348,7 +372,6 @@ async def ai_response_for_question(request: AIChatRequest):
                 rewritten_query = await rewrite_query(
                     chat_history + new_user_message, reference_material
                 )
-
                 # update the last user message with the rewritten query
                 new_user_message[0]["content"] = rewritten_query
 
@@ -384,7 +407,6 @@ async def ai_response_for_question(request: AIChatRequest):
                     {"role": message["role"], "content": message["content"]}
                     for message in chat_history
                 ]
-
                 metadata["question_title"] = question["title"]
                 metadata["question_type"] = question["type"]
                 metadata["question_purpose"] = (
@@ -394,6 +416,9 @@ async def ai_response_for_question(request: AIChatRequest):
                 metadata["question_has_context"] = bool(question["context"])
 
                 question_description = construct_description_from_blocks(
+                    question["blocks"]
+                )
+                image_urls = extract_image_urls_from_blocks(
                     question["blocks"]
                 )
                 question_details = f"<Task>\n\n{question_description}\n\n</Task>"
@@ -561,9 +586,76 @@ async def ai_response_for_question(request: AIChatRequest):
                 messages = prompt.compile(
                     reference_material=question_details,
                 )
+            
+            # Create structured content preserving the original order of text and images
+            structured_content = []
+            text_content_parts = []
+            
+            # Process blocks in order to maintain text/image sequence
+            blocks_to_process = task["blocks"] if request.task_type == TaskType.LEARNING_MATERIAL else question["blocks"]
+            
+            for block in blocks_to_process:
+                block_type = block.get("type", "")
+                
+                if block_type == "image":
+                    # If we have accumulated text content, add it first
+                    if text_content_parts:
+                        structured_content.append({
+                            "type": "input_text", 
+                            "text": "\n".join(text_content_parts)
+                        })
+                        text_content_parts = []
+                    
+                    # Extract image URL and add to structured content
+                    image_url = block.get("props", {}).get("url", "")
+                    if image_url:
+                        image_data = get_image_base64_encoding(image_url)
+                        structured_content.append({
+                            "type": "input_image",
+                            "image_url": f"{image_data}"
+                        })
+                elif block_type == "notion":
+                    # Flush accumulated text first to preserve order
+                    if text_content_parts:
+                        structured_content.append({
+                            "type": "input_text",
+                            "text": "\n".join(text_content_parts)
+                        })
+                        text_content_parts = []
 
+                    # Extract ordered elements (text/images) from Notion content
+                    notion_elements = extract_ordered_elements_from_notion_blocks(block.get("content", []) or [])
+                    for el in notion_elements:
+                        if el.get("type") == "image" and el.get("url"):
+                            image_data = el.get("url")
+                            structured_content.append({
+                                "type": "input_image",
+                                "image_url": f"{image_data}"
+                            })
+                        elif el.get("type") == "text" and el.get("text"):
+                            structured_content.append({
+                                "type": "input_text",
+                                "text": el["text"]
+                            })
+                else:
+                    # For non-image blocks, extract text content and accumulate
+                    block_text = construct_description_from_blocks([block])
+                    if block_text.strip():
+                        text_content_parts.append(block_text.strip())
+            
+            # Add any remaining text content
+            if text_content_parts:
+                structured_content.append({
+                    "type": "input_text", 
+                    "text": "\n".join(text_content_parts)
+                })
+            
+            # If no structured content was created, fall back to original text
+            if not structured_content:
+                structured_content = [{"type": "input_text", "text": messages[1]["content"]}]
+            
+            messages[1]["content"] = structured_content            
             messages += chat_history
-
             with langfuse.start_as_current_observation(
                 as_type="generation", name="response", prompt=prompt
             ) as observation:

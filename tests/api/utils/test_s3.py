@@ -1,14 +1,16 @@
+from api.config import UPLOAD_FOLDER_NAME
 import pytest
 import os
 import uuid
 from unittest.mock import patch, MagicMock
 from src.api.utils.s3 import (
+    get_uuid_from_url,
     upload_file_to_s3,
     upload_audio_data_to_s3,
     download_file_from_s3_as_bytes,
     generate_s3_uuid,
     get_media_upload_s3_dir,
-    get_media_upload_s3_key_from_uuid,
+    get_media_upload_s3_key_from_uuid
 )
 
 
@@ -147,3 +149,46 @@ class TestS3Utils:
         mock_join.assert_called_once_with(
             "bucket-folder/media", "12345678-1234-5678-1234-567812345678.jpg"
         )
+
+    @patch("src.api.utils.s3.get_media_upload_s3_dir")
+    @patch("src.api.utils.s3.join")
+    def test_get_media_upload_s3_key_from_uuid_empty_extension(self, mock_join, mock_get_dir):
+        """Test getting the S3 key for a media file using a UUID when extension is empty."""
+        # Setup mocks
+        mock_get_dir.return_value = "bucket-folder/media"
+        mock_join.return_value = (
+            "bucket-folder/media/12345678-1234-5678-1234-567812345678.jpg"
+        )
+
+        # Call the function
+        result = get_media_upload_s3_key_from_uuid(
+            "12345678-1234-5678-1234-567812345678.jpg", ""
+        )
+
+        # Check results
+        assert result == "bucket-folder/media/12345678-1234-5678-1234-567812345678.jpg"
+        mock_get_dir.assert_called_once()
+        mock_join.assert_called_once_with(
+            "bucket-folder/media", "12345678-1234-5678-1234-567812345678.jpg"
+        )
+
+    def test_get_uuid_from_url_empty(self):
+        "Test that the function should return empty uuid if url is empty"
+        image_url = ""
+        is_s3 = True
+        result = get_uuid_from_url(image_url, is_s3)
+        assert result == ""
+    
+    def test_get_uuid_from_url_local(self):
+        "Test that the function works for local image_url (localhost)"
+        image_url = "http://localhost:3000/" + UPLOAD_FOLDER_NAME + "/abcdefgh.png"
+        is_s3 = False
+        result = get_uuid_from_url(image_url, is_s3)
+        assert result == "abcdefgh.png"
+
+    def test_get_uuid_from_url_s3(self):
+        "Test that the function works for s3 image_url"
+        image_url = "https://dev-sensai-ind.s3.amazonaws.com/prod/media/b0e872a4-8a37-4588-834a-a366627e5cb7.mp4?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+        is_s3 = True
+        result = get_uuid_from_url(image_url, is_s3)
+        assert result == "b0e872a4-8a37-4588-834a-a366627e5cb7.mp4"

@@ -3,8 +3,6 @@ import json
 from enum import Enum
 from api.config import courses_table_name
 from api.utils.db import execute_db_operation
-
-
 # Configuration for different integration block types
 BLOCK_TYPE_CONFIG = {
     "paragraph": {
@@ -241,6 +239,79 @@ def extract_text_from_notion_blocks(blocks: List[Dict]) -> str:
     
     return "\n".join(text_content)
 
+
+def extract_ordered_elements_from_notion_blocks(blocks: List[Dict]) -> List[Dict]:
+    """
+    Returns a list of ordered elements (text and images) from Notion blocks.
+
+    Each element is a dict with one of the following shapes:
+    - {"type": "text", "text": str}
+    - {"type": "image", "url": str}
+
+    The order matches the order in which elements appear in the Notion blocks.
+    """
+    if not blocks:
+        return []
+
+    ordered_elements: List[Dict] = []
+
+    def append_text_if_any(text: Optional[str]) -> None:
+        if text and text.strip():
+            ordered_elements.append({"type": "text", "text": text})
+
+    for block in blocks:
+        block_type = block.get("type", "")
+
+        # Handle image blocks (try multiple common shapes)
+        if block_type == "image":
+            image_data = block.get("image", {}) if isinstance(block.get("image"), dict) else {}
+            # Notion API common shapes
+            url = (
+                image_data.get("file", {}).get("url")
+                or image_data.get("external", {}).get("url")
+                or block.get("props", {}).get("url")
+                or block.get("url")
+            )
+            if url:
+                ordered_elements.append({"type": "image", "url": url})
+            continue
+
+        # For non-image blocks, reuse existing formatting logic
+        config = BLOCK_TYPE_CONFIG.get(block_type, {})
+        formatted_text = _format_block_content(block, block_type, config) if block_type in BLOCK_TYPE_CONFIG else None
+        append_text_if_any(formatted_text)
+
+        # Recurse into children (if present)
+        has_children = False
+        if block_type in BLOCK_TYPE_CONFIG:
+            has_children = config.get("has_children", False)
+        if has_children:
+            children = block.get(block_type, {}).get("children", []) or []
+            child_elements = extract_ordered_elements_from_notion_blocks(children)
+            ordered_elements.extend(child_elements)
+        elif "children" in block:
+            child_elements = extract_ordered_elements_from_notion_blocks(block.get("children", []) or [])
+            ordered_elements.extend(child_elements)
+
+    return ordered_elements
+
+def extract_image_urls_from_blocks(blocks: List[Dict]) -> List[Dict]:
+    """
+    Extracts image urls from the block data of questions
+    Args:
+        blocks: A list of block dictionaries for the question
+    Returns:
+        A list of URLs for all the images that are present in the block data
+    """
+    urls = []
+    if not blocks:
+        return urls
+    for block in blocks:
+        block_type = block.get("type", "")
+        if block_type == "image":
+            url = block.get("props", {}).get("url", "")
+            urls.append(url)
+    return urls
 
 def construct_description_from_blocks(
     blocks: List[Dict], nesting_level: int = 0

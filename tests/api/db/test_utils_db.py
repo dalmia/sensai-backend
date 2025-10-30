@@ -9,6 +9,7 @@ from src.api.db.utils import (
     _format_block_content,
     extract_text_from_notion_blocks,
     construct_description_from_blocks,
+    extract_image_urls_from_blocks,
     BLOCK_TYPE_CONFIG
 )
 
@@ -616,3 +617,130 @@ class TestConstructDescriptionFromBlocks:
         result = construct_description_from_blocks(blocks)
         assert "# Notion Heading" in result
         assert "Notion paragraph" in result
+
+class TestImageUrlExtractionFromBlocks:
+    def test_extract_image_urls_from_blocks(self):
+        "Test extract image urls from blocks by passing an image block"
+        blocks = [
+            {
+                "id": "3453c80c-7087-4702-b6d1-f3336decee9a", "type": "paragraph", 
+                "props": {
+                    "textColor": "default", "backgroundColor": "default", "textAlignment": "left"
+                }, 
+                "content": [
+                        {
+                            "type": "text", "text": "explain the following image", "styles": {}
+                        }
+                ], 
+                "children": [], "position": 0
+            }, 
+            {
+                "id": "9e8c0d87-ff88-43b0-b8c8-9f0f7e0d12e6", "type": "image", 
+                "props": {
+                    "backgroundColor": "default", "textAlignment": "left", "name": "newplot (1).png", "url": "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png", "caption": "", "showPreview": True
+                }, 
+                "content": [], "children": [], "position": 1
+            }
+        ]
+        result = extract_image_urls_from_blocks(blocks)
+        assert result[0] == "http://localhost:8001/uploads/c8b0e987-f63d-4e23-b14e-9f532c92c60f.png"
+
+    def test_extract_image_urls_from_blocks_empty_block(self):
+        "Test extract image urls from blocks for empty block"
+        blocks = []
+        result = extract_image_urls_from_blocks(blocks)
+        assert result == []
+
+
+class TestExtractOrderedElementsFromNotionBlocks:
+    def test_extract_ordered_elements_empty(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = []
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == []
+
+    def test_extract_ordered_elements_text_only(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Hello World!"}]}}
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [{"type": "text", "text": "Hello World!"}]
+
+    def test_extract_ordered_elements_image_only(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = [
+            {"type": "image", "image": {"external": {"url": "http://example.com/image.png"}}, "position": 0}
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [{"type": "image", "url": "http://example.com/image.png"}]
+
+    def test_extract_ordered_elements_mixed(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        blocks = [
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "First paragraph"}]}},
+            {"type": "image", "image": {"file": {"url": "http://img.png"}}, "position": 1},
+            {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Second paragraph"}]}}
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "First paragraph"},
+            {"type": "image", "url": "http://img.png"},
+            {"type": "text", "text": "Second paragraph"},
+        ]
+
+    def test_extract_ordered_elements_with_children(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        # Only the parent item will be included as an ordered element (children are not included as flat list)
+        blocks = [
+            {"type": "numbered_list_item",
+             "numbered_list_item": {
+                 "rich_text": [{"plain_text": "Parent item"}],
+                 "children": [
+                    {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "List item text"}]}},
+                    {"type": "image", "image": {"external": {"url": "http://example.com/image2.png"}}}
+                 ]
+             }
+            }
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "1. Parent item"},
+            # children not included in the flat result, by default function logic
+        ]
+
+    def test_extract_ordered_elements_nested_blocktype_children(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        # Block has children nested under "block_type" key (ex: toggle)
+        blocks = [
+            {"type": "toggle",
+             "toggle": {
+                 "rich_text": [{"plain_text": "Toggle parent"}],
+                 "children": [
+                     {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Toggle child"}]}}
+                 ]
+             }
+            }
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "▶ Toggle parent"},
+            {"type": "text", "text": "Toggle child"},
+        ]
+
+    def test_extract_ordered_elements_with_generic_children(self):
+        from src.api.db.utils import extract_ordered_elements_from_notion_blocks
+        # Block has 'children' at the top level, not under its type
+        blocks = [
+            {"type": "custom_type_with_children",
+             "children": [
+                 {"type": "paragraph", "paragraph": {"rich_text": [{"plain_text": "Child text one"}]}},
+                 {"type": "image", "image": {"external": {"url": "http://example.com/generic.png"}}}
+             ]
+            }
+        ]
+        result = extract_ordered_elements_from_notion_blocks(blocks)
+        assert result == [
+            {"type": "text", "text": "Child text one"},
+            {"type": "image", "url": "http://example.com/generic.png"},
+        ]
