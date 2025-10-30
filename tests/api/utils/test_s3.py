@@ -1,4 +1,3 @@
-from sys import is_stack_trampoline_active
 from api.config import UPLOAD_FOLDER_NAME
 import pytest
 import os
