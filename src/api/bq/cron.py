@@ -1,7 +1,9 @@
 from google.cloud import bigquery
 from google.api_core.exceptions import NotFound
 from typing import List, Dict, Any, Optional, Callable, Awaitable
-from datetime import datetime
+from datetime import datetime, timedelta
+import asyncio
+import time
 from api.settings import settings
 from api.utils.db import get_new_db_connection
 from api.config import (
@@ -72,12 +74,87 @@ def _get_last_activity_timestamp(
     greatest_expr = "GREATEST(" + ", ".join(parts) + ")"
     query = f"SELECT MAX({greatest_expr}) AS last_ts FROM `{table_id}`"
 
-    job = bq_client.query(query)
+    job = _run_query_with_retry(bq_client, query)
     result = list(job.result())
     if not result:
         return None
     last_ts = result[0].get("last_ts") if isinstance(result[0], dict) else getattr(result[0], "last_ts", None)
     return last_ts
+
+
+def _get_metadata_table_id() -> str:
+    """Return the fully qualified table id for sync metadata tracking."""
+    return f"{settings.bq_project_name}.{settings.bq_dataset_name}._sync_metadata"
+
+
+def _ensure_metadata_table(bq_client: bigquery.Client) -> None:
+    """Create sync metadata table if it does not exist."""
+    table_id = _get_metadata_table_id()
+    try:
+        bq_client.get_table(table_id)
+        return
+    except NotFound:
+        schema = [
+            bigquery.SchemaField("table_name", "STRING"),
+            bigquery.SchemaField("last_synced_at", "TIMESTAMP"),
+        ]
+        table = bigquery.Table(table_id, schema=schema)
+        bq_client.create_table(table)
+
+
+def _get_last_sync_ts_from_metadata(
+    bq_client: bigquery.Client, table_name: str
+) -> Optional[datetime]:
+    """Return last synced activity timestamp for a table from metadata."""
+    table_id = _get_metadata_table_id()
+    try:
+        bq_client.get_table(table_id)
+    except NotFound:
+        return None
+
+    query = (
+        f"SELECT last_synced_at AS ts FROM `{table_id}` "
+        f"WHERE table_name = @table_name LIMIT 1"
+    )
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ScalarQueryParameter("table_name", "STRING", table_name)]
+    )
+    rows = list(bq_client.query(query, job_config=job_config).result())
+    if not rows:
+        return None
+    row0 = rows[0]
+    return row0.get("ts") if isinstance(row0, dict) else getattr(row0, "ts", None)
+
+
+def _update_sync_ts_in_metadata(
+    bq_client: bigquery.Client, table_name: str, last_synced_at: datetime
+) -> None:
+    """Upsert last_synced_at for a table into metadata."""
+    table_id = _get_metadata_table_id()
+    _ensure_metadata_table(bq_client)
+
+    merge_sql = f"
+        MERGE `{table_id}` T
+        USING (SELECT @table_name AS table_name, @tsa AS last_synced_at) S
+        ON T.table_name = S.table_name
+        WHEN MATCHED THEN UPDATE SET T.last_synced_at = S.last_synced_at
+        WHEN NOT MATCHED THEN INSERT (table_name, last_synced_at) VALUES (S.table_name, S.last_synced_at)
+    "
+    job_config = bigquery.QueryJobConfig(
+        query_parameters=[
+            bigquery.ScalarQueryParameter("table_name", "STRING", table_name),
+            bigquery.ScalarQueryParameter("tsa", "TIMESTAMP", last_synced_at),
+        ]
+    )
+    job = _run_query_with_retry(bq_client, merge_sql, job_config=job_config)
+    job.result()
+
+
+def _adjust_since_for_overlap(last_ts: Optional[datetime]) -> Optional[datetime]:
+    """Subtract a small buffer to avoid missing rows with identical timestamps."""
+    if not last_ts:
+        return None
+    return last_ts - timedelta(seconds=1)
 
 
 def _build_staging_table_id(table_id: str) -> str:
@@ -109,17 +186,53 @@ def _recreate_staging_with_dest_schema(
 
 
 def _load_rows_into_table(
-    bq_client: bigquery.Client, table_id: str, rows: List[Dict[str, Any]]
+    bq_client: bigquery.Client,
+    table_id: str,
+    rows: List[Dict[str, Any]],
+    write_disposition: bigquery.WriteDisposition = bigquery.WriteDisposition.WRITE_APPEND,
 ) -> None:
-    """Load JSON rows into the specified table with WRITE_TRUNCATE."""
+    """Load JSON rows into the specified table with configurable write disposition."""
     job_config = bigquery.LoadJobConfig(
-        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+        write_disposition=write_disposition,
         ignore_unknown_values=True,
     )
-    job = bq_client.load_table_from_json(rows, table_id, job_config=job_config)
-    job.result()
-    if job.errors:
-        raise Exception(f"BigQuery load job failed with errors: {job.errors}")
+    attempt = 0
+    delay = 1.0
+    while True:
+        attempt += 1
+        job = bq_client.load_table_from_json(rows, table_id, job_config=job_config)
+        try:
+            job.result()
+            if job.errors:
+                raise Exception(f"BigQuery load job failed with errors: {job.errors}")
+            break
+        except Exception:
+            if attempt >= 3:
+                raise
+            time.sleep(delay)
+            delay *= 2
+
+
+async def _load_rows_in_chunks(
+    bq_client: bigquery.Client,
+    table_id: str,
+    rows: List[Dict[str, Any]],
+    chunk_size: int = 10000,
+    truncate_first: bool = False,
+) -> None:
+    """Load rows into BigQuery in chunks to handle large datasets."""
+    if not rows:
+        return
+    start = 0
+    first = True
+    while start < len(rows):
+        chunk = rows[start : start + chunk_size]
+        disposition = (
+            bigquery.WriteDisposition.WRITE_TRUNCATE if (truncate_first and first) else bigquery.WriteDisposition.WRITE_APPEND
+        )
+        _load_rows_into_table(bq_client, table_id, chunk, write_disposition=disposition)
+        first = False
+        start += chunk_size
 
 
 def _merge_staging_into_destination(
@@ -149,18 +262,51 @@ def _merge_staging_into_destination(
     insert_cols_list = ", ".join(insert_cols)
     insert_values_list = ", ".join([f"S.{c}" for c in insert_cols])
 
-    merge_sql = f"""
-        MERGE `{dest_table_id}` AS T
-        USING `{staging_table_id}` AS S
-        ON T.{primary_key} = S.{primary_key}
-        WHEN MATCHED THEN
-          UPDATE SET {update_set_clause}
-        WHEN NOT MATCHED THEN
-          INSERT ({insert_cols_list}) VALUES ({insert_values_list})
-    """
+    has_deleted = "deleted_at" in common_cols
+    if has_deleted:
+        merge_sql = f"""
+            MERGE `{dest_table_id}` AS T
+            USING `{staging_table_id}` AS S
+            ON T.{primary_key} = S.{primary_key}
+            WHEN MATCHED AND S.deleted_at IS NOT NULL THEN
+              DELETE
+            WHEN MATCHED THEN
+              UPDATE SET {update_set_clause}
+            WHEN NOT MATCHED AND S.deleted_at IS NULL THEN
+              INSERT ({insert_cols_list}) VALUES ({insert_values_list})
+        """
+    else:
+        merge_sql = f"""
+            MERGE `{dest_table_id}` AS T
+            USING `{staging_table_id}` AS S
+            ON T.{primary_key} = S.{primary_key}
+            WHEN MATCHED THEN
+              UPDATE SET {update_set_clause}
+            WHEN NOT MATCHED THEN
+              INSERT ({insert_cols_list}) VALUES ({insert_values_list})
+        """
 
-    job = bq_client.query(merge_sql)
+    job = _run_query_with_retry(bq_client, merge_sql)
     job.result()
+
+
+def _run_query_with_retry(
+    bq_client: bigquery.Client, sql: str, job_config: Optional[bigquery.job.QueryJobConfig] = None
+):
+    attempt = 0
+    delay = 1.0
+    last_exc: Optional[Exception] = None
+    while attempt < 3:
+        attempt += 1
+        try:
+            return bq_client.query(sql, job_config=job_config)
+        except Exception as exc:  # retry on transient errors
+            last_exc = exc
+            time.sleep(delay)
+            delay *= 2
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("Query failed without exception")
 
 
 def _infer_bq_field_type(field_name: str, value: Any) -> str:
@@ -198,6 +344,234 @@ def _create_table_with_inferred_schema(
     bq_client.create_table(table)
 
 
+def _get_explicit_schema_for_table(table_name: str) -> Optional[List[bigquery.SchemaField]]:
+    """Return explicit BigQuery schema for known tables."""
+    ts = "TIMESTAMP"
+    i64 = "INT64"
+    b = "BOOL"
+    s = "STRING"
+
+    schemas: Dict[str, List[bigquery.SchemaField]] = {
+        org_api_keys_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("org_id", i64),
+            bigquery.SchemaField("hashed_key", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        courses_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("org_id", i64),
+            bigquery.SchemaField("name", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        milestones_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("org_id", i64),
+            bigquery.SchemaField("name", s),
+            bigquery.SchemaField("color", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        course_tasks_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("task_id", i64),
+            bigquery.SchemaField("course_id", i64),
+            bigquery.SchemaField("ordering", i64),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+            bigquery.SchemaField("milestone_id", i64),
+        ],
+        course_milestones_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("course_id", i64),
+            bigquery.SchemaField("milestone_id", i64),
+            bigquery.SchemaField("ordering", i64),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        organizations_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("slug", s),
+            bigquery.SchemaField("name", s),
+            bigquery.SchemaField("default_logo_color", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        scorecards_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("org_id", i64),
+            bigquery.SchemaField("title", s),
+            bigquery.SchemaField("criteria", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+            bigquery.SchemaField("status", s),
+        ],
+        question_scorecards_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("question_id", i64),
+            bigquery.SchemaField("scorecard_id", i64),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        task_completions_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("user_id", i64),
+            bigquery.SchemaField("task_id", i64),
+            bigquery.SchemaField("question_id", i64),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        chat_history_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("user_id", i64),
+            bigquery.SchemaField("question_id", i64),
+            bigquery.SchemaField("role", s),
+            bigquery.SchemaField("content", s),
+            bigquery.SchemaField("response_type", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        users_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("email", s),
+            bigquery.SchemaField("first_name", s),
+            bigquery.SchemaField("middle_name", s),
+            bigquery.SchemaField("last_name", s),
+            bigquery.SchemaField("default_dp_color", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+        ],
+        tasks_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("org_id", i64),
+            bigquery.SchemaField("type", s),
+            bigquery.SchemaField("blocks", s),
+            bigquery.SchemaField("title", s),
+            bigquery.SchemaField("status", s),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+            bigquery.SchemaField("scheduled_publish_at", ts),
+        ],
+        questions_table_name: [
+            bigquery.SchemaField("id", i64),
+            bigquery.SchemaField("task_id", i64),
+            bigquery.SchemaField("type", s),
+            bigquery.SchemaField("blocks", s),
+            bigquery.SchemaField("answer", s),
+            bigquery.SchemaField("input_type", s),
+            bigquery.SchemaField("coding_language", s),
+            bigquery.SchemaField("generation_model", s),
+            bigquery.SchemaField("response_type", s),
+            bigquery.SchemaField("position", i64),
+            bigquery.SchemaField("created_at", ts),
+            bigquery.SchemaField("updated_at", ts),
+            bigquery.SchemaField("deleted_at", ts),
+            bigquery.SchemaField("max_attempts", i64),
+            bigquery.SchemaField("is_feedback_shown", b),
+            bigquery.SchemaField("context", s),
+            bigquery.SchemaField("title", s),
+        ],
+    }
+
+    return schemas.get(table_name)
+
+
+def _ensure_table_exists_with_schema(
+    bq_client: bigquery.Client,
+    table_id: str,
+    table_name: str,
+    sample_rows: List[Dict[str, Any]],
+) -> None:
+    """Ensure destination table exists with explicit schema; create if missing."""
+    try:
+        bq_client.get_table(table_id)
+        return
+    except NotFound:
+        pass
+
+    explicit = _get_explicit_schema_for_table(table_name)
+    if explicit:
+        table = bigquery.Table(table_id, schema=explicit)
+        bq_client.create_table(table)
+        return
+    # Fallback to inferred schema if table is unknown
+    _create_table_with_inferred_schema(bq_client, table_id, sample_rows)
+
+
+def _reconcile_schema_with_rows(
+    bq_client: bigquery.Client, table_id: str, rows: List[Dict[str, Any]], table_name: str
+) -> None:
+    """Add any missing columns present in rows but absent in BigQuery table schema."""
+    if not rows:
+        return
+    table = bq_client.get_table(table_id)
+    existing = {f.name for f in table.schema}
+    keys: List[str] = []
+    for r in rows:
+        for k in r.keys():
+            if k not in existing and k not in keys:
+                keys.append(k)
+    if not keys:
+        return
+    # build new fields
+    explicit = _get_explicit_schema_for_table(table_name) or []
+    explicit_map = {f.name: f.field_type for f in explicit}
+    new_fields: List[bigquery.SchemaField] = []
+    for k in keys:
+        field_type = explicit_map.get(k)
+        if not field_type:
+            # find first non-None value to infer, else default STRING
+            val = None
+            for r in rows:
+                if k in r and r[k] is not None:
+                    val = r[k]
+                    break
+            field_type = _infer_bq_field_type(k, val)
+        new_fields.append(bigquery.SchemaField(k, field_type))
+    updated_schema = list(table.schema) + new_fields
+    table.schema = updated_schema
+    bq_client.update_table(table, ["schema"])
+
+
+def _parse_sqlite_dt(value: Any) -> Optional[datetime]:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value
+    try:
+        # Expecting 'YYYY-MM-DD HH:MM:SS'
+        return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return None
+
+
+def _compute_rows_max_activity_ts(rows: List[Dict[str, Any]]) -> Optional[datetime]:
+    """Compute max across created_at, updated_at, deleted_at for given rows."""
+    max_ts: Optional[datetime] = None
+    for r in rows:
+        c = _parse_sqlite_dt(r.get("created_at"))
+        u = _parse_sqlite_dt(r.get("updated_at"))
+        d = _parse_sqlite_dt(r.get("deleted_at"))
+        for candidate in (c, u, d):
+            if candidate is not None and (max_ts is None or candidate > max_ts):
+                max_ts = candidate
+    return max_ts
+
+
 async def _diff_sync_table(
     table_name: str,
     fetcher: Callable[[Optional[str]], Awaitable[List[Dict[str, Any]]]],
@@ -212,37 +586,37 @@ async def _diff_sync_table(
     bq_client = get_bq_client()
     table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{table_name}"
 
-    last_bq_ts = _get_last_activity_timestamp(bq_client, table_id)
-    since_str: Optional[str] = _format_sqlite_datetime(last_bq_ts) if last_bq_ts else None
+    # Determine since timestamp using metadata first, then fallback to BQ table scan
+    _ensure_metadata_table(bq_client)
+    last_sync_ts = _get_last_sync_ts_from_metadata(bq_client, table_name)
+    if last_sync_ts is None:
+        last_sync_ts = _get_last_activity_timestamp(bq_client, table_id)
+
+    adjusted_since = _adjust_since_for_overlap(last_sync_ts)
+    since_str: Optional[str] = _format_sqlite_datetime(adjusted_since) if adjusted_since else None
 
     rows = await fetcher(since_str)
 
-    # If destination table does not exist, create it and perform an initial load
-    dest_exists = True
-    try:
-        bq_client.get_table(table_id)
-    except NotFound:
-        dest_exists = False
-
-    if not dest_exists:
-        if not rows:
-            logger.info(f"Destination {table_name} does not exist and no rows to load")
-            return
-        _create_table_with_inferred_schema(bq_client, table_id, rows)
-        _load_rows_into_table(bq_client, table_id, rows)
-        logger.info(f"Created and initially loaded BigQuery table for {table_name}")
-        print(f"Initial load for {table_name} completed")
-        return
+    # Ensure destination table exists (with explicit schema) before loading
+    _ensure_table_exists_with_schema(bq_client, table_id, table_name, rows)
 
     if not rows:
         logger.info(f"No new or updated/deleted rows to sync for {table_name}")
         print(f"No changes for {table_name}")
         return
 
+    # Reconcile schema to handle evolution
+    _reconcile_schema_with_rows(bq_client, table_id, rows, table_name)
+
     staging_table_id = _build_staging_table_id(table_id)
     _recreate_staging_with_dest_schema(bq_client, table_id, staging_table_id)
-    _load_rows_into_table(bq_client, staging_table_id, rows)
+
+    # Load in chunks to staging
+    await _load_rows_in_chunks(bq_client, staging_table_id, rows, chunk_size=10000, truncate_first=True)
+
+    # Perform merge (with soft delete handling if available)
     _merge_staging_into_destination(bq_client, table_id, staging_table_id, primary_key=primary_key)
+
     # Clean up staging to avoid clutter
     try:
         bq_client.delete_table(staging_table_id, not_found_ok=True)  # type: ignore[arg-type]
@@ -251,6 +625,11 @@ async def _diff_sync_table(
             bq_client.delete_table(staging_table_id)
         except NotFound:
             pass
+
+    # Update metadata with max processed activity timestamp
+    max_ts = _compute_rows_max_activity_ts(rows)
+    if max_ts is not None:
+        _update_sync_ts_in_metadata(bq_client, table_name, max_ts)
 
 
 async def sync_org_api_keys_to_bigquery():
@@ -562,6 +941,33 @@ async def sync_questions_to_bigquery():
         raise
 
 
+async def sync_all_tables_to_bigquery(concurrency: int = 4) -> None:
+    """Run all table syncs in parallel with a concurrency limit."""
+    sem = asyncio.Semaphore(concurrency)
+
+    async def _with_sem(coro):
+        async with sem:
+            return await coro
+
+    tasks = [
+        _with_sem(sync_org_api_keys_to_bigquery()),
+        _with_sem(sync_courses_to_bigquery()),
+        _with_sem(sync_milestones_to_bigquery()),
+        _with_sem(sync_course_tasks_to_bigquery()),
+        _with_sem(sync_course_milestones_to_bigquery()),
+        _with_sem(sync_organizations_to_bigquery()),
+        _with_sem(sync_scorecards_to_bigquery()),
+        _with_sem(sync_question_scorecards_to_bigquery()),
+        _with_sem(sync_task_completions_to_bigquery()),
+        _with_sem(sync_chat_history_to_bigquery()),
+        _with_sem(sync_users_to_bigquery()),
+        _with_sem(sync_tasks_to_bigquery()),
+        _with_sem(sync_questions_to_bigquery()),
+    ]
+
+    await asyncio.gather(*tasks)
+
+
 async def _fetch_org_api_keys_from_sqlite(since: Optional[str] = None) -> List[Dict[str, Any]]:
     """Fetch records from SQLite org_api_keys table, optionally filtered by since timestamp."""
     async with get_new_db_connection() as conn:
@@ -573,7 +979,7 @@ async def _fetch_org_api_keys_from_sqlite(since: Optional[str] = None) -> List[D
         """
 
         if since:
-            where_clause = "WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?))"
+            where_clause = "WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?))"
             await cursor.execute(f"{base_query} {where_clause} ORDER BY id", (since, since, since))
         else:
             await cursor.execute(f"{base_query} ORDER BY id")
@@ -608,7 +1014,7 @@ async def _fetch_courses_from_sqlite(since: Optional[str] = None) -> List[Dict[s
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -644,7 +1050,7 @@ async def _fetch_milestones_from_sqlite(since: Optional[str] = None) -> List[Dic
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -681,7 +1087,7 @@ async def _fetch_course_tasks_from_sqlite(since: Optional[str] = None) -> List[D
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -719,7 +1125,7 @@ async def _fetch_course_milestones_from_sqlite(since: Optional[str] = None) -> L
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -756,7 +1162,7 @@ async def _fetch_organizations_from_sqlite(since: Optional[str] = None) -> List[
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -793,7 +1199,7 @@ async def _fetch_scorecards_from_sqlite(since: Optional[str] = None) -> List[Dic
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -831,7 +1237,7 @@ async def _fetch_question_scorecards_from_sqlite(since: Optional[str] = None) ->
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -867,7 +1273,7 @@ async def _fetch_task_completions_from_sqlite(since: Optional[str] = None) -> Li
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -904,7 +1310,7 @@ async def _fetch_chat_history_from_sqlite(since: Optional[str] = None) -> List[D
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -943,7 +1349,7 @@ async def _fetch_users_from_sqlite(since: Optional[str] = None) -> List[Dict[str
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -982,7 +1388,7 @@ async def _fetch_tasks_from_sqlite(since: Optional[str] = None) -> List[Dict[str
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
@@ -1024,7 +1430,7 @@ async def _fetch_questions_from_sqlite(since: Optional[str] = None) -> List[Dict
         """
         if since:
             await cursor.execute(
-                f"{base_query} WHERE (created_at >= ? OR updated_at >= ? OR (deleted_at IS NOT NULL AND deleted_at >= ?)) ORDER BY id",
+                f"{base_query} WHERE (created_at > ? OR updated_at > ? OR (deleted_at IS NOT NULL AND deleted_at > ?)) ORDER BY id",
                 (since, since, since),
             )
         else:
