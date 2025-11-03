@@ -58,6 +58,7 @@ task_generation_jobs_table_name = "task_generation_jobs"
 org_api_keys_table_name = "org_api_keys"
 code_drafts_table_name = "code_drafts"
 integrations_table_name = "integrations"
+bq_sync_table_name = "bq_sync"
 
 UPLOAD_FOLDER_NAME = "uploads"
 

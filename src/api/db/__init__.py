@@ -30,6 +30,7 @@ from api.config import (
     org_api_keys_table_name,
     code_drafts_table_name,
     integrations_table_name,
+    bq_sync_table_name,
 )
 from api.db.migration import run_migrations
 
@@ -316,6 +317,20 @@ async def create_course_cohorts_table(cursor):
 
     await cursor.execute(
         f"""CREATE INDEX idx_course_cohort_cohort_id ON {course_cohorts_table_name} (cohort_id)"""
+    )
+
+
+async def create_bq_sync_table(cursor):
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {bq_sync_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at DATETIME
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_bq_sync_started_at ON {bq_sync_table_name} (started_at)"""
     )
 
 
@@ -644,6 +659,8 @@ async def init_db():
             await create_batches_table(cursor)
 
             await create_integrations_table(cursor)
+
+            await create_bq_sync_table(cursor)
 
             await conn.commit()
 
