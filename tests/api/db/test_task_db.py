@@ -784,10 +784,11 @@ class TestTaskOperations:
         """Test task deletion."""
         await delete_task(1)
 
-        mock_execute.assert_called_once()
-        args = mock_execute.call_args[0]
-        assert "UPDATE tasks" in args[0]
-        assert "deleted_at" in args[0]
+        assert mock_execute.call_count == 2
+
+        first_args = mock_execute.call_args_list[0][0]
+        assert "UPDATE tasks" in first_args[0]
+        assert "deleted_at" in first_args[0]
 
     @patch("src.api.db.task.execute_db_operation")
     async def test_delete_tasks(self, mock_execute):

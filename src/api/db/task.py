@@ -77,15 +77,7 @@ async def create_draft_task_for_course(
             insert_ordering = max_ordering[0] + 1 if max_ordering else 0
 
         await cursor.execute(
-            f"""
-            INSERT INTO {course_tasks_table_name} (course_id, task_id, milestone_id, ordering)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(task_id, course_id) DO UPDATE SET
-                milestone_id = excluded.milestone_id,
-                ordering = excluded.ordering,
-                deleted_at = NULL,
-                updated_at = CURRENT_TIMESTAMP
-            """,
+            f"INSERT INTO {course_tasks_table_name} (course_id, task_id, milestone_id, ordering) VALUES (?, ?, ?, ?)",
             (course_id, task_id, milestone_id, insert_ordering),
         )
 
@@ -679,6 +671,12 @@ async def delete_task(task_id: int):
     await execute_db_operation(
         f"""
         UPDATE {tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL
+        """,
+        (task_id,),
+    )
+    await execute_db_operation(
+        f"""
+        UPDATE {course_tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE task_id = ? AND deleted_at IS NULL
         """,
         (task_id,),
     )
