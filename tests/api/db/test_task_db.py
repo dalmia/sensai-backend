@@ -47,6 +47,7 @@ from src.api.models import (
     TaskAIResponseType,
     BaseScorecard,
 )
+from src.api.config import task_completions_table_name
 
 
 @pytest.mark.asyncio
@@ -517,12 +518,16 @@ class TestTaskOperations:
         }
 
         # Act
-        returned_id = await upsert_question(mock_cursor, question, task_id=1, position=0)
+        returned_id = await upsert_question(
+            mock_cursor, question, task_id=1, position=0
+        )
 
         # Assert: ensure UPDATE executed and returned id is the same
         assert returned_id == 123
         # Find the UPDATE call
-        update_calls = [c for c in mock_cursor.execute.call_args_list if "UPDATE" in str(c)]
+        update_calls = [
+            c for c in mock_cursor.execute.call_args_list if "UPDATE" in str(c)
+        ]
         assert len(update_calls) == 1, "Expected an UPDATE call for existing question"
 
     @patch("src.api.db.task.does_task_exist")
@@ -570,13 +575,34 @@ class TestTaskOperations:
         assert result["id"] == 1
 
         # Ensure we selected existing mapping
-        select_calls = [c for c in mock_cursor.execute.call_args_list if "SELECT scorecard_id" in str(c)]
+        select_calls = [
+            c
+            for c in mock_cursor.execute.call_args_list
+            if "SELECT scorecard_id" in str(c)
+        ]
         assert select_calls, "Expected a SELECT for existing scorecard mapping"
         # Ensure the DELETE ran because mapping changed
-        delete_calls = [c for c in mock_cursor.execute.call_args_list if "DELETE FROM" in str(c) and "question_scorecards" in str(c)]
-        assert delete_calls, "Expected DELETE of old scorecard mapping when changed"
+        delete_or_soft_delete_calls = [
+            c
+            for c in mock_cursor.execute.call_args_list
+            if (
+                ("DELETE FROM" in str(c) and "question_scorecards" in str(c))
+                or (
+                    "UPDATE" in str(c)
+                    and "question_scorecards" in str(c)
+                    and "deleted_at" in str(c)
+                )
+            )
+        ]
+        assert (
+            delete_or_soft_delete_calls
+        ), "Expected soft delete of old scorecard mapping when changed"
         # Ensure we inserted the new mapping
-        insert_calls = [c for c in mock_cursor.execute.call_args_list if "INSERT INTO" in str(c) and "question_scorecards" in str(c)]
+        insert_calls = [
+            c
+            for c in mock_cursor.execute.call_args_list
+            if "INSERT INTO" in str(c) and "question_scorecards" in str(c)
+        ]
         assert insert_calls, "Expected INSERT of new scorecard mapping"
 
     @patch("src.api.db.task.does_task_exist")
@@ -623,10 +649,16 @@ class TestTaskOperations:
         await update_draft_quiz(1, "t", questions, datetime.now())
 
         # There should be no DELETE of mapping because unchanged
-        delete_calls = [c for c in mock_cursor.execute.call_args_list if "DELETE FROM" in str(c) and "question_scorecards" in str(c)]
+        delete_calls = [
+            c
+            for c in mock_cursor.execute.call_args_list
+            if "DELETE FROM" in str(c) and "question_scorecards" in str(c)
+        ]
         # It's possible other deletes happen later (like cleanup). Filter by WHERE question_id = ? form
         mapping_deletes = [c for c in delete_calls if "WHERE question_id = ?" in str(c)]
-        assert len(mapping_deletes) == 0, "Should not delete mapping when scorecard_id unchanged"
+        assert (
+            len(mapping_deletes) == 0
+        ), "Should not delete mapping when scorecard_id unchanged"
 
     @patch("src.api.db.task.does_task_exist")
     @patch("src.api.db.task.get_basic_task_details")
@@ -671,7 +703,10 @@ class TestTaskOperations:
 
         # Ensure DELETE ... IN (...) for scorecard mappings and questions
         calls_str = "\n".join(str(c) for c in mock_cursor.execute.call_args_list)
-        assert "WHERE question_id IN (2)" in calls_str or "WHERE question_id IN (" in calls_str
+        assert (
+            "WHERE question_id IN (2)" in calls_str
+            or "WHERE question_id IN (" in calls_str
+        )
         assert "WHERE id IN (2)" in calls_str or "WHERE id IN (" in calls_str
 
     @patch("src.api.db.task.does_task_exist")
@@ -770,9 +805,12 @@ class TestTaskOperations:
         await mark_task_completed(1, 123)
 
         mock_execute.assert_called_once_with(
-            """
-        INSERT OR IGNORE INTO task_completions (user_id, task_id)
+            f"""
+        INSERT INTO {task_completions_table_name} (user_id, task_id)
         VALUES (?, ?)
+        ON CONFLICT(user_id, task_id) DO UPDATE SET
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
         """,
             (123, 1),
         )

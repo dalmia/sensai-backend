@@ -105,7 +105,9 @@ class TestUserDatabaseOperations:
 
         assert result == expected
         mock_execute.assert_called_once_with(
-            "SELECT * FROM users WHERE id = ?", (1,), fetch_one=True
+            "SELECT * FROM users WHERE id = ? AND deleted_at IS NULL",
+            (1,),
+            fetch_one=True,
         )
 
     @patch("src.api.db.user.execute_db_operation")
@@ -117,7 +119,9 @@ class TestUserDatabaseOperations:
 
         assert result is None
         mock_execute.assert_called_once_with(
-            "SELECT * FROM users WHERE id = ?", (999,), fetch_one=True
+            "SELECT * FROM users WHERE id = ? AND deleted_at IS NULL",
+            (999,),
+            fetch_one=True,
         )
 
     @patch("src.api.db.user.execute_db_operation")
@@ -148,7 +152,9 @@ class TestUserDatabaseOperations:
 
         assert result == expected
         mock_execute.assert_called_once_with(
-            "SELECT * FROM users WHERE email = ?", ("test@example.com",), fetch_one=True
+            "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL",
+            ("test@example.com",),
+            fetch_one=True,
         )
 
     @patch("src.api.db.user.execute_db_operation")
@@ -160,7 +166,7 @@ class TestUserDatabaseOperations:
 
         assert result is None
         mock_execute.assert_called_once_with(
-            "SELECT * FROM users WHERE email = ?",
+            "SELECT * FROM users WHERE email = ? AND deleted_at IS NULL",
             ("nonexistent@example.com",),
             fetch_one=True,
         )
@@ -171,7 +177,7 @@ class TestUserDatabaseOperations:
         await update_user_email("old@example.com", "new@example.com")
 
         mock_execute.assert_called_once_with(
-            "UPDATE users SET email = ? WHERE email = ?",
+            "UPDATE users SET email = ? WHERE email = ? AND deleted_at IS NULL",
             ("new@example.com", "old@example.com"),
         )
 

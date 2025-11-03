@@ -1,6 +1,6 @@
 import pytest
 from datetime import datetime
-from unittest.mock import patch, AsyncMock, MagicMock
+from unittest.mock import patch, AsyncMock, MagicMock, ANY
 from src.api.db.chat import (
     store_messages,
     get_all_chat_history,
@@ -185,7 +185,7 @@ class TestGetChatHistory:
 
         mock_execute.assert_called_once_with(
             """
-    SELECT id, created_at, user_id, question_id, role, content, response_type FROM chat_history WHERE question_id = ? AND user_id = ?
+    SELECT id, created_at, user_id, question_id, role, content, response_type FROM chat_history WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL
     """,
             (1, 1),
             fetch_all=True,
@@ -267,7 +267,8 @@ class TestChatMessageOperations:
         await delete_message(1)
 
         mock_execute.assert_called_once_with(
-            "DELETE FROM chat_history WHERE id = ?", (1,)
+            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
+            (1,),
         )
 
     @patch("src.api.db.chat.execute_db_operation")
@@ -287,7 +288,8 @@ class TestChatMessageOperations:
         await delete_user_chat_history_for_task(1, 1)
 
         mock_execute.assert_called_once_with(
-            "DELETE FROM chat_history WHERE question_id = ? AND user_id = ?", (1, 1)
+            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
+            (1, 1),
         )
 
     @patch("src.api.db.chat.execute_db_operation")
@@ -295,4 +297,6 @@ class TestChatMessageOperations:
         """Test successful deletion of all chat history."""
         await delete_all_chat_history()
 
-        mock_execute.assert_called_once_with("DELETE FROM chat_history")
+        mock_execute.assert_called_once_with(
+            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
+        )

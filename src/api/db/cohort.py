@@ -6,7 +6,7 @@ from api.models import TaskType, TaskStatus
 from api.config import (
     cohorts_table_name,
     course_cohorts_table_name,
-    courses_table_name,
+    batches_table_name,
     tasks_table_name,
     chat_history_table_name,
     user_cohorts_table_name,
@@ -50,7 +50,14 @@ async def add_courses_to_cohort(
     await execute_many_db_operation(
         f"""INSERT INTO {course_cohorts_table_name} 
             (course_id, cohort_id, is_drip_enabled, frequency_value, frequency_unit, publish_at) 
-            VALUES (?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(course_id, cohort_id) DO UPDATE SET
+                is_drip_enabled = excluded.is_drip_enabled,
+                frequency_value = excluded.frequency_value,
+                frequency_unit = excluded.frequency_unit,
+                publish_at = excluded.publish_at,
+                deleted_at = NULL,
+                updated_at = CURRENT_TIMESTAMP""",
         values,
     )
 
@@ -79,28 +86,35 @@ async def add_course_to_cohorts(
     await execute_many_db_operation(
         f"""INSERT INTO {course_cohorts_table_name} 
             (course_id, cohort_id, is_drip_enabled, frequency_value, frequency_unit, publish_at) 
-            VALUES (?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(course_id, cohort_id) DO UPDATE SET
+                is_drip_enabled = excluded.is_drip_enabled,
+                frequency_value = excluded.frequency_value,
+                frequency_unit = excluded.frequency_unit,
+                publish_at = excluded.publish_at,
+                deleted_at = NULL,
+                updated_at = CURRENT_TIMESTAMP""",
         values,
     )
 
 
 async def remove_course_from_cohorts(course_id: int, cohort_ids: List[int]):
     await execute_many_db_operation(
-        f"DELETE FROM {course_cohorts_table_name} WHERE course_id = ? AND cohort_id = ?",
+        f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id = ? AND cohort_id = ? AND deleted_at IS NULL",
         [(course_id, cohort_id) for cohort_id in cohort_ids],
     )
 
 
 async def remove_courses_from_cohort(cohort_id: int, course_ids: List[int]):
     await execute_many_db_operation(
-        f"DELETE FROM {course_cohorts_table_name} WHERE cohort_id = ? AND course_id = ?",
+        f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND course_id = ? AND deleted_at IS NULL",
         [(cohort_id, course_id) for course_id in course_ids],
     )
 
 
 async def update_cohort_name(cohort_id: int, name: str):
     await execute_db_operation(
-        f"UPDATE {cohorts_table_name} SET name = ? WHERE id = ?",
+        f"UPDATE {cohorts_table_name} SET name = ? WHERE id = ? AND deleted_at IS NULL",
         (name, cohort_id),
     )
 
@@ -110,22 +124,32 @@ def drop_user_cohorts_table():
 
 
 def delete_all_cohort_info():
-    execute_db_operation(f"DELETE FROM {cohorts_table_name}")
+    execute_db_operation(
+        f"UPDATE {cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL"
+    )
 
 
 async def delete_cohort(cohort_id: int):
     await execute_multiple_db_operations(
         [
             (
-                f"DELETE FROM {user_cohorts_table_name} WHERE cohort_id = ?",
+                f"UPDATE {user_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
             (
-                f"DELETE FROM {course_cohorts_table_name} WHERE cohort_id = ?",
+                f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
             (
-                f"DELETE FROM {cohorts_table_name} WHERE id = ?",
+                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id IN (SELECT id FROM {batches_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL",
+                (cohort_id,),
+            ),
+            (
+                f"UPDATE {batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE cohort_id = ? AND deleted_at IS NULL",
+                (cohort_id,),
+            ),
+            (
+                f"UPDATE {cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
                 (cohort_id,),
             ),
         ]
@@ -179,7 +203,7 @@ async def add_members_to_cohort(
     # Check if cohort belongs to the organization
     cohort = await execute_db_operation(
         f"""
-        SELECT name FROM {cohorts_table_name} WHERE id = ? AND org_id = ?
+        SELECT name FROM {cohorts_table_name} WHERE id = ? AND org_id = ? AND deleted_at IS NULL
         """,
         (cohort_id, org_id),
         fetch_one=True,
@@ -193,7 +217,7 @@ async def add_members_to_cohort(
         f"""
         SELECT email FROM {users_table_name} u
         JOIN {user_organizations_table_name} uo ON u.id = uo.user_id
-        WHERE uo.org_id = ?
+        WHERE uo.org_id = ? AND uo.deleted_at IS NULL
         AND (uo.role = 'admin' OR uo.role = 'owner')
         AND u.email IN ({','.join(['?' for _ in emails])})
         """,
@@ -219,7 +243,7 @@ async def add_members_to_cohort(
 
         await cursor.execute(
             f"""
-            SELECT 1 FROM {user_cohorts_table_name} WHERE user_id IN ({','.join(['?' for _ in [user["id"] for user in users_to_add]])}) AND cohort_id = ?
+            SELECT 1 FROM {user_cohorts_table_name} WHERE user_id IN ({','.join(['?' for _ in [user["id"] for user in users_to_add]])}) AND cohort_id = ? AND deleted_at IS NULL
             """,
             (*[user["id"] for user in users_to_add], cohort_id),
         )
@@ -234,11 +258,15 @@ async def add_members_to_cohort(
                 user, role, org_slug, org_id, cohort[0], cohort_id
             )
 
-        # Add users to cohort
+        # Add users to cohort or revive soft-deleted membership
         await cursor.executemany(
             f"""
             INSERT INTO {user_cohorts_table_name} (user_id, cohort_id, role)
             VALUES (?, ?, ?)
+            ON CONFLICT(user_id, cohort_id) DO UPDATE SET
+                deleted_at = NULL,
+                role = excluded.role,
+                updated_at = CURRENT_TIMESTAMP
             """,
             [(user["id"], cohort_id, role) for user, role in zip(users_to_add, roles)],
         )
@@ -250,7 +278,7 @@ async def remove_members_from_cohort(cohort_id: int, member_ids: List[int]):
     members_in_cohort = await execute_db_operation(
         f"""
         SELECT user_id FROM {user_cohorts_table_name}
-        WHERE cohort_id = ? AND user_id IN ({','.join(['?' for _ in member_ids])})
+        WHERE cohort_id = ? AND user_id IN ({','.join(['?' for _ in member_ids])}) AND deleted_at IS NULL
         """,
         (cohort_id, *member_ids),
         fetch_all=True,
@@ -263,9 +291,10 @@ async def remove_members_from_cohort(cohort_id: int, member_ids: List[int]):
         [
             (
                 f"""
-            DELETE FROM {user_cohorts_table_name}
+            UPDATE {user_cohorts_table_name}
+            SET deleted_at = CURRENT_TIMESTAMP
             WHERE user_id IN ({','.join(['?' for _ in member_ids])})
-            AND cohort_id = ?
+            AND cohort_id = ? AND deleted_at IS NULL
             """,
                 (*member_ids, cohort_id),
             ),
@@ -280,7 +309,7 @@ async def get_cohorts_for_org(org_id: int) -> List[Dict]:
         SELECT c.id, c.name, o.id, o.name
         FROM {cohorts_table_name} c
         JOIN {organizations_table_name} o ON o.id = c.org_id
-        WHERE o.id = ?
+        WHERE o.id = ? AND c.deleted_at IS NULL AND o.deleted_at IS NULL
         """,
         (org_id,),
         fetch_all=True,
@@ -298,7 +327,7 @@ async def get_all_cohorts_for_org(org_id: int):
         f"""
         SELECT c.id, c.name
         FROM {cohorts_table_name} c
-        WHERE c.org_id = ?
+        WHERE c.org_id = ? AND c.deleted_at IS NULL
         ORDER BY c.id DESC
         """,
         (org_id,),
@@ -311,7 +340,7 @@ async def get_all_cohorts_for_org(org_id: int):
 async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
     # Fetch cohort details
     cohort = await execute_db_operation(
-        f"""SELECT * FROM {cohorts_table_name} WHERE id = ?""",
+        f"""SELECT * FROM {cohorts_table_name} WHERE id = ? AND deleted_at IS NULL""",
         (cohort_id,),
         fetch_one=True,
     )
@@ -328,7 +357,7 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
             FROM {users_table_name} u
             JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
             JOIN {user_batches_table_name} ub ON u.id = ub.user_id
-            WHERE uc.cohort_id = ? AND ub.batch_id = ?
+            WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.deleted_at IS NULL AND ub.deleted_at IS NULL
             ORDER BY uc.role
             """,
             (cohort_id, batch_id),
@@ -341,7 +370,7 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
             SELECT DISTINCT u.id, u.email, uc.role, u.first_name, u.middle_name, u.last_name
             FROM {users_table_name} u
             JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
-            WHERE uc.cohort_id = ?
+            WHERE uc.cohort_id = ? AND uc.deleted_at IS NULL
             ORDER BY uc.role
             """,
             (cohort_id,),
@@ -354,12 +383,12 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int = None):
         "name": cohort[1],
         "members": [
             {
-                "id": member[0], 
-                "email": member[1], 
+                "id": member[0],
+                "email": member[1],
                 "role": member[2],
                 "first_name": member[3],
                 "middle_name": member[4],
-                "last_name": member[5]
+                "last_name": member[5],
             }
             for member in members
         ],
@@ -374,13 +403,13 @@ async def is_user_in_cohort(user_id: int, cohort_id: int):
         SELECT COUNT(*) > 0 FROM (
             SELECT 1
             FROM {user_cohorts_table_name} uc
-            WHERE uc.user_id = ? AND uc.cohort_id = ?
+            WHERE uc.user_id = ? AND uc.cohort_id = ? AND uc.deleted_at IS NULL
             UNION
             SELECT 1 
             FROM {cohorts_table_name} c
             JOIN {organizations_table_name} o ON o.id = c.org_id
             JOIN {user_organizations_table_name} ou ON ou.org_id = o.id
-            WHERE c.id = ? AND ou.user_id = ? AND ou.role IN ('admin', 'owner')
+            WHERE c.id = ? AND ou.user_id = ? AND ou.role IN ('admin', 'owner') AND c.deleted_at IS NULL AND ou.deleted_at IS NULL
         )
         """,
         (user_id, cohort_id, cohort_id, user_id),
@@ -414,7 +443,7 @@ async def get_cohort_analytics_metrics_for_tasks(
                 FROM {users_table_name} u
                 JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id
                 JOIN {user_batches_table_name} ub ON u.id = ub.user_id
-                WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner'
+                WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner' AND ub.deleted_at IS NULL AND uc.deleted_at IS NULL
             ),
             task_completion AS (
                 SELECT
@@ -428,6 +457,7 @@ async def get_cohort_analytics_metrics_for_tasks(
                     AND ch.task_id IN ({','.join('?' * len(task_ids))})
                 INNER JOIN {tasks_table_name} t
                     ON ch.task_id = t.id
+                WHERE ch.deleted_at IS NULL AND t.deleted_at IS NULL
                 GROUP BY cl.id, cl.email, ch.task_id, t.name
             )
             SELECT
@@ -449,7 +479,7 @@ async def get_cohort_analytics_metrics_for_tasks(
                 SELECT u.id, u.email
                 FROM {users_table_name} u
                 JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id
-                WHERE uc.cohort_id = ? AND uc.role = 'learner'
+                WHERE uc.cohort_id = ? AND uc.role = 'learner' AND uc.deleted_at IS NULL
             ),
             task_completion AS (
                 SELECT
@@ -463,6 +493,7 @@ async def get_cohort_analytics_metrics_for_tasks(
                     AND ch.task_id IN ({','.join('?' * len(task_ids))})
                 INNER JOIN {tasks_table_name} t
                     ON ch.task_id = t.id
+                WHERE ch.deleted_at IS NULL AND t.deleted_at IS NULL
                 GROUP BY cl.id, cl.email, ch.task_id, t.name
             )
             SELECT
@@ -526,7 +557,7 @@ async def get_cohort_attempt_data_for_tasks(
                 FROM {users_table_name} u
                 JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
                 JOIN {user_batches_table_name} ub ON u.id = ub.user_id
-                WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner'
+                WHERE uc.cohort_id = ? AND ub.batch_id = ? AND uc.role = 'learner' AND ub.deleted_at IS NULL AND uc.deleted_at IS NULL
             ),
             task_attempts AS (
                 SELECT 
@@ -540,6 +571,7 @@ async def get_cohort_attempt_data_for_tasks(
                     AND ch.task_id IN ({','.join('?' * len(task_ids))})
                 INNER JOIN {tasks_table_name} t
                     ON ch.task_id = t.id
+                WHERE ch.deleted_at IS NULL AND t.deleted_at IS NULL
                 GROUP BY cl.id, cl.email, ch.task_id, t.name
             )
             SELECT 
@@ -561,7 +593,7 @@ async def get_cohort_attempt_data_for_tasks(
                 SELECT u.id, u.email
                 FROM {users_table_name} u
                 JOIN {user_cohorts_table_name} uc ON u.id = uc.user_id 
-                WHERE uc.cohort_id = ? AND uc.role = 'learner'
+                WHERE uc.cohort_id = ? AND uc.role = 'learner' AND uc.deleted_at IS NULL
             ),
             task_attempts AS (
                 SELECT 
@@ -575,6 +607,7 @@ async def get_cohort_attempt_data_for_tasks(
                     AND ch.task_id IN ({','.join('?' * len(task_ids))})
                 INNER JOIN {tasks_table_name} t
                     ON ch.task_id = t.id
+                WHERE ch.deleted_at IS NULL AND t.deleted_at IS NULL
                 GROUP BY cl.id, cl.email, ch.task_id, t.name
             )
             SELECT 

@@ -64,11 +64,11 @@ async def delete_batch(batch_id: int):
     await execute_multiple_db_operations(
         [
             (
-                f"DELETE FROM {user_batches_table_name} WHERE batch_id = ?",
+                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND deleted_at IS NULL",
                 (batch_id,),
             ),
             (
-                f"DELETE FROM {batches_table_name} WHERE id = ?",
+                f"UPDATE {batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id = ? AND deleted_at IS NULL",
                 (batch_id,),
             ),
         ]
@@ -83,7 +83,7 @@ async def get_batches_for_user_in_cohort(user_id: int, cohort_id: int) -> List[D
     # check if the cohort exists
     cohort = await execute_db_operation(
         f"""
-        SELECT 1 FROM {cohorts_table_name} WHERE id = ?
+        SELECT 1 FROM {cohorts_table_name} WHERE id = ? AND deleted_at IS NULL
         """,
         (cohort_id,),
         fetch_one=True,
@@ -96,7 +96,7 @@ async def get_batches_for_user_in_cohort(user_id: int, cohort_id: int) -> List[D
     user_in_cohort = await execute_db_operation(
         f"""
         SELECT 1 FROM {user_cohorts_table_name} 
-        WHERE user_id = ? AND cohort_id = ?
+        WHERE user_id = ? AND cohort_id = ? AND deleted_at IS NULL
         """,
         (user_id, cohort_id),
         fetch_one=True,
@@ -112,7 +112,7 @@ async def get_batches_for_user_in_cohort(user_id: int, cohort_id: int) -> List[D
         FROM {batches_table_name} b
         JOIN {user_batches_table_name} ub ON b.id = ub.batch_id
         JOIN {user_cohorts_table_name} uc ON uc.user_id = ub.user_id AND uc.cohort_id = b.cohort_id
-        WHERE ub.user_id = ? AND b.cohort_id = ?
+        WHERE ub.user_id = ? AND b.cohort_id = ? AND b.deleted_at IS NULL AND ub.deleted_at IS NULL AND uc.deleted_at IS NULL
         ORDER BY b.created_at DESC
         """,
         (user_id, cohort_id),
@@ -133,7 +133,7 @@ async def get_batch_by_id(batch_id: int) -> Dict:
     """Get batch details including all members"""
     # Fetch batch details
     batch = await execute_db_operation(
-        f"""SELECT id, name, cohort_id FROM {batches_table_name} WHERE id = ?""",
+        f"""SELECT id, name, cohort_id FROM {batches_table_name} WHERE id = ? AND deleted_at IS NULL""",
         (batch_id,),
         fetch_one=True,
     )
@@ -148,7 +148,7 @@ async def get_batch_by_id(batch_id: int) -> Dict:
         FROM {users_table_name} u
         JOIN {user_batches_table_name} ub ON u.id = ub.user_id 
         JOIN {user_cohorts_table_name} uc ON uc.user_id = ub.user_id AND uc.cohort_id = ?
-        WHERE ub.batch_id = ?
+        WHERE ub.batch_id = ? AND ub.deleted_at IS NULL AND uc.deleted_at IS NULL
         ORDER BY uc.role
         """,
         (batch[2], batch_id),
@@ -180,10 +180,10 @@ async def get_all_batches_for_cohort(cohort_id: int) -> List[Dict]:
             u.email as user_email,
             uc.role as user_role
         FROM {batches_table_name} b
-        LEFT JOIN {user_batches_table_name} ub ON b.id = ub.batch_id
+        LEFT JOIN {user_batches_table_name} ub ON b.id = ub.batch_id AND ub.deleted_at IS NULL
         LEFT JOIN {users_table_name} u ON ub.user_id = u.id
-        LEFT JOIN {user_cohorts_table_name} uc ON uc.user_id = ub.user_id AND uc.cohort_id = b.cohort_id
-        WHERE b.cohort_id = ?
+        LEFT JOIN {user_cohorts_table_name} uc ON uc.user_id = ub.user_id AND uc.cohort_id = b.cohort_id AND uc.deleted_at IS NULL
+        WHERE b.cohort_id = ? AND b.deleted_at IS NULL
         ORDER BY b.id DESC, uc.role
         """,
         (cohort_id,),
@@ -219,26 +219,34 @@ async def update_batch_name_and_members(
         cursor = await conn.cursor()
         # Update name
         await cursor.execute(
-            f"UPDATE {batches_table_name} SET name = ? WHERE id = ?",
+            f"UPDATE {batches_table_name} SET name = ? WHERE id = ? AND deleted_at IS NULL",
             (name, batch_id),
         )
         # Add new members
         if members_added:
             # Check for existing users
-            q = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_added])})"
+            q = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_added])}) AND deleted_at IS NULL"
             await cursor.execute(q, (batch_id, *members_added))
-            existing = await cursor.fetchall()
-            if existing:
+            existing_active = await cursor.fetchall()
+            if existing_active:
                 raise Exception("One or more users are already in the batch")
 
-            values = [(user_id, batch_id) for user_id in members_added]
-            await cursor.executemany(
-                f"INSERT INTO {user_batches_table_name} (user_id, batch_id) VALUES (?, ?)",
-                values,
-            )
+            if members_added:
+                values = [(user_id, batch_id) for user_id in members_added]
+                await cursor.executemany(
+                    f"""
+                    INSERT INTO {user_batches_table_name} (user_id, batch_id)
+                    VALUES (?, ?)
+                    ON CONFLICT(user_id, batch_id) DO UPDATE SET
+                        deleted_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    values,
+                )
+
         # Remove members
         if members_removed:
-            q = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])})"
+            q = f"SELECT user_id FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])}) AND deleted_at IS NULL"
             await cursor.execute(q, (batch_id, *members_removed))
             found = await cursor.fetchall()
 
@@ -246,7 +254,7 @@ async def update_batch_name_and_members(
                 raise Exception("One or more members are not in the batch")
 
             await cursor.execute(
-                f"DELETE FROM {user_batches_table_name} WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])})",
+                f"UPDATE {user_batches_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE batch_id = ? AND user_id IN ({','.join(['?' for _ in members_removed])}) AND deleted_at IS NULL",
                 (batch_id, *members_removed),
             )
 
@@ -269,7 +277,7 @@ async def validate_batch_belongs_to_cohort(batch_id: int, cohort_id: int) -> boo
     result = await execute_db_operation(
         f"""
         SELECT 1 FROM {batches_table_name} 
-        WHERE id = ? AND cohort_id = ?
+        WHERE id = ? AND cohort_id = ? AND deleted_at IS NULL
         """,
         (batch_id, cohort_id),
         fetch_one=True,

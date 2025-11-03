@@ -102,28 +102,7 @@ async def add_missing_timestamp_columns():
 
         # List of tables and their missing columns
         tables_to_update = [
-            (organizations_table_name, ["updated_at", "deleted_at"]),
-            (org_api_keys_table_name, ["updated_at", "deleted_at"]),
-            (users_table_name, ["updated_at", "deleted_at"]),
-            (user_organizations_table_name, ["updated_at", "deleted_at"]),
-            (cohorts_table_name, ["created_at", "updated_at", "deleted_at"]),
-            (user_cohorts_table_name, ["updated_at", "deleted_at"]),
-            (batches_table_name, ["updated_at", "deleted_at"]),
-            (user_batches_table_name, ["created_at", "updated_at", "deleted_at"]),
-            (course_tasks_table_name, ["updated_at", "deleted_at"]),
-            (course_milestones_table_name, ["updated_at", "deleted_at"]),
-            (milestones_table_name, ["created_at", "updated_at", "deleted_at"]),
-            (courses_table_name, ["updated_at", "deleted_at"]),
-            (course_cohorts_table_name, ["updated_at", "deleted_at"]),
-            (tasks_table_name, ["updated_at"]),
-            (questions_table_name, ["updated_at"]),
-            (scorecards_table_name, ["updated_at", "deleted_at"]),
-            (question_scorecards_table_name, ["updated_at", "deleted_at"]),
-            (chat_history_table_name, ["updated_at", "deleted_at"]),
-            (task_completions_table_name, ["updated_at", "deleted_at"]),
-            (course_generation_jobs_table_name, ["updated_at", "deleted_at"]),
-            (task_generation_jobs_table_name, ["updated_at", "deleted_at"]),
-            (code_drafts_table_name, ["created_at", "deleted_at"]),
+            (integrations_table_name, ["deleted_at"]),
         ]
 
         for table_name, columns_to_add in tables_to_update:
@@ -281,4 +260,4 @@ async def add_settings_column_to_questions():
 
 
 async def run_migrations():
-    await add_settings_column_to_questions()
+    await add_missing_timestamp_columns()

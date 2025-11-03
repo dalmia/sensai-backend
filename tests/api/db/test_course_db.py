@@ -139,7 +139,7 @@ class TestCourseOperations:
 
         mock_execute_multiple.assert_called_once()
         operations = mock_execute_multiple.call_args[0][0]
-        assert len(operations) == 2
+        assert len(operations) == 6
 
     @patch("src.api.db.course.execute_multiple_db_operations")
     def test_drop_course_cohorts_table(self, mock_execute_multiple):

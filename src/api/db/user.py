@@ -25,7 +25,7 @@ from aiocache import cached, SimpleMemoryCache
 
 async def update_user_email(email_1: str, email_2: str) -> None:
     await execute_db_operation(
-        f"UPDATE {users_table_name} SET email = ? WHERE email = ?",
+        f"UPDATE {users_table_name} SET email = ? WHERE email = ? AND deleted_at IS NULL",
         (email_2, email_1),
     )
 
@@ -34,8 +34,8 @@ async def get_user_organizations(user_id: int):
     user_organizations = await execute_db_operation(
         f"""SELECT uo.org_id, o.name, uo.role
         FROM {user_organizations_table_name} uo
-        JOIN organizations o ON uo.org_id = o.id 
-        WHERE uo.user_id = ? ORDER BY uo.id DESC""",
+        JOIN {organizations_table_name} o ON uo.org_id = o.id 
+        WHERE uo.user_id = ? AND uo.deleted_at IS NULL AND o.deleted_at IS NULL ORDER BY uo.id DESC""",
         (user_id,),
         fetch_all=True,
     )
@@ -59,7 +59,7 @@ async def get_user_org_cohorts(user_id: int, org_id: int) -> List[UserCohort]:
         f"""SELECT c.id, c.name, uc.role, uc.joined_at
             FROM {cohorts_table_name} c
             JOIN {user_cohorts_table_name} uc ON c.id = uc.cohort_id
-            WHERE uc.user_id = ? AND c.org_id = ?""",
+            WHERE uc.user_id = ? AND c.org_id = ? AND c.deleted_at IS NULL AND uc.deleted_at IS NULL""",
         (user_id, org_id),
         fetch_all=True,
     )
@@ -83,7 +83,7 @@ async def get_user_org_cohorts(user_id: int, org_id: int) -> List[UserCohort]:
                 SELECT b.id, b.name
                 FROM {batches_table_name} b
                 JOIN {user_batches_table_name} ub ON b.id = ub.batch_id
-                WHERE ub.user_id = ? AND b.cohort_id = ?
+                WHERE ub.user_id = ? AND b.cohort_id = ? AND b.deleted_at IS NULL AND ub.deleted_at IS NULL
                 ORDER BY b.created_at DESC
                 """,
                 (user_id, cohort[0]),
@@ -157,7 +157,7 @@ async def insert_or_return_user(
 
     # if user exists, no need to do anything, just return the user
     await cursor.execute(
-        f"""SELECT * FROM {users_table_name} WHERE email = ?""",
+        f"""SELECT * FROM {users_table_name} WHERE email = ? AND deleted_at IS NULL""",
         (email,),
     )
 
@@ -183,6 +183,13 @@ async def insert_or_return_user(
         f"""
         INSERT INTO {users_table_name} (email, default_dp_color, first_name, middle_name, last_name)
         VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(email) DO UPDATE SET
+            default_dp_color = excluded.default_dp_color,
+            first_name = excluded.first_name,
+            middle_name = excluded.middle_name,
+            last_name = excluded.last_name,
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
     """,
         (email, color, first_name, middle_name, family_name),
     )
@@ -219,7 +226,7 @@ async def update_user(
 
 async def get_all_users():
     users = await execute_db_operation(
-        f"SELECT * FROM {users_table_name}",
+        f"SELECT * FROM {users_table_name} WHERE deleted_at IS NULL",
         fetch_all=True,
     )
 
@@ -228,7 +235,9 @@ async def get_all_users():
 
 async def get_user_by_email(email: str) -> Dict:
     user = await execute_db_operation(
-        f"SELECT * FROM {users_table_name} WHERE email = ?", (email,), fetch_one=True
+        f"SELECT * FROM {users_table_name} WHERE email = ? AND deleted_at IS NULL",
+        (email,),
+        fetch_one=True,
     )
 
     return convert_user_db_to_dict(user)
@@ -236,7 +245,9 @@ async def get_user_by_email(email: str) -> Dict:
 
 async def get_user_by_id(user_id: str) -> Dict:
     user = await execute_db_operation(
-        f"SELECT * FROM {users_table_name} WHERE id = ?", (user_id,), fetch_one=True
+        f"SELECT * FROM {users_table_name} WHERE id = ? AND deleted_at IS NULL",
+        (user_id,),
+        fetch_one=True,
     )
 
     return convert_user_db_to_dict(user)
@@ -250,7 +261,7 @@ async def get_user_cohorts(user_id: int) -> List[Dict]:
         FROM {cohorts_table_name} c
         JOIN {user_cohorts_table_name} uc ON uc.cohort_id = c.id
         JOIN {organizations_table_name} o ON o.id = c.org_id
-        WHERE uc.user_id = ?
+        WHERE uc.user_id = ? AND c.deleted_at IS NULL AND uc.deleted_at IS NULL AND o.deleted_at IS NULL
         """,
         (user_id,),
         fetch_all=True,
@@ -287,10 +298,10 @@ async def get_user_active_in_last_n_days(user_id: int, n: int, cohort_id: int):
                 WHERE course_id IN (
                     SELECT course_id 
                     FROM {course_cohorts_table_name} 
-                    WHERE cohort_id = ?
-                )
-            )
-        )
+                    WHERE cohort_id = ? AND deleted_at IS NULL
+                ) AND deleted_at IS NULL
+            ) AND deleted_at IS NULL
+        ) AND deleted_at IS NULL
         GROUP BY activity_date
     ),
     task_activity AS (
@@ -304,9 +315,9 @@ async def get_user_active_in_last_n_days(user_id: int, n: int, cohort_id: int):
             WHERE course_id IN (
                 SELECT course_id 
                 FROM {course_cohorts_table_name} 
-                WHERE cohort_id = ?
-            )
-        )
+                WHERE cohort_id = ? AND deleted_at IS NULL
+            ) AND deleted_at IS NULL
+        ) AND deleted_at IS NULL
         GROUP BY activity_date
     )
     SELECT activity_date, count FROM chat_activity
@@ -338,6 +349,7 @@ async def get_user_activity_for_year(user_id: int, year: int):
         WHERE user_id = ? 
         AND strftime('%Y', datetime(timestamp, '+5 hours', '+30 minutes')) = ?
         AND role = 'user'
+        AND deleted_at IS NULL
         GROUP BY day_of_year
         ORDER BY day_of_year
         """,
@@ -393,7 +405,8 @@ async def get_user_streak(user_id: int, cohort_id: int):
         f"""
     SELECT MAX(datetime(created_at, '+5 hours', '+30 minutes')) as created_at
     FROM {chat_history_table_name}
-    WHERE user_id = ? AND question_id IN (SELECT id FROM {questions_table_name} WHERE task_id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)))
+    WHERE user_id = ? AND question_id IN (SELECT id FROM {questions_table_name} WHERE task_id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL) AND deleted_at IS NULL)
+    AND deleted_at IS NULL
     GROUP BY DATE(datetime(created_at, '+5 hours', '+30 minutes'))
     
     UNION
@@ -402,8 +415,8 @@ async def get_user_streak(user_id: int, cohort_id: int):
     FROM {task_completions_table_name}
     WHERE user_id = ? AND task_id IN (
         SELECT task_id FROM {course_tasks_table_name} 
-        WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ?)
-    )
+        WHERE course_id IN (SELECT course_id FROM {course_cohorts_table_name} WHERE cohort_id = ? AND deleted_at IS NULL) AND deleted_at IS NULL
+    ) AND deleted_at IS NULL
     GROUP BY DATE(datetime(created_at, '+5 hours', '+30 minutes'))
     
     ORDER BY created_at DESC

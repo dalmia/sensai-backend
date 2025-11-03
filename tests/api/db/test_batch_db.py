@@ -330,6 +330,9 @@ async def test_update_batch_name_and_members_add_and_remove():
         mock_cursor = AsyncMock()
         # Simulate no existing users for add, all found for remove
         mock_cursor.execute = AsyncMock()
+        # fetchall calls order:
+        # 1) existing active users for add -> []
+        # 2) existing users for remove check -> [(1,), (2,)]
         mock_cursor.fetchall = AsyncMock(side_effect=[[], [(1,), (2,)]])
         mock_conn_instance.cursor.return_value = mock_cursor
         mock_conn.return_value.__aenter__.return_value = mock_conn_instance
@@ -386,7 +389,7 @@ async def test_validate_batch_belongs_to_cohort():
         mock_execute.assert_called_once_with(
             """
         SELECT 1 FROM batches 
-        WHERE id = ? AND cohort_id = ?
+        WHERE id = ? AND cohort_id = ? AND deleted_at IS NULL
         """,
             (1, 1),
             fetch_one=True,
@@ -402,7 +405,7 @@ async def test_validate_batch_belongs_to_cohort():
         mock_execute.assert_called_once_with(
             """
         SELECT 1 FROM batches 
-        WHERE id = ? AND cohort_id = ?
+        WHERE id = ? AND cohort_id = ? AND deleted_at IS NULL
         """,
             (1, 2),
             fetch_one=True,

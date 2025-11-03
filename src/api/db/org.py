@@ -23,7 +23,9 @@ async def get_all_orgs() -> List[Dict]:
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(f"SELECT id, name, slug FROM {organizations_table_name}")
+        await cursor.execute(
+            f"SELECT id, name, slug FROM {organizations_table_name} WHERE deleted_at IS NULL"
+        )
 
         return [
             {
@@ -75,7 +77,7 @@ async def get_org_id_from_api_key(api_key: str) -> int:
         raise ValueError("Invalid API key")
 
     rows = await execute_db_operation(
-        f"SELECT hashed_key FROM {org_api_keys_table_name} WHERE org_id = ?",
+        f"SELECT hashed_key FROM {org_api_keys_table_name} WHERE org_id = ? AND deleted_at IS NULL",
         (org_id,),
         fetch_all=True,
     )
@@ -101,8 +103,9 @@ async def create_organization_with_user(org_name: str, slug: str, user_id: int):
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
+        # Check for existing active organization
         await cursor.execute(
-            f"SELECT id FROM {organizations_table_name} WHERE slug = ?",
+            f"SELECT id FROM {organizations_table_name} WHERE slug = ? AND deleted_at IS NULL",
             (slug,),
         )
         existing_org = await cursor.fetchone()
@@ -110,15 +113,42 @@ async def create_organization_with_user(org_name: str, slug: str, user_id: int):
         if existing_org:
             raise Exception(f"Organization with slug '{slug}' already exists")
 
+        # If a soft-deleted org exists, revive it; otherwise create new
         await cursor.execute(
-            f"""INSERT INTO {organizations_table_name} 
-                (slug, name)
-                VALUES (?, ?)""",
-            (slug, org_name),
+            f"SELECT id FROM {organizations_table_name} WHERE slug = ? AND deleted_at IS NOT NULL",
+            (slug,),
         )
+        soft_deleted_org = await cursor.fetchone()
 
-        org_id = cursor.lastrowid
-        await add_user_to_org_by_user_id(cursor, user_id, org_id, "owner")
+        if soft_deleted_org:
+            org_id = soft_deleted_org[0]
+            await cursor.execute(
+                f"UPDATE {organizations_table_name} SET name = ?, deleted_at = NULL WHERE id = ?",
+                (org_name, org_id),
+            )
+        else:
+            await cursor.execute(
+                f"""INSERT INTO {organizations_table_name} 
+                    (slug, name)
+                    VALUES (?, ?)""",
+                (slug, org_name),
+            )
+            org_id = cursor.lastrowid
+
+        # Ensure owner membership exists and is active
+        await cursor.execute(
+            f"SELECT id, deleted_at FROM {user_organizations_table_name} WHERE user_id = ? AND org_id = ?",
+            (user_id, org_id),
+        )
+        membership = await cursor.fetchone()
+        if membership:
+            if membership[1] is not None:
+                await cursor.execute(
+                    f"UPDATE {user_organizations_table_name} SET role = ?, deleted_at = NULL WHERE id = ?",
+                    ("owner", membership[0]),
+                )
+        else:
+            await add_user_to_org_by_user_id(cursor, user_id, org_id, "owner")
         await conn.commit()
 
     await send_slack_notification_for_new_org(org_name, org_id, user)
@@ -140,7 +170,7 @@ def convert_org_db_to_dict(org: Tuple):
 
 async def get_org_by_id(org_id: int):
     org_details = await execute_db_operation(
-        f"SELECT * FROM {organizations_table_name} WHERE id = ?",
+        f"SELECT * FROM {organizations_table_name} WHERE id = ? AND deleted_at IS NULL",
         (org_id,),
         fetch_one=True,
     )
@@ -150,7 +180,7 @@ async def get_org_by_id(org_id: int):
 
 async def get_org_by_slug(slug: str):
     org_details = await execute_db_operation(
-        f"SELECT * FROM {organizations_table_name} WHERE slug = ?",
+        f"SELECT * FROM {organizations_table_name} WHERE slug = ? AND deleted_at IS NULL",
         (slug,),
         fetch_one=True,
     )
@@ -159,7 +189,7 @@ async def get_org_by_slug(slug: str):
 
 async def get_hva_org_id():
     hva_org_id = await execute_db_operation(
-        "SELECT id FROM organizations WHERE name = ?",
+        "SELECT id FROM organizations WHERE name = ? AND deleted_at IS NULL",
         ("HyperVerge Academy",),
         fetch_one=True,
     )
@@ -178,7 +208,7 @@ async def get_hva_cohort_ids() -> List[int]:
         return []
 
     cohorts = await execute_db_operation(
-        "SELECT id FROM cohorts WHERE org_id = ?",
+        "SELECT id FROM cohorts WHERE org_id = ? AND deleted_at IS NULL",
         (hva_org_id,),
         fetch_all=True,
     )
@@ -226,29 +256,48 @@ async def add_users_to_org_by_email(
         # Check if any of the users are already in the organization
         placeholders = ", ".join(["?" for _ in user_ids])
 
+        # Active memberships that would be duplicates
         await cursor.execute(
             f"""SELECT user_id FROM {user_organizations_table_name} 
-            WHERE org_id = ? AND user_id IN ({placeholders})
+            WHERE org_id = ? AND user_id IN ({placeholders}) AND deleted_at IS NULL
             """,
             (org_id, *user_ids),
         )
+        active_existing_user_ids = {row[0] for row in await cursor.fetchall()}
 
-        existing_user_ids = await cursor.fetchall()
-
-        if existing_user_ids:
+        if active_existing_user_ids:
             raise Exception(f"Some users already exist in organization")
 
-        await cursor.executemany(
-            f"""INSERT INTO {user_organizations_table_name}
-                (user_id, org_id, role)
-                VALUES (?, ?, ?)""",
-            [(user_id, org_id, "admin") for user_id in user_ids],
+        # Revive soft-deleted memberships
+        await cursor.execute(
+            f"""SELECT user_id, id FROM {user_organizations_table_name}
+            WHERE org_id = ? AND user_id IN ({placeholders}) AND deleted_at IS NOT NULL
+            """,
+            (org_id, *user_ids),
         )
+        soft_deleted_rows = await cursor.fetchall()
+        soft_deleted_user_ids = {row[0] for row in soft_deleted_rows}
+
+        for user_id_val, membership_id in soft_deleted_rows:
+            await cursor.execute(
+                f"UPDATE {user_organizations_table_name} SET role = ?, deleted_at = NULL WHERE id = ?",
+                ("admin", membership_id),
+            )
+
+        # Insert new memberships for users without any prior membership
+        users_to_insert = [uid for uid in user_ids if uid not in soft_deleted_user_ids]
+        if users_to_insert:
+            await cursor.executemany(
+                f"""INSERT INTO {user_organizations_table_name}
+                    (user_id, org_id, role)
+                    VALUES (?, ?, ?)""",
+                [(user_id, org_id, "admin") for user_id in users_to_insert],
+            )
         await conn.commit()
 
 
 async def remove_members_from_org(org_id: int, user_ids: List[int]):
-    query = f"DELETE FROM {user_organizations_table_name} WHERE org_id = ? AND user_id IN ({', '.join(map(str, user_ids))})"
+    query = f"UPDATE {user_organizations_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE org_id = ? AND user_id IN ({', '.join(map(str, user_ids))}) AND deleted_at IS NULL"
     await execute_db_operation(query, (org_id,))
 
 
@@ -266,7 +315,7 @@ async def get_org_members(org_id: int):
         f"""SELECT uo.user_id, u.email, uo.role 
         FROM {user_organizations_table_name} uo
         JOIN users u ON uo.user_id = u.id 
-        WHERE uo.org_id = ?""",
+        WHERE uo.org_id = ? AND uo.deleted_at IS NULL AND u.deleted_at IS NULL""",
         (org_id,),
         fetch_all=True,
     )
@@ -284,7 +333,10 @@ async def get_org_members(org_id: int):
 def drop_user_organizations_table():
     execute_multiple_db_operations(
         [
-            (f"DELETE FROM {user_organizations_table_name}", ()),
+            (
+                f"UPDATE {user_organizations_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
+                (),
+            ),
             (f"DROP TABLE IF EXISTS {user_organizations_table_name}", ()),
         ]
     )
@@ -295,7 +347,10 @@ def drop_organizations_table():
 
     execute_multiple_db_operations(
         [
-            (f"DELETE FROM {organizations_table_name}", ()),
+            (
+                f"UPDATE {organizations_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
+                (),
+            ),
             (f"DROP TABLE IF EXISTS {organizations_table_name}", ()),
         ]
     )
@@ -303,7 +358,7 @@ def drop_organizations_table():
 
 async def update_org(org_id: int, org_name: str):
     await execute_db_operation(
-        f"UPDATE {organizations_table_name} SET name = ? WHERE id = ?",
+        f"UPDATE {organizations_table_name} SET name = ? WHERE id = ? AND deleted_at IS NULL",
         (org_name, org_id),
     )
 
