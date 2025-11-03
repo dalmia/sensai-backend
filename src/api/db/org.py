@@ -266,7 +266,7 @@ async def add_users_to_org_by_email(
         active_existing_user_ids = {row[0] for row in await cursor.fetchall()}
 
         if active_existing_user_ids:
-            raise Exception(f"Some users already exist in organization")
+            raise Exception(f"Some users are already added to the team")
 
         # Revive soft-deleted memberships
         await cursor.execute(
