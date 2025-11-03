@@ -157,7 +157,7 @@ async def insert_or_return_user(
 
     # if user exists, no need to do anything, just return the user
     await cursor.execute(
-        f"""SELECT * FROM {users_table_name} WHERE email = ?""",
+        f"""SELECT * FROM {users_table_name} WHERE email = ? AND deleted_at IS NULL""",
         (email,),
     )
 
@@ -183,6 +183,13 @@ async def insert_or_return_user(
         f"""
         INSERT INTO {users_table_name} (email, default_dp_color, first_name, middle_name, last_name)
         VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(email) DO UPDATE SET
+            default_dp_color = excluded.default_dp_color,
+            first_name = excluded.first_name,
+            middle_name = excluded.middle_name,
+            last_name = excluded.last_name,
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
     """,
         (email, color, first_name, middle_name, family_name),
     )

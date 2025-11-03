@@ -47,6 +47,7 @@ from src.api.models import (
     TaskAIResponseType,
     BaseScorecard,
 )
+from src.api.config import task_completions_table_name
 
 
 @pytest.mark.asyncio
@@ -804,9 +805,12 @@ class TestTaskOperations:
         await mark_task_completed(1, 123)
 
         mock_execute.assert_called_once_with(
-            """
-        INSERT OR IGNORE INTO task_completions (user_id, task_id)
+            f"""
+        INSERT INTO {task_completions_table_name} (user_id, task_id)
         VALUES (?, ?)
+        ON CONFLICT(user_id, task_id) DO UPDATE SET
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
         """,
             (123, 1),
         )

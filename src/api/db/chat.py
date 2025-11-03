@@ -154,7 +154,7 @@ async def get_task_chat_history_for_user(
         FROM {chat_history_table_name} ch
         JOIN {questions_table_name} q ON ch.question_id = q.id
         WHERE q.task_id = ? 
-        AND ch.user_id = ? AND ch.deleted_at IS NULL
+        AND ch.user_id = ? AND ch.deleted_at IS NULL AND q.deleted_at IS NULL
         ORDER BY ch.created_at ASC
     """
 

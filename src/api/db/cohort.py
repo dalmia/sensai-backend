@@ -50,7 +50,14 @@ async def add_courses_to_cohort(
     await execute_many_db_operation(
         f"""INSERT INTO {course_cohorts_table_name} 
             (course_id, cohort_id, is_drip_enabled, frequency_value, frequency_unit, publish_at) 
-            VALUES (?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(course_id, cohort_id) DO UPDATE SET
+                is_drip_enabled = excluded.is_drip_enabled,
+                frequency_value = excluded.frequency_value,
+                frequency_unit = excluded.frequency_unit,
+                publish_at = excluded.publish_at,
+                deleted_at = NULL,
+                updated_at = CURRENT_TIMESTAMP""",
         values,
     )
 
@@ -79,7 +86,14 @@ async def add_course_to_cohorts(
     await execute_many_db_operation(
         f"""INSERT INTO {course_cohorts_table_name} 
             (course_id, cohort_id, is_drip_enabled, frequency_value, frequency_unit, publish_at) 
-            VALUES (?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(course_id, cohort_id) DO UPDATE SET
+                is_drip_enabled = excluded.is_drip_enabled,
+                frequency_value = excluded.frequency_value,
+                frequency_unit = excluded.frequency_unit,
+                publish_at = excluded.publish_at,
+                deleted_at = NULL,
+                updated_at = CURRENT_TIMESTAMP""",
         values,
     )
 
@@ -100,7 +114,7 @@ async def remove_courses_from_cohort(cohort_id: int, course_ids: List[int]):
 
 async def update_cohort_name(cohort_id: int, name: str):
     await execute_db_operation(
-        f"UPDATE {cohorts_table_name} SET name = ? WHERE id = ?",
+        f"UPDATE {cohorts_table_name} SET name = ? WHERE id = ? AND deleted_at IS NULL",
         (name, cohort_id),
     )
 

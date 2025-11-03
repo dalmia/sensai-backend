@@ -77,7 +77,15 @@ async def create_draft_task_for_course(
             insert_ordering = max_ordering[0] + 1 if max_ordering else 0
 
         await cursor.execute(
-            f"INSERT INTO {course_tasks_table_name} (course_id, task_id, milestone_id, ordering) VALUES (?, ?, ?, ?)",
+            f"""
+            INSERT INTO {course_tasks_table_name} (course_id, task_id, milestone_id, ordering)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(task_id, course_id) DO UPDATE SET
+                milestone_id = excluded.milestone_id,
+                ordering = excluded.ordering,
+                deleted_at = NULL,
+                updated_at = CURRENT_TIMESTAMP
+            """,
             (course_id, task_id, milestone_id, insert_ordering),
         )
 
@@ -441,7 +449,7 @@ async def update_draft_quiz(
 
                 # Check if scorecard_id changed
                 await cursor.execute(
-                    f"SELECT scorecard_id FROM {question_scorecards_table_name} WHERE question_id = ?",
+                    f"SELECT scorecard_id FROM {question_scorecards_table_name} WHERE question_id = ? AND deleted_at IS NULL",
                     (question_id,),
                 )
                 existing_scorecard = await cursor.fetchone()
@@ -467,7 +475,11 @@ async def update_draft_quiz(
             ):
                 await cursor.execute(
                     f"""
-                    INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)
+                    INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id)
+                    VALUES (?, ?)
+                    ON CONFLICT(question_id, scorecard_id) DO UPDATE SET
+                        deleted_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
                     """,
                     (question_id, new_scorecard_id),
                 )
@@ -555,7 +567,7 @@ async def update_published_quiz(
             if question.get("scorecard_id") is not None:
                 # First check if there's an existing scorecard mapping
                 await cursor.execute(
-                    f"SELECT scorecard_id FROM {question_scorecards_table_name} WHERE question_id = ?",
+                    f"SELECT scorecard_id FROM {question_scorecards_table_name} WHERE question_id = ? AND deleted_at IS NULL",
                     (question["id"],),
                 )
                 existing_mapping = await cursor.fetchone()
@@ -569,7 +581,13 @@ async def update_published_quiz(
                 else:
                     # Insert new mapping
                     await cursor.execute(
-                        f"INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)",
+                        f"""
+                        INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id)
+                        VALUES (?, ?)
+                        ON CONFLICT(question_id, scorecard_id) DO UPDATE SET
+                            deleted_at = NULL,
+                            updated_at = CURRENT_TIMESTAMP
+                        """,
                         (question["id"], question["scorecard_id"]),
                     )
 
@@ -729,8 +747,11 @@ async def mark_task_completed(task_id: int, user_id: int):
     # Update task completion table using INSERT OR IGNORE to handle duplicates gracefully
     await execute_db_operation(
         f"""
-        INSERT OR IGNORE INTO {task_completions_table_name} (user_id, task_id)
+        INSERT INTO {task_completions_table_name} (user_id, task_id)
         VALUES (?, ?)
+        ON CONFLICT(user_id, task_id) DO UPDATE SET
+            deleted_at = NULL,
+            updated_at = CURRENT_TIMESTAMP
         """,
         (user_id, task_id),
     )
@@ -758,7 +779,7 @@ async def schedule_module_tasks(
         cursor = await conn.cursor()
 
         await cursor.execute(
-            f"SELECT t.id FROM {tasks_table_name} t INNER JOIN {course_tasks_table_name} ct ON t.id = ct.task_id WHERE ct.course_id = ? AND ct.milestone_id = ? AND t.status = '{TaskStatus.PUBLISHED}'",
+            f"SELECT t.id FROM {tasks_table_name} t INNER JOIN {course_tasks_table_name} ct ON t.id = ct.task_id WHERE ct.course_id = ? AND ct.milestone_id = ? AND t.status = '{TaskStatus.PUBLISHED}' AND t.deleted_at IS NULL AND ct.deleted_at IS NULL",
             (course_id, module_id),
         )
 
@@ -871,7 +892,7 @@ async def drop_task_completions_table():
 
 async def get_all_scorecards_for_org(org_id: int) -> List[Dict]:
     scorecards = await execute_db_operation(
-        f"SELECT id, title, criteria, status FROM {scorecards_table_name} WHERE org_id = ?",
+        f"SELECT id, title, criteria, status FROM {scorecards_table_name} WHERE org_id = ? AND deleted_at IS NULL",
         (org_id,),
         fetch_all=True,
     )
@@ -914,7 +935,7 @@ async def update_scorecard(scorecard_id: int, scorecard: BaseScorecard):
     scorecard = scorecard.model_dump()
 
     await execute_db_operation(
-        f"UPDATE {scorecards_table_name} SET title = ?, criteria = ? WHERE id = ?",
+        f"UPDATE {scorecards_table_name} SET title = ?, criteria = ? WHERE id = ? AND deleted_at IS NULL",
         (scorecard["title"], json.dumps(scorecard["criteria"]), scorecard_id),
     )
 

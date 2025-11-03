@@ -231,13 +231,13 @@ async def get_course(course_id: int, only_published: bool = True) -> Dict:
         f"""SELECT t.id, t.title, t.type, t.status, t.scheduled_publish_at, ct.milestone_id, ct.ordering,
             (CASE WHEN t.type = '{TaskType.QUIZ}' THEN 
                 (SELECT COUNT(*) FROM {questions_table_name} q 
-                 WHERE q.task_id = t.id)
+                 WHERE q.task_id = t.id AND q.deleted_at IS NULL)
              ELSE NULL END) as num_questions,
             tgj.status as task_generation_status
             FROM {course_tasks_table_name} ct
             JOIN {tasks_table_name} t ON ct.task_id = t.id
             LEFT JOIN {task_generation_jobs_table_name} tgj ON t.id = tgj.task_id
-            WHERE ct.course_id = ? AND t.deleted_at IS NULL
+            WHERE ct.course_id = ? AND t.deleted_at IS NULL AND ct.deleted_at IS NULL
             {
                 f"AND t.status = '{TaskStatus.PUBLISHED}' AND t.scheduled_publish_at IS NULL"
                 if only_published
@@ -467,14 +467,14 @@ async def transfer_course_to_org(course_id: int, org_id: int):
     task_ids = [task[0] for task in tasks]
 
     questions = await execute_db_operation(
-        f"SELECT q.id FROM {questions_table_name} q INNER JOIN {tasks_table_name} t ON q.task_id = t.id WHERE t.id IN ({', '.join(map(str, task_ids))})",
+        f"SELECT q.id FROM {questions_table_name} q INNER JOIN {tasks_table_name} t ON q.task_id = t.id WHERE t.id IN ({', '.join(map(str, task_ids))}) AND q.deleted_at IS NULL",
         fetch_all=True,
     )
 
     question_ids = [question[0] for question in questions]
 
     scorecards = await execute_db_operation(
-        f"SELECT qs.scorecard_id FROM {question_scorecards_table_name} qs INNER JOIN {questions_table_name} q ON qs.question_id = q.id WHERE q.id IN ({', '.join(map(str, question_ids))})",
+        f"SELECT qs.scorecard_id FROM {question_scorecards_table_name} qs INNER JOIN {questions_table_name} q ON qs.question_id = q.id WHERE q.id IN ({', '.join(map(str, question_ids))}) AND qs.deleted_at IS NULL AND q.deleted_at IS NULL",
         fetch_all=True,
     )
 
@@ -585,7 +585,7 @@ async def get_tasks_for_course(course_id: int, milestone_id: int = None):
 
 async def get_milestones_for_course(course_id: int):
     milestones = await execute_db_operation(
-        f"SELECT cm.id, cm.milestone_id, m.name, cm.ordering FROM {course_milestones_table_name} cm JOIN {milestones_table_name} m ON cm.milestone_id = m.id WHERE cm.course_id = ? AND cm.deleted_at IS NULL AND m.deleted_at IS NULL AND cm.deleted_at IS NULL ORDER BY cm.ordering",
+        f"SELECT cm.id, cm.milestone_id, m.name, cm.ordering FROM {course_milestones_table_name} cm JOIN {milestones_table_name} m ON cm.milestone_id = m.id WHERE cm.course_id = ? AND cm.deleted_at IS NULL AND m.deleted_at IS NULL ORDER BY cm.ordering",
         (course_id,),
         fetch_all=True,
     )
@@ -646,6 +646,22 @@ def delete_all_courses_for_org(org_id: int):
         [
             (
                 f"UPDATE {course_cohorts_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?) AND deleted_at IS NULL",
+                (org_id,),
+            ),
+            (
+                f"UPDATE {course_tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?) AND deleted_at IS NULL",
+                (org_id,),
+            ),
+            (
+                f"UPDATE {course_milestones_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?) AND deleted_at IS NULL",
+                (org_id,),
+            ),
+            (
+                f"UPDATE {course_generation_jobs_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?) AND deleted_at IS NULL",
+                (org_id,),
+            ),
+            (
+                f"UPDATE {task_generation_jobs_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE course_id IN (SELECT id FROM {courses_table_name} WHERE org_id = ?) AND deleted_at IS NULL",
                 (org_id,),
             ),
             (
