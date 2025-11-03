@@ -221,7 +221,7 @@ async def get_course(course_id: int, only_published: bool = True) -> Dict:
         f"""SELECT m.id, m.name, m.color, cm.ordering 
             FROM {course_milestones_table_name} cm
             JOIN milestones m ON cm.milestone_id = m.id
-            WHERE cm.course_id = ? ORDER BY cm.ordering""",
+            WHERE cm.course_id = ? AND cm.deleted_at IS NULL AND m.deleted_at IS NULL ORDER BY cm.ordering""",
         (course_id,),
         fetch_all=True,
     )

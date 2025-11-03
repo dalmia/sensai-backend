@@ -358,6 +358,83 @@ class TestOrganizationOperations:
         mock_cursor.executemany.assert_called_once()
         mock_conn_instance.commit.assert_called_once()
 
+    @patch("src.api.db.org.get_user_by_id")
+    @patch("src.api.db.org.get_new_db_connection")
+    @patch("src.api.db.org.send_slack_notification_for_new_org")
+    async def test_create_organization_with_user_revive_soft_deleted_org(
+        self, mock_slack, mock_db_conn, mock_get_user
+    ):
+        """Revives a soft-deleted org and membership for the owner."""
+        mock_get_user.return_value = {
+            "id": 42,
+            "email": "owner@example.com",
+            "first_name": "Owner",
+            "middle_name": None,
+            "last_name": "User",
+            "default_dp_color": "#000000",
+            "created_at": "2023-01-01 00:00:00",
+        }
+
+        mock_cursor = AsyncMock()
+        # existing active org check -> None; soft-deleted org -> (7,)
+        mock_cursor.fetchone.side_effect = [
+            None,  # existing active org
+            (7,),  # soft-deleted org id
+            (5, "2024-01-01 00:00:00"),  # membership with deleted_at set
+        ]
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_db_conn.return_value.__aenter__.return_value = mock_conn
+
+        result = await create_organization_with_user("Revived Org", "revived-org", 42)
+
+        assert result == 7
+        # Ensure update to revive org and membership executed
+        executed_sql = "\n".join(
+            str(call) for call in mock_cursor.execute.call_args_list
+        )
+        assert "UPDATE organizations SET name = ?" in executed_sql
+        assert (
+            "UPDATE user_organizations SET role = ?, deleted_at = NULL" in executed_sql
+        )
+        mock_conn.commit.assert_called_once()
+        mock_slack.assert_called_once()
+
+    @patch("src.api.db.org.get_org_by_id")
+    @patch("src.api.db.org.get_new_db_connection")
+    @patch("src.api.db.org.insert_or_return_user")
+    @patch("src.api.db.org.send_slack_notification_for_member_added_to_org")
+    async def test_add_users_to_org_by_email_revive_soft_deleted_memberships(
+        self, mock_slack, mock_insert_user, mock_db_conn, mock_get_org
+    ):
+        """Revives soft-deleted user_organizations memberships instead of inserting."""
+        mock_get_org.return_value = {"id": 9, "slug": "org-9", "name": "Org 9"}
+
+        mock_cursor = AsyncMock()
+        # existing active check -> empty
+        # soft-deleted memberships -> return one row (user_id, membership_id)
+        mock_cursor.fetchall.side_effect = [
+            [],  # active existing
+            [(101, 555)],  # soft-deleted membership
+        ]
+        mock_conn = AsyncMock()
+        mock_conn.cursor.return_value = mock_cursor
+        mock_db_conn.return_value.__aenter__.return_value = mock_conn
+
+        mock_user = {"id": 101, "email": "person@example.com"}
+        mock_insert_user.return_value = mock_user
+
+        await add_users_to_org_by_email(9, ["person@example.com"])
+
+        # Ensure membership revive happened; no new insert when only soft-deleted existed
+        executed_sql = "\n".join(
+            str(call) for call in mock_cursor.execute.call_args_list
+        )
+        assert (
+            "UPDATE user_organizations SET role = ?, deleted_at = NULL" in executed_sql
+        )
+        mock_conn.commit.assert_called_once()
+
     @patch("src.api.db.org.get_org_by_id")
     async def test_add_users_to_org_by_email_org_not_found(self, mock_get_org):
         """Test adding users to non-existent org."""
