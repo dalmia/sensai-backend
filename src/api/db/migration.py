@@ -273,4 +273,5 @@ async def add_settings_column_to_questions():
 
 
 async def run_migrations():
+    await add_missing_timestamp_columns()
     await create_bq_sync_table_migration()

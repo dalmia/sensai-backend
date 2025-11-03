@@ -320,6 +320,20 @@ async def create_course_cohorts_table(cursor):
     )
 
 
+async def create_bq_sync_table(cursor):
+    await cursor.execute(
+        f"""CREATE TABLE IF NOT EXISTS {bq_sync_table_name} (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at DATETIME
+            )"""
+    )
+
+    await cursor.execute(
+        f"""CREATE INDEX IF NOT EXISTS idx_bq_sync_started_at ON {bq_sync_table_name} (started_at)"""
+    )
+
+
 async def create_integrations_table(cursor):
     await cursor.execute(
         f"""CREATE TABLE IF NOT EXISTS {integrations_table_name} (
@@ -339,20 +353,6 @@ async def create_integrations_table(cursor):
 
     await cursor.execute(
         f"""CREATE INDEX IF NOT EXISTS idx_integration_user_id ON {integrations_table_name} (user_id)"""
-    )
-
-
-async def create_bq_sync_table(cursor):
-    await cursor.execute(
-        f"""CREATE TABLE IF NOT EXISTS {bq_sync_table_name} (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                ended_at DATETIME
-            )"""
-    )
-
-    await cursor.execute(
-        f"""CREATE INDEX IF NOT EXISTS idx_bq_sync_started_at ON {bq_sync_table_name} (started_at)"""
     )
 
     await cursor.execute(
