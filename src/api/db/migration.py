@@ -237,6 +237,19 @@ async def create_integrations_table_migration():
         await conn.commit()
 
 
+async def create_bq_sync_table_migration():
+    """
+    Migration: Creates the bq_sync table if it doesn't exist.
+    """
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+        from api.db import create_bq_sync_table
+
+        await create_bq_sync_table(cursor)
+
+        await conn.commit()
+
+
 async def add_settings_column_to_questions():
     """
     Migration: Adds a 'settings' column to the questions table.
@@ -260,4 +273,4 @@ async def add_settings_column_to_questions():
 
 
 async def run_migrations():
-    await add_missing_timestamp_columns()
+    await create_bq_sync_table_migration()

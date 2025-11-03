@@ -16,6 +16,7 @@ from api.config import (
     users_table_name,
     tasks_table_name,
     questions_table_name,
+    bq_sync_table_name,
 )
 from api.utils.logging import logger
 from api.bq.base import get_bq_client
@@ -1052,7 +1053,17 @@ async def run_all_syncs():
     Run all table syncs in sequence.
     This can be called from a cron job to sync all tables at once.
     """
+    sync_id = None
     try:
+        # Record start of the full BigQuery sync
+        async with get_new_db_connection() as conn:
+            cursor = await conn.cursor()
+            await cursor.execute(
+                f"INSERT INTO {bq_sync_table_name} (started_at) VALUES (CURRENT_TIMESTAMP)"
+            )
+            sync_id = cursor.lastrowid
+            await conn.commit()
+
         await sync_org_api_keys_to_bigquery()
         await sync_courses_to_bigquery()
         await sync_milestones_to_bigquery()
@@ -1070,6 +1081,20 @@ async def run_all_syncs():
     except Exception as e:
         print(f"Table sync failed: {str(e)}")
         raise
+    finally:
+        # Record end of the full BigQuery sync
+        try:
+            if sync_id is not None:
+                async with get_new_db_connection() as conn:
+                    cursor = await conn.cursor()
+                    await cursor.execute(
+                        f"UPDATE {bq_sync_table_name} SET ended_at = CURRENT_TIMESTAMP WHERE id = ?",
+                        (sync_id,),
+                    )
+                    await conn.commit()
+        except Exception:
+            # Avoid masking the original exception if any
+            pass
 
 
 # If running this file directly for testing
