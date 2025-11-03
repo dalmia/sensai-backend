@@ -462,7 +462,7 @@ class TestOrganizationOperations:
         mock_user = {"id": 1, "email": "user@example.com"}
         mock_insert_user.return_value = mock_user
 
-        with pytest.raises(Exception, match="Some users already exist in organization"):
+        with pytest.raises(Exception, match="Some users are already added to the team"):
             await add_users_to_org_by_email(1, ["user@example.com"])
 
     @patch("src.api.db.org.execute_db_operation")
