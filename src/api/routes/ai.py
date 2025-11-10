@@ -849,19 +849,30 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 current_key_area: Optional[str] = Field(description="Current key area being evaluated")
 
             # Get Langfuse prompt for assignment evaluation
-            prompt = langfuse.get_prompt("assignment", type="chat", label="latest")
+            prompt = langfuse.get_prompt("assignment", type="chat", label="production")
             
-            # Compile the prompt with assignment details
+            # Extract evaluation criteria values for dynamic prompt
+            min_score = evaluation_criteria.get('min_score', 0) if evaluation_criteria else 0
+            max_score = evaluation_criteria.get('max_score', 100) if evaluation_criteria else 100
+            pass_score = evaluation_criteria.get('pass_score', 60) if evaluation_criteria else 60
+            
+            # Compile the prompt with assignment details and evaluation criteria
             if request.response_type == ChatResponseType.AUDIO:
                 # For audio responses, build messages with compiled prompt and audio content
                 messages = prompt.compile(
-                    assignment_details=assignment_details
+                    assignment_details=assignment_details,
+                    min_score=min_score,
+                    max_score=max_score,
+                    pass_score=pass_score
                 )
                 
-                # Replace {assignment_details} placeholder if it exists
+                # Replace placeholders if they exist
                 for msg in messages:
                     if isinstance(msg.get("content"), str):
                         msg["content"] = msg["content"].replace("{assignment_details}", assignment_details)
+                        msg["content"] = msg["content"].replace("{min_score}", str(min_score))
+                        msg["content"] = msg["content"].replace("{max_score}", str(max_score))
+                        msg["content"] = msg["content"].replace("{pass_score}", str(pass_score))
                 
                 # Add chat history with audio content
                 for message in full_chat_history:
@@ -872,13 +883,19 @@ async def ai_response_for_assignment(request: AIChatRequest):
             else:
                 # For text responses, compile prompt with assignment details and add chat history
                 messages = prompt.compile(
-                    assignment_details=assignment_details
+                    assignment_details=assignment_details,
+                    min_score=min_score,
+                    max_score=max_score,
+                    pass_score=pass_score
                 )
                 
-                # Replace {assignment_details} placeholder if it exists
+                # Replace placeholders if they exist
                 for msg in messages:
                     if isinstance(msg.get("content"), str):
                         msg["content"] = msg["content"].replace("{assignment_details}", assignment_details)
+                        msg["content"] = msg["content"].replace("{min_score}", str(min_score))
+                        msg["content"] = msg["content"].replace("{max_score}", str(max_score))
+                        msg["content"] = msg["content"].replace("{pass_score}", str(pass_score))
                 
                 messages += full_chat_history
 
