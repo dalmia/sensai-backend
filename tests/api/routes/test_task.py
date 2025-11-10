@@ -541,3 +541,263 @@ async def test_mark_task_completed(client, mock_db):
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"success": True}
         mock_mark_completed.assert_called_with(task_id, request_body["user_id"])
+
+
+@pytest.mark.asyncio
+async def test_create_assignment_success(client, mock_db):
+    """
+    Test creating an assignment task successfully - covers lines 170-179.
+    """
+    with patch("api.routes.task.create_assignment_in_db") as mock_create_assignment:
+        task_id = 1
+        request_body = {
+            "title": "New Assignment",
+            "assignment": {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"text": "Assignment content", "styles": {}}],
+                        "props": {},
+                        "children": [],
+                    }
+                ],
+                "context": {
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"text": "Assignment context", "styles": {}}],
+                            "props": {},
+                            "children": [],
+                        }
+                    ],
+                    "linkedMaterialIds": [],
+                },
+                "evaluation_criteria": {
+                    "scorecard_id": None,
+                    "min_score": 0.0,
+                    "max_score": 100.0,
+                    "pass_score": 70.0,
+                },
+                "input_type": "text",
+                "response_type": "text",
+                "max_attempts": 3,
+            },
+            "scheduled_publish_at": "2023-05-01T10:00:00Z",
+            "status": "draft",
+        }
+        expected_response = {
+            "id": task_id,
+            "title": request_body["title"],
+            "blocks": request_body["assignment"]["blocks"],
+            "context": request_body["assignment"]["context"],
+            "evaluation_criteria": request_body["assignment"]["evaluation_criteria"],
+            "input_type": request_body["assignment"]["input_type"],
+            "response_type": request_body["assignment"]["response_type"],
+            "max_attempts": request_body["assignment"]["max_attempts"],
+            "type": "assignment",
+            "status": request_body["status"],
+            "scheduled_publish_at": request_body["scheduled_publish_at"],
+        }
+
+        # Test successful creation
+        mock_create_assignment.return_value = expected_response
+
+        response = client.post(f"/tasks/{task_id}/assignment", json=request_body)
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == expected_response["id"]
+        assert result["title"] == expected_response["title"]
+        assert result["type"] == expected_response["type"]
+        assert result["status"] == expected_response["status"]
+
+        # Verify the database function was called with correct parameters
+        mock_create_assignment.assert_called_once()
+        call_args = mock_create_assignment.call_args[1]  # Get keyword arguments
+        assert call_args["task_id"] == task_id
+        assert call_args["title"] == request_body["title"]
+        assert call_args["assignment"]["blocks"][0]["type"] == "paragraph"
+        assert call_args["assignment"]["evaluation_criteria"]["min_score"] == 0.0
+        assert call_args["assignment"]["input_type"] == "text"
+        assert call_args["assignment"]["max_attempts"] == 3
+
+
+@pytest.mark.asyncio
+async def test_create_assignment_task_not_found(client, mock_db):
+    """
+    Test creating an assignment when task is not found - covers lines 177-178.
+    """
+    with patch("api.routes.task.create_assignment_in_db") as mock_create_assignment:
+        task_id = 1
+        request_body = {
+            "title": "New Assignment",
+            "assignment": {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"text": "Assignment content", "styles": {}}],
+                        "props": {},
+                        "children": [],
+                    }
+                ],
+                "context": {
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"text": "Assignment context", "styles": {}}],
+                            "props": {},
+                            "children": [],
+                        }
+                    ],
+                    "linkedMaterialIds": [],
+                },
+                "evaluation_criteria": {
+                    "scorecard_id": None,
+                    "min_score": 0.0,
+                    "max_score": 100.0,
+                    "pass_score": 70.0,
+                },
+                "input_type": "text",
+                "response_type": "text",
+                "max_attempts": 3,
+            },
+            "scheduled_publish_at": "2023-05-01T10:00:00Z",
+            "status": "draft",
+        }
+
+        # Test task not found scenario
+        mock_create_assignment.return_value = None
+
+        response = client.post(f"/tasks/{task_id}/assignment", json=request_body)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"detail": "Task not found"}
+
+
+@pytest.mark.asyncio
+async def test_update_assignment_success(client, mock_db):
+    """
+    Test updating an assignment task successfully - covers lines 186-194.
+    """
+    with patch("api.routes.task.update_assignment_in_db") as mock_update_assignment:
+        task_id = 1
+        request_body = {
+            "title": "Updated Assignment",
+            "assignment": {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"text": "Updated assignment content", "styles": {}}],
+                        "props": {},
+                        "children": [],
+                    }
+                ],
+                "context": {
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"text": "Updated assignment context", "styles": {}}],
+                            "props": {},
+                            "children": [],
+                        }
+                    ],
+                    "linkedMaterialIds": [],
+                },
+                "evaluation_criteria": {
+                    "scorecard_id": None,
+                    "min_score": 0.0,
+                    "max_score": 100.0,
+                    "pass_score": 70.0,
+                },
+                "input_type": "text",
+                "response_type": "text",
+                "max_attempts": 5,
+            },
+            "scheduled_publish_at": "2023-05-01T10:00:00Z",
+        }
+        expected_response = {
+            "id": task_id,
+            "title": request_body["title"],
+            "blocks": request_body["assignment"]["blocks"],
+            "context": request_body["assignment"]["context"],
+            "evaluation_criteria": request_body["assignment"]["evaluation_criteria"],
+            "input_type": request_body["assignment"]["input_type"],
+            "response_type": request_body["assignment"]["response_type"],
+            "max_attempts": request_body["assignment"]["max_attempts"],
+            "type": "assignment",
+            "status": "published",
+            "scheduled_publish_at": request_body["scheduled_publish_at"],
+        }
+
+        # Test successful update
+        mock_update_assignment.return_value = expected_response
+
+        response = client.put(f"/tasks/{task_id}/assignment", json=request_body)
+
+        assert response.status_code == status.HTTP_200_OK
+        result = response.json()
+        assert result["id"] == expected_response["id"]
+        assert result["title"] == expected_response["title"]
+        assert result["type"] == expected_response["type"]
+        assert result["status"] == expected_response["status"]
+
+        # Verify the database function was called with correct parameters
+        mock_update_assignment.assert_called_once()
+        call_args = mock_update_assignment.call_args[1]  # Get keyword arguments
+        assert call_args["task_id"] == task_id
+        assert call_args["title"] == request_body["title"]
+        assert call_args["assignment"]["blocks"][0]["type"] == "paragraph"
+        assert call_args["assignment"]["evaluation_criteria"]["min_score"] == 0.0
+        assert call_args["assignment"]["input_type"] == "text"
+        assert call_args["assignment"]["max_attempts"] == 5
+
+
+@pytest.mark.asyncio
+async def test_update_assignment_task_not_found(client, mock_db):
+    """
+    Test updating an assignment when task is not found - covers lines 192-193.
+    """
+    with patch("api.routes.task.update_assignment_in_db") as mock_update_assignment:
+        task_id = 1
+        request_body = {
+            "title": "Updated Assignment",
+            "assignment": {
+                "blocks": [
+                    {
+                        "type": "paragraph",
+                        "content": [{"text": "Updated assignment content", "styles": {}}],
+                        "props": {},
+                        "children": [],
+                    }
+                ],
+                "context": {
+                    "blocks": [
+                        {
+                            "type": "paragraph",
+                            "content": [{"text": "Updated assignment context", "styles": {}}],
+                            "props": {},
+                            "children": [],
+                        }
+                    ],
+                    "linkedMaterialIds": [],
+                },
+                "evaluation_criteria": {
+                    "scorecard_id": None,
+                    "min_score": 0.0,
+                    "max_score": 100.0,
+                    "pass_score": 70.0,
+                },
+                "input_type": "text",
+                "response_type": "text",
+                "max_attempts": 5,
+            },
+            "scheduled_publish_at": "2023-05-01T10:00:00Z",
+        }
+
+        # Test task not found scenario
+        mock_update_assignment.return_value = None
+
+        response = client.put(f"/tasks/{task_id}/assignment", json=request_body)
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.json() == {"detail": "Task not found"}

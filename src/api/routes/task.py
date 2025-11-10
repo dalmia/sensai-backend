@@ -12,11 +12,15 @@ from api.db.task import (
     mark_task_completed as mark_task_completed_in_db,
     duplicate_task as duplicate_task_in_db,
     get_all_learning_material_tasks_for_course as get_all_learning_material_tasks_for_course_from_db,
+    create_assignment as create_assignment_in_db,
+    update_assignment as update_assignment_in_db,
+    get_assignment_task as get_assignment_task_from_db,
 )
 from api.models import (
     Task,
     LearningMaterialTask,
     QuizTask,
+    AssignmentTask,
     LeaderboardViewType,
     UpdateDraftQuizRequest,
     CreateDraftTaskRequest,
@@ -28,6 +32,8 @@ from api.models import (
     DuplicateTaskRequest,
     DuplicateTaskResponse,
     MarkTaskCompletedRequest,
+    CreateAssignmentRequest,
+    UpdateAssignmentRequest,
 )
 
 router = APIRouter()
@@ -144,7 +150,7 @@ async def get_tasks_completed_for_user(
 
 
 @router.get("/{task_id}")
-async def get_task(task_id: int) -> LearningMaterialTask | QuizTask:
+async def get_task(task_id: int) -> LearningMaterialTask | QuizTask | AssignmentTask:
     task = await get_task_from_db(task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Task not found")
@@ -155,3 +161,34 @@ async def get_task(task_id: int) -> LearningMaterialTask | QuizTask:
 async def mark_task_completed(task_id: int, request: MarkTaskCompletedRequest):
     await mark_task_completed_in_db(task_id, request.user_id)
     return {"success": True}
+
+
+@router.post("/{task_id}/assignment", response_model=AssignmentTask)
+async def create_assignment(
+    task_id: int, request: CreateAssignmentRequest
+) -> AssignmentTask:
+    result = await create_assignment_in_db(
+        task_id=task_id,
+        title=request.title,
+        assignment=request.assignment.model_dump(),
+        scheduled_publish_at=request.scheduled_publish_at,
+        status=request.status,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return result
+
+
+@router.put("/{task_id}/assignment", response_model=AssignmentTask)
+async def update_assignment(
+    task_id: int, request: UpdateAssignmentRequest
+) -> AssignmentTask:
+    result = await update_assignment_in_db(
+        task_id=task_id,
+        title=request.title,
+        assignment=request.assignment.model_dump(),
+        scheduled_publish_at=request.scheduled_publish_at,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return result
