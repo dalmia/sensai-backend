@@ -372,6 +372,7 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     "input_type": task_details.get("input_type"),
                     "response_type": task_details.get("response_type"),
                     "max_attempts": task_details.get("max_attempts"),
+                    "settings": task_details.get("settings"),
                 }
                 
                 await update_assignment(

@@ -245,6 +245,42 @@ async def recreate_chat_history_table():
         await conn.commit()
 
 
+async def add_settings_column_to_assignment_table():
+    """
+    Migration: Adds the settings column to the assignment table if it doesn't exist.
+    """
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Check if table exists
+        await cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (assignment_table_name,),
+        )
+        table_exists = await cursor.fetchone()
+
+        if not table_exists:
+            print(f"{assignment_table_name} table does not exist, skipping settings column migration")
+            await conn.commit()
+            return
+
+        # Get existing columns
+        await cursor.execute(f"PRAGMA table_info({assignment_table_name})")
+        existing_columns = [col[1] for col in await cursor.fetchall()]
+
+        # Add settings column if it doesn't exist
+        if "settings" not in existing_columns:
+            print(f"Adding settings column to {assignment_table_name} table...")
+            await cursor.execute(
+                f"ALTER TABLE {assignment_table_name} ADD COLUMN settings JSON"
+            )
+            print(f"Successfully added settings column to {assignment_table_name} table")
+        else:
+            print(f"settings column already exists in {assignment_table_name} table")
+
+        await conn.commit()
+
+
 async def run_migrations():
     await add_missing_timestamp_columns()
     await create_bq_sync_table_migration()
@@ -263,3 +299,6 @@ async def run_migrations():
 
             await create_assignment_table(cursor)
             await conn.commit()
+    
+    # Add settings column to assignment table
+    await add_settings_column_to_assignment_table()

@@ -375,6 +375,7 @@ class AssignmentData(BaseModel):
     input_type: str
     response_type: Optional[str] = None
     max_attempts: Optional[int] = None
+    settings: Optional[Any] = None
 
 
 class CreateAssignmentRequest(BaseModel):
@@ -398,6 +399,7 @@ class AssignmentTask(Task):
     input_type: str
     response_type: Optional[str] = None
     max_attempts: Optional[int] = None
+    settings: Optional[Any] = None
 
 
 class GenerateCourseJobStatus(str, Enum):

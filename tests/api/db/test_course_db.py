@@ -858,6 +858,7 @@ class TestCourseTransfer:
             "input_type": "text",
             "response_type": "text",
             "max_attempts": 3,
+            "settings": None,
         }
         assert call_args[3] is None  # scheduled_publish_at
 
