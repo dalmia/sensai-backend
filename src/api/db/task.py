@@ -1181,7 +1181,7 @@ async def update_assignment(
                 f"""
                 UPDATE {assignment_table_name} 
                 SET blocks = ?, input_type = ?, response_type = ?, context = ?, 
-                    evaluation_criteria = ?, max_attempts = ?, updated_at = ?
+                    evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?
                 WHERE task_id = ?
                 """,
                 (
@@ -1191,6 +1191,7 @@ async def update_assignment(
                     json.dumps(assignment["context"]) if assignment["context"] else None,
                     json.dumps(assignment["evaluation_criteria"]),
                     assignment["max_attempts"],
+                    json.dumps(assignment.get("settings", {})),
                     datetime.now(),
                     task_id,
                 ),
@@ -1200,8 +1201,8 @@ async def update_assignment(
             await cursor.execute(
                 f"""
                 INSERT INTO {assignment_table_name} 
-                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
