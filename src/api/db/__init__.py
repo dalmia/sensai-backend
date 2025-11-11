@@ -439,6 +439,7 @@ async def create_assignment_table(cursor):
                 context TEXT,
                 evaluation_criteria TEXT NOT NULL,
                 max_attempts INTEGER,
+                settings JSON,
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                 deleted_at DATETIME,
