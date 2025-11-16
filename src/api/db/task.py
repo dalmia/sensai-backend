@@ -396,7 +396,6 @@ async def is_last_task_for_the_course(task_id: int) -> bool:
         )
         result = await cursor.fetchone()
         course_id = result[0]
-        print("course_id", course_id)
 
         # Get count of tasks for the course_id from course_tasks table
         await cursor.execute(
