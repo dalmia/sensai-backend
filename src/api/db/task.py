@@ -435,7 +435,7 @@ async def update_learning_material_task(
     if not await does_task_exist(task_id):
         return False, HTTPException(status_code=404, detail="Task not found")
     
-    is_last_task_in_course = await is_last_task_task_for_the_course(task_id)
+    is_last_task_in_course = await is_last_task_for_the_course(task_id)
     is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
 
     if is_last_task_in_course and is_being_unpublished:
