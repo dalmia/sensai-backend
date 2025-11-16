@@ -61,14 +61,14 @@ async def create_draft_task_for_course(
 async def publish_learning_material_task(
     task_id: int, request: PublishLearningMaterialTaskRequest
 ) -> LearningMaterialTask:
-    result = await update_learning_material_task_in_db(
+    result, http_exception = await update_learning_material_task_in_db(
         task_id,
         request.title,
         request.blocks,
         request.scheduled_publish_at,
     )
     if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise http_exception
     return result
 
 
@@ -76,7 +76,7 @@ async def publish_learning_material_task(
 async def update_learning_material_task(
     task_id: int, request: UpdateLearningMaterialTaskRequest
 ) -> LearningMaterialTask:
-    result = await update_learning_material_task_in_db(
+    result, http_exception = await update_learning_material_task_in_db(
         task_id,
         request.title,
         request.blocks,
@@ -84,7 +84,7 @@ async def update_learning_material_task(
         request.status,
     )
     if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise http_exception
     return result
 
 

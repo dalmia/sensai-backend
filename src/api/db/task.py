@@ -1,4 +1,5 @@
 from typing import Tuple, List, Dict, Optional
+from fastapi import HTTPException
 import json
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -379,6 +380,51 @@ async def upsert_question(cursor, question: Dict, task_id: int, position: int) -
 
     return question_id
 
+async def is_last_task_for_the_course(task_id: int) -> bool:
+    # Get course_id for the corresponding task_id from course_tasks table
+    # Get count of tasks for the course_id from course_tasks table
+    # If the count is >1 return False; else True
+
+
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Get course_id for the corresponding task_id from course_tasks table
+        await cursor.execute(
+            f"SELECT course_id FROM {course_tasks_table_name} WHERE task_id = ?",
+            (task_id,),
+        )
+        result = await cursor.fetchone()
+        course_id = result[0]
+        print("course_id", course_id)
+
+        # Get count of tasks for the course_id from course_tasks table
+        await cursor.execute(
+            f"SELECT COUNT(task_id) FROM {course_tasks_table_name} WHERE course_id = ?",
+            (course_id,),
+        )
+        result = await cursor.fetchone()
+        task_count = result[0]
+
+        return task_count <= 1
+
+async def is_task_being_unpublished(task_id: int, desired_task_status: TaskStatus) -> bool:
+
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Get current task status
+        await cursor.execute(
+            f"SELECT status FROM {tasks_table_name} WHERE id = ?",
+            (task_id,),
+        )
+        result = await cursor.fetchone()
+        current_task_status = result[0]
+
+        # If current_task_status is PUBLISHED and desired_task_status is DRAFT return True; else False
+        if current_task_status == TaskStatus.PUBLISHED and desired_task_status == TaskStatus.DRAFT:
+            return True
+        return False
 
 async def update_learning_material_task(
     task_id: int,
@@ -386,9 +432,15 @@ async def update_learning_material_task(
     blocks: List[Dict],
     scheduled_publish_at: datetime,
     status: TaskStatus = TaskStatus.PUBLISHED,
-) -> LearningMaterialTask:
+) -> tuple[LearningMaterialTask | bool, None | HTTPException]:
     if not await does_task_exist(task_id):
-        return False
+        return False, HTTPException(status_code=404, detail="Task not found")
+    
+    is_last_task_in_course = await is_last_task_task_for_the_course(task_id)
+    is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
+
+    if is_last_task_in_course and is_being_unpublished:
+        return False, HTTPException(status_code=400, detail="Last task of the course cannot be unpublished")
 
     # Execute all operations in a single transaction
     async with get_new_db_connection() as conn:
@@ -407,7 +459,7 @@ async def update_learning_material_task(
 
         await conn.commit()
 
-        return await get_task(task_id)
+        return await get_task(task_id), None
 
 
 async def update_draft_quiz(
