@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, List, Dict
 import json
 from copy import deepcopy
 from pydantic import BaseModel, Field, create_model
@@ -23,13 +23,14 @@ from api.db.task import (
     get_task,
     get_scorecard,
 )
-from api.db.chat import get_question_chat_history_for_user
+from api.db.chat import get_question_chat_history_for_user, get_task_chat_history_for_user
 from api.db.utils import construct_description_from_blocks
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
     get_media_upload_s3_key_from_uuid,
 )
 from api.utils.audio import prepare_audio_input_for_ai
+from api.utils.file_analysis import extract_submission_file
 from langfuse import get_client, observe
 
 router = APIRouter()
@@ -420,7 +421,7 @@ async def ai_response_for_question(request: AIChatRequest):
 
             for message in chat_history:
                 if message["role"] == "user":
-                    if request.response_type == ChatResponseType.AUDIO:
+                    if request.response_type == ChatResponseType.AUDIO and message.get("response_type") == ChatResponseType.AUDIO:
                         message["content"] = get_user_audio_message_for_chat_history(
                             message["content"]
                         )
@@ -616,6 +617,334 @@ async def ai_response_for_question(request: AIChatRequest):
                         },
                     )
 
+            metadata["output"] = llm_output
+            trace.update_trace(
+                user_id=str(request.user_id),
+                session_id=session_id,
+                metadata=metadata,
+                input=llm_input,
+                output=llm_output,
+            )
+
+    # Return a streaming response
+    return StreamingResponse(
+        stream_response(),
+        media_type="application/x-ndjson",
+    )
+
+
+@router.post("/assignment")
+async def ai_response_for_assignment(request: AIChatRequest):
+    # Define an async generator for streaming
+    async def stream_response() -> AsyncGenerator[str, None]:
+        with langfuse.start_as_current_span(
+            name="assignment_evaluation",
+        ) as trace:
+            metadata = {
+                "task_id": request.task_id,
+                "user_id": request.user_id,
+                "user_email": request.user_email,
+            }
+
+            # Validate required fields for assignment
+            if request.task_id is None:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Task ID is required for assignment tasks",
+                )
+
+            # For first-time submissions (file uploads), chat_history might be empty
+            # We'll initialize it as empty if not provided
+            if request.chat_history is None:
+                request.chat_history = []
+
+            # Get assignment data
+            task = await get_task(request.task_id)
+            if not task:
+                raise HTTPException(status_code=404, detail="Task not found")
+
+            if task["type"] != TaskType.ASSIGNMENT:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Task is not an assignment"
+                )
+
+            metadata["task_title"] = task["title"]
+            metadata["task_type"] = "assignment"
+
+            # Get assignment details
+            assignment_data = task
+            problem_blocks = assignment_data["blocks"]
+            evaluation_criteria = assignment_data["evaluation_criteria"]
+            context = assignment_data.get("context")
+            input_type = assignment_data.get("input_type", "text")
+
+            # Get scorecard if evaluation_criteria has scorecard_id
+            scorecard = None
+            if evaluation_criteria and evaluation_criteria.get("scorecard_id"):
+                scorecard = await get_scorecard(evaluation_criteria["scorecard_id"])
+
+            # Get chat history for this assignment
+            # Use request.chat_history if provided (for testing), otherwise fetch from database
+            if request.chat_history:
+                chat_history = request.chat_history
+            else:
+                try:
+                    chat_history = await get_task_chat_history_for_user(
+                        request.task_id, request.user_id
+                    )
+                except Exception:
+                    # If no chat history exists yet, start with empty list
+                    chat_history = []
+
+            # Convert chat history to the format expected by AI
+            formatted_chat_history = [
+                {"role": message["role"], "content": message["content"]}
+                for message in chat_history
+            ]
+
+            # Add new user message
+            new_user_message = [
+                {
+                    "role": "user",
+                    "content": (
+                        get_user_audio_message_for_chat_history(request.user_response)
+                        if request.response_type == ChatResponseType.AUDIO
+                        else request.user_response
+                    ),
+                }
+            ]
+            
+            # Build problem statement from blocks
+            problem_statement = construct_description_from_blocks(problem_blocks)
+
+            # Handle file submission - extract code
+            submission_data = None
+            if request.response_type == ChatResponseType.FILE:
+                try:
+                    submission_data = extract_submission_file(request.user_response)
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Error extracting submission file: {str(e)}"
+                    )
+
+            # Build evaluation context with key areas from scorecard
+            evaluation_context = ""
+            key_areas = []
+            
+            if scorecard:
+                evaluation_context = convert_scorecard_to_prompt(scorecard)
+                
+                # Extract key areas from scorecard criteria
+                for criterion in scorecard["criteria"]:
+                    key_areas.append({
+                        "name": criterion["name"],
+                        "description": criterion["description"],
+                        "min_score": criterion["min_score"],
+                        "max_score": criterion["max_score"],
+                        "pass_score": criterion.get("pass_score", criterion["max_score"])
+                    })
+            
+            # Add evaluation criteria scores
+            if evaluation_criteria:
+                evaluation_context += f"\n\n**Overall Project Scoring:**\n"
+                evaluation_context += f"- Minimum Score: {evaluation_criteria.get('min_score', 0)}\n"
+                evaluation_context += f"- Maximum Score: {evaluation_criteria.get('max_score', 100)}\n"
+                evaluation_context += f"- Pass Score: {evaluation_criteria.get('pass_score', 60)}\n"
+
+            # Build context with linked materials if available
+            knowledge_base = ""
+            if context and context.get("blocks"):
+                knowledge_blocks = context["blocks"]
+                
+                # Add linked learning materials
+                if context.get("linkedMaterialIds"):
+                    for material_id in context["linkedMaterialIds"]:
+                        material_task = await get_task(int(material_id))
+                        if material_task:
+                            knowledge_blocks += material_task["blocks"]
+                
+                knowledge_base = construct_description_from_blocks(knowledge_blocks)
+
+            # Build the complete assignment context
+            assignment_details = f"<Problem Statement>\n{problem_statement}\n</Problem Statement>"
+            
+            # Add Key Areas from scorecard
+            if key_areas:
+                assignment_details += f"\n\n<Key Areas>\n"
+                for i, area in enumerate(key_areas, 1):
+                    assignment_details += f"{i}. **{area['name']}**\n"
+                    assignment_details += f"   Description: {area['description']}\n"
+                    assignment_details += f"   Scoring: {area['min_score']}-{area['max_score']} (Pass: {area['pass_score']})\n\n"
+                assignment_details += f"</Key Areas>"
+            
+            if evaluation_context:
+                assignment_details += f"\n\n<Evaluation Criteria>\n{evaluation_context}\n</Evaluation Criteria>"
+            
+            if knowledge_base:
+                assignment_details += f"\n\n<Knowledge Base>\n{knowledge_base}\n</Knowledge Base>"
+
+            # Add submission data for file uploads
+            if submission_data:
+                assignment_details += f"\n\n<Student Submission Data>\n"
+                assignment_details += f"**Files Extracted:** {submission_data['extracted_files_count']}\n"
+                assignment_details += f"\n**File Contents:**\n"
+                for filename, content in submission_data['file_contents'].items():
+                    assignment_details += f"\n--- {filename} ---\n{content}\n--- End of {filename} ---\n"
+                assignment_details += f"</Student Submission Data>"
+
+            # Build full chat history
+            if request.response_type == ChatResponseType.FILE:
+                # For file uploads, include only the new user message with file_uuid
+                full_chat_history = new_user_message
+            else:
+                full_chat_history = formatted_chat_history + new_user_message
+
+            # Process chat history for audio content if needed
+            if request.response_type == ChatResponseType.AUDIO:
+                for message in full_chat_history:
+                    if message["role"] == "user" and message.get("response_type") == ChatResponseType.AUDIO:
+                        message["content"] = get_user_audio_message_for_chat_history(
+                            message["content"]
+                        )
+
+            # Determine model based on input type
+            if request.response_type == ChatResponseType.AUDIO:
+                model = openai_plan_to_model_name["audio"]
+                openai_api_mode = "chat_completions"
+            else:
+                # For assignments, use reasoning model for better evaluation
+                model = openai_plan_to_model_name["reasoning"]
+                openai_api_mode = "responses"
+
+            # Enhanced feedback structure for key area scores
+            class Feedback(BaseModel):
+                correct: Optional[str] = Field(
+                    description="What worked well in the student's response for this category based on the scoring criteria"
+                )
+                wrong: Optional[str] = Field(
+                    description="What needs improvement in the student's response for this category based on the scoring criteria"
+                )
+
+            class KeyAreaScore(BaseModel):
+                feedback: Feedback = Field(
+                    description="Detailed feedback for the student's response for this category"
+                )
+                score: float = Field(
+                    description="Score given within the min/max range for this category based on the student's response - the score given should be in alignment with the feedback provided"
+                )
+                max_score: float = Field(
+                    description="Maximum score possible for this category as per the scoring criteria"
+                )
+                pass_score: float = Field(
+                    description="Pass score possible for this category as per the scoring criteria"
+                )
+
+            # Dynamic output model based on evaluation phase
+            class Output(BaseModel):
+                feedback: Optional[str] = Field(description="Current feedback and response", default="")
+                evaluation_status: Optional[str] = Field(description="in_progress, needs_resubmission, or completed", default="in_progress")
+                key_area_scores: Optional[Dict[str, KeyAreaScore]] = Field(description="Completed key area scores with detailed feedback", default={})
+                current_key_area: Optional[str] = Field(description="Current key area being evaluated")
+
+            # Get Langfuse prompt for assignment evaluation
+            prompt = langfuse.get_prompt("assignment", type="chat", label="production")
+            
+            # Extract evaluation criteria values for dynamic prompt
+            min_score = evaluation_criteria.get('min_score', 0) if evaluation_criteria else 0
+            max_score = evaluation_criteria.get('max_score', 100) if evaluation_criteria else 100
+            pass_score = evaluation_criteria.get('pass_score', 60) if evaluation_criteria else 60
+            
+            # Compile the prompt with assignment details and evaluation criteria
+            if request.response_type == ChatResponseType.AUDIO:
+                # For audio responses, build messages with compiled prompt and audio content
+                messages = prompt.compile(
+                    assignment_details=assignment_details,
+                    min_score=min_score,
+                    max_score=max_score,
+                    pass_score=pass_score
+                )
+                
+                # Replace placeholders if they exist
+                for msg in messages:
+                    if isinstance(msg.get("content"), str):
+                        msg["content"] = msg["content"].replace("{assignment_details}", assignment_details)
+                        msg["content"] = msg["content"].replace("{min_score}", str(min_score))
+                        msg["content"] = msg["content"].replace("{max_score}", str(max_score))
+                        msg["content"] = msg["content"].replace("{pass_score}", str(pass_score))
+                
+                # Add chat history with audio content
+                for message in full_chat_history:
+                    messages.append({
+                        "role": message["role"],
+                        "content": message["content"]
+                    })
+            else:
+                # For text responses, compile prompt with assignment details and add chat history
+                messages = prompt.compile(
+                    assignment_details=assignment_details,
+                    min_score=min_score,
+                    max_score=max_score,
+                    pass_score=pass_score
+                )
+                
+                # Replace placeholders if they exist
+                for msg in messages:
+                    if isinstance(msg.get("content"), str):
+                        msg["content"] = msg["content"].replace("{assignment_details}", assignment_details)
+                        msg["content"] = msg["content"].replace("{min_score}", str(min_score))
+                        msg["content"] = msg["content"].replace("{max_score}", str(max_score))
+                        msg["content"] = msg["content"].replace("{pass_score}", str(pass_score))
+                
+                messages += full_chat_history
+
+            # Build input for metadata
+            llm_input = f"""`Assignment Details`:\n\n{assignment_details}\n\n`Chat History`:\n\n{format_chat_history_with_audio(full_chat_history)}"""
+            response_metadata = {
+                "input": llm_input,
+            }
+            
+            metadata.update(response_metadata)
+
+            llm_output = ""
+            
+            # Process streaming response with Langfuse observation
+            with langfuse.start_as_current_observation(
+                as_type="generation", name="response", prompt=prompt
+            ) as observation:
+                try:
+                    async for chunk in stream_llm_with_openai(
+                        model=model,
+                        messages=messages,
+                        response_model=Output,
+                        max_output_tokens=8192,
+                        api_mode=openai_api_mode,
+                    ):
+                        content = json.dumps(chunk.model_dump()) + "\n"
+                        llm_output = chunk.model_dump()
+                        yield content
+                except Exception as e:
+                    # Check if it's the specific AsyncStream aclose error
+                    if str(e) == "'AsyncStream' object has no attribute 'aclose'":
+                        # Silently end partial stream on this specific error
+                        pass
+                    else:
+                        # Re-raise other exceptions
+                        raise
+                finally:
+                    observation.update(
+                        input=llm_input,
+                        output=llm_output,
+                        prompt=prompt,
+                        metadata={
+                            "prompt_version": prompt.version,
+                            "prompt_name": prompt.name,
+                            **response_metadata,
+                        },
+                    )
+
+            session_id = f"assignment_{request.task_id}_{request.user_id}"
             metadata["output"] = llm_output
             trace.update_trace(
                 user_id=str(request.user_id),
