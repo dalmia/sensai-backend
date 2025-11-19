@@ -375,6 +375,7 @@ class TestTaskOperations:
             "input_type": "text",
             "response_type": "text",
             "max_attempts": 3,
+            "settings": None,
         }
         mock_get_assignment.return_value = mock_assignment_data
 
@@ -393,6 +394,7 @@ class TestTaskOperations:
             "input_type": mock_assignment_data["input_type"],
             "response_type": mock_assignment_data["response_type"],
             "max_attempts": mock_assignment_data["max_attempts"],
+            "settings": mock_assignment_data["settings"],
         }
 
         assert result == expected
@@ -428,6 +430,7 @@ class TestTaskOperations:
             "input_type": None,
             "response_type": None,
             "max_attempts": None,
+            "settings": None,
         }
 
         assert result == expected
@@ -1825,6 +1828,7 @@ class TestTaskDuplication:
             "input_type": "text",
             "response_type": "text",
             "max_attempts": 3,
+            "settings": None,
         }
         assert call_args[3] is None  # scheduled_publish_at
 
@@ -2268,7 +2272,7 @@ class TestAssignmentOperations:
         assert "UPDATE" in query
         assert "assignment" in query
         assert "SET blocks = ?, input_type = ?, response_type = ?, context = ?" in query
-        assert "evaluation_criteria = ?, max_attempts = ?, updated_at = ?" in query
+        assert "evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?" in query
         assert "WHERE task_id = ?" in query
         
         # Verify the parameters passed to the UPDATE query
@@ -2278,8 +2282,9 @@ class TestAssignmentOperations:
         assert params[3] == json.dumps(assignment_data["context"])  # context
         assert params[4] == json.dumps(assignment_data["evaluation_criteria"])  # evaluation_criteria
         assert params[5] == assignment_data["max_attempts"]  # max_attempts
-        assert isinstance(params[6], datetime)  # updated_at
-        assert params[7] == 1  # task_id
+        assert params[6] == json.dumps(assignment_data.get("settings", {}))  # settings
+        assert isinstance(params[7], datetime)  # updated_at
+        assert params[8] == 1  # task_id
 
     @patch("src.api.db.task.get_basic_task_details")
     async def test_create_assignment_task_not_found(self, mock_get_basic):
@@ -2594,8 +2599,8 @@ class TestAssignmentOperations:
         
         assert "INSERT INTO" in query
         assert "assignment" in query
-        assert "(task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts)" in query
-        assert "VALUES (?, ?, ?, ?, ?, ?, ?)" in query
+        assert "(task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)" in query
+        assert "VALUES (?, ?, ?, ?, ?, ?, ?, ?)" in query
         
         # Verify the parameters passed to the INSERT query
         assert params[0] == 1  # task_id
@@ -2605,6 +2610,7 @@ class TestAssignmentOperations:
         assert params[4] == json.dumps(assignment_data["context"])  # context
         assert params[5] == json.dumps(assignment_data["evaluation_criteria"])  # evaluation_criteria
         assert params[6] == assignment_data["max_attempts"]  # max_attempts
+        assert params[7] == json.dumps(assignment_data.get("settings", {}))  # settings
 
     @patch("src.api.db.task.execute_db_operation")
     async def test_get_assignment_success(self, mock_execute):
@@ -2617,6 +2623,7 @@ class TestAssignmentOperations:
             '{"blocks": [{"type": "paragraph", "content": "Context"}]}',  # context
             '{"min_score": 0, "max_score": 100, "pass_score": 70}',  # evaluation_criteria
             3,  # max_attempts
+            '{"key": "value"}',  # settings
             datetime.now(),  # created_at
             datetime.now(),  # updated_at
         )
@@ -2632,8 +2639,9 @@ class TestAssignmentOperations:
             "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
             "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
             "max_attempts": 3,
-            "created_at": mock_assignment_data[7],
-            "updated_at": mock_assignment_data[8],
+            "settings": {"key": "value"},
+            "created_at": mock_assignment_data[8],
+            "updated_at": mock_assignment_data[9],
         }
 
         assert result == expected
@@ -2670,6 +2678,7 @@ class TestAssignmentOperations:
             "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
             "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
             "max_attempts": 3,
+            "settings": None,
             "created_at": datetime.now(),
             "updated_at": datetime.now(),
         }
@@ -2689,6 +2698,7 @@ class TestAssignmentOperations:
             "input_type": mock_assignment_data["input_type"],
             "response_type": mock_assignment_data["response_type"],
             "max_attempts": mock_assignment_data["max_attempts"],
+            "settings": mock_assignment_data["settings"],
         }
 
         assert result == expected

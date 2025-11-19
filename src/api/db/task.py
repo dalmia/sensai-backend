@@ -254,6 +254,7 @@ async def get_task(task_id: int):
         task_data["input_type"] = assignment_data["input_type"] if assignment_data else None
         task_data["response_type"] = assignment_data["response_type"] if assignment_data else None
         task_data["max_attempts"] = assignment_data["max_attempts"] if assignment_data else None
+        task_data["settings"] = assignment_data["settings"] if assignment_data else None
 
     return task_data
 
@@ -675,6 +676,7 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
             "input_type": task.get("input_type"),
             "response_type": task.get("response_type"),
             "max_attempts": task.get("max_attempts"),
+            "settings": task.get("settings"),
         }
         
         await update_assignment(
@@ -1075,7 +1077,6 @@ async def create_assignment(
 ) -> Dict:
     # Validate task exists and is assignment type
     task = await get_basic_task_details(task_id)
-    print(f"DEBUG: Task: {task}")
     if not task:
         return None
     if task["type"] != TaskType.ASSIGNMENT:
@@ -1099,7 +1100,7 @@ async def create_assignment(
                 f"""
                 UPDATE {assignment_table_name} 
                 SET blocks = ?, input_type = ?, response_type = ?, context = ?, 
-                    evaluation_criteria = ?, max_attempts = ?, updated_at = ?
+                    evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?
                 WHERE task_id = ?
                 """,
                 (
@@ -1109,6 +1110,7 @@ async def create_assignment(
                     json.dumps(assignment["context"]) if assignment["context"] else None,
                     json.dumps(assignment["evaluation_criteria"]),
                     assignment["max_attempts"],
+                    json.dumps(assignment.get("settings", {})),
                     datetime.now(),
                     task_id,
                 ),
@@ -1118,8 +1120,8 @@ async def create_assignment(
             await cursor.execute(
                 f"""
                 INSERT INTO {assignment_table_name} 
-                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -1129,6 +1131,7 @@ async def create_assignment(
                     json.dumps(assignment["context"]) if assignment["context"] else None,
                     json.dumps(assignment["evaluation_criteria"]),
                     assignment["max_attempts"],
+                    json.dumps(assignment.get("settings", {})),
                 ),
             )
         
@@ -1178,7 +1181,7 @@ async def update_assignment(
                 f"""
                 UPDATE {assignment_table_name} 
                 SET blocks = ?, input_type = ?, response_type = ?, context = ?, 
-                    evaluation_criteria = ?, max_attempts = ?, updated_at = ?
+                    evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?
                 WHERE task_id = ?
                 """,
                 (
@@ -1188,6 +1191,7 @@ async def update_assignment(
                     json.dumps(assignment["context"]) if assignment["context"] else None,
                     json.dumps(assignment["evaluation_criteria"]),
                     assignment["max_attempts"],
+                    json.dumps(assignment.get("settings", {})),
                     datetime.now(),
                     task_id,
                 ),
@@ -1197,8 +1201,8 @@ async def update_assignment(
             await cursor.execute(
                 f"""
                 INSERT INTO {assignment_table_name} 
-                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     task_id,
@@ -1208,6 +1212,7 @@ async def update_assignment(
                     json.dumps(assignment["context"]) if assignment["context"] else None,
                     json.dumps(assignment["evaluation_criteria"]),
                     assignment["max_attempts"],
+                    json.dumps(assignment.get("settings", {})),
                 ),
             )
         
@@ -1221,7 +1226,7 @@ async def get_assignment(task_id: int) -> Optional[Dict]:
     assignment = await execute_db_operation(
         f"""
         SELECT task_id, blocks, input_type, response_type, context, 
-               evaluation_criteria, max_attempts, created_at, updated_at
+               evaluation_criteria, max_attempts, settings, created_at, updated_at
         FROM {assignment_table_name}
         WHERE task_id = ? AND deleted_at IS NULL
         """,
@@ -1240,8 +1245,9 @@ async def get_assignment(task_id: int) -> Optional[Dict]:
         "context": json.loads(assignment[4]) if assignment[4] else None,
         "evaluation_criteria": json.loads(assignment[5]),
         "max_attempts": assignment[6],
-        "created_at": assignment[7],
-        "updated_at": assignment[8],
+        "settings": json.loads(assignment[7]) if assignment[7] else None,
+        "created_at": assignment[8],
+        "updated_at": assignment[9],
     }
 
 
@@ -1272,4 +1278,5 @@ async def get_assignment_task(task_id: int) -> Optional[Dict]:
         "input_type": assignment_data["input_type"],
         "response_type": assignment_data["response_type"],
         "max_attempts": assignment_data["max_attempts"],
+        "settings": assignment_data["settings"],
     }
