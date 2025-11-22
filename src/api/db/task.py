@@ -380,7 +380,7 @@ async def upsert_question(cursor, question: Dict, task_id: int, position: int) -
 
     return question_id
 
-async def is_last_task_for_the_course(task_id: int) -> bool:
+async def is_last_published_task_for_the_course(task_id: int) -> bool:
     # Get course_id for the corresponding task_id from course_tasks table
     # Get count of tasks for the course_id from course_tasks table
     # If the count is >1 return False; else True
@@ -397,15 +397,19 @@ async def is_last_task_for_the_course(task_id: int) -> bool:
         result = await cursor.fetchone()
         course_id = result[0]
 
-        # Get count of tasks for the course_id from course_tasks table
+        # Get count of published tasks for the course
         await cursor.execute(
-            f"SELECT COUNT(task_id) FROM {course_tasks_table_name} WHERE course_id = ?",
+            f"""SELECT COUNT(status) FROM {tasks_table_name} WHERE
+            id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id = ? AND deleted_at IS NULL) AND
+            status = 'published'
+            """,# "deleted_at IS NULL" is used in this query since we don't want to include deleted tasks
             (course_id,),
         )
         result = await cursor.fetchone()
-        task_count = result[0]
+        total_published_task_count_for_the_course = result[0]
 
-        return task_count <= 1
+
+        return total_published_task_count_for_the_course <= 1
 
 async def is_task_being_unpublished(task_id: int, desired_task_status: TaskStatus) -> bool:
 
@@ -434,11 +438,13 @@ async def update_learning_material_task(
 ) -> tuple[LearningMaterialTask | bool, None | HTTPException]:
     if not await does_task_exist(task_id):
         return False, HTTPException(status_code=404, detail="Task not found")
-    
-    is_last_task_in_course = await is_last_task_for_the_course(task_id)
-    is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
 
-    if is_last_task_in_course and is_being_unpublished:
+    is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
+    is_last_task_in_course = None
+    if is_being_unpublished:                        # This if condition here will reduce the number of DB queries made
+        is_last_task_in_course = await is_last_published_task_for_the_course(task_id)
+    
+    if is_being_unpublished and is_last_task_in_course:
         return False, HTTPException(status_code=400, detail="Last task of the course cannot be unpublished")
 
     # Execute all operations in a single transaction
