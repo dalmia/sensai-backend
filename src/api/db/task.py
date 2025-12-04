@@ -1267,16 +1267,6 @@ async def get_assignment_task(task_id: int) -> Optional[Dict]:
     
     # Combine task and assignment data
     return {
-        "id": task_data["id"],
-        "title": task_data["title"],
-        "type": task_data["type"],
-        "status": task_data["status"],
-        "scheduled_publish_at": task_data["scheduled_publish_at"],
-        "blocks": assignment_data["blocks"],
-        "context": assignment_data["context"],
-        "evaluation_criteria": assignment_data["evaluation_criteria"],
-        "input_type": assignment_data["input_type"],
-        "response_type": assignment_data["response_type"],
-        "max_attempts": assignment_data["max_attempts"],
-        "settings": assignment_data["settings"],
-    }
+        **task_data,
+        **assignment_data
+      }
