@@ -377,13 +377,7 @@ class AssignmentTask(Task):
     assignment: Assignment
 
 
-class CreateAssignmentRequest(AssignmentTask):
-    id: Optional[int] = None
-    type: Optional[TaskType] = None
-    status: Optional[str] = None
-
-
-class UpdateAssignmentRequest(AssignmentTask):
+class AssignmentRequest(AssignmentTask):
     id: Optional[int] = None
     type: Optional[TaskType] = None
     status: Optional[str] = None

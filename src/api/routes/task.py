@@ -12,8 +12,7 @@ from api.db.task import (
     mark_task_completed as mark_task_completed_in_db,
     duplicate_task as duplicate_task_in_db,
     get_all_learning_material_tasks_for_course as get_all_learning_material_tasks_for_course_from_db,
-    create_assignment as create_assignment_in_db,
-    update_assignment as update_assignment_in_db,
+    upsert_assignment as upsert_assignment_in_db,
     get_assignment_task as get_assignment_task_from_db,
 )
 from api.models import (
@@ -32,8 +31,7 @@ from api.models import (
     DuplicateTaskRequest,
     DuplicateTaskResponse,
     MarkTaskCompletedRequest,
-    CreateAssignmentRequest,
-    UpdateAssignmentRequest,
+    AssignmentRequest,
 )
 
 router = APIRouter()
@@ -164,30 +162,15 @@ async def mark_task_completed(task_id: int, request: MarkTaskCompletedRequest):
 
 
 @router.post("/{task_id}/assignment", response_model=AssignmentTask)
-async def create_assignment(
-    task_id: int, request: CreateAssignmentRequest
+async def upsert_assignment(
+    task_id: int, request: AssignmentRequest
 ) -> AssignmentTask:
-    result = await create_assignment_in_db(
+    result = await upsert_assignment_in_db(
         task_id=task_id,
         title=request.title,
         assignment=request.assignment.model_dump(),
         scheduled_publish_at=request.scheduled_publish_at,
         status=request.status,
-    )
-    if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return result
-
-
-@router.put("/{task_id}/assignment", response_model=AssignmentTask)
-async def update_assignment(
-    task_id: int, request: UpdateAssignmentRequest
-) -> AssignmentTask:
-    result = await update_assignment_in_db(
-        task_id=task_id,
-        title=request.title,
-        assignment=request.assignment.model_dump(),
-        scheduled_publish_at=request.scheduled_publish_at,
     )
     if not result:
         raise HTTPException(status_code=404, detail="Task not found")

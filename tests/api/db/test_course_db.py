@@ -794,7 +794,7 @@ class TestCourseTransfer:
         mock_update_learning.assert_called_once()
         mock_update_quiz.assert_called_once()
 
-    @patch("src.api.db.course.create_assignment")
+    @patch("src.api.db.task.upsert_assignment")
     @patch("src.api.db.course.create_draft_task_for_course")
     @patch("src.api.db.course.add_milestone_to_course")
     @patch("src.api.db.course.create_course")
@@ -807,7 +807,7 @@ class TestCourseTransfer:
         mock_create_course,
         mock_add_milestone,
         mock_create_task,
-        mock_create_assignment,
+        mock_upsert_assignment,
     ):
         """Test duplicating course to organization with assignment task - covers lines 281-297."""
         # Mock course structure with assignment task
@@ -848,10 +848,10 @@ class TestCourseTransfer:
         await duplicate_course_to_org(1, 999)
 
         # Verify assignment task was handled correctly
-        mock_create_assignment.assert_called_once()
-        call_args = mock_create_assignment.call_args[0]
+        mock_upsert_assignment.assert_called_once()
+        call_args = mock_upsert_assignment.call_args[0]
         
-        # Check the arguments passed to create_assignment
+        # Check the arguments passed to upsert_assignment
         assert call_args[0] == 10  # new_task_id
         assert call_args[1] == "Assignment Task"  # title
         assert call_args[2] == assignment_task["assignment"]  # assignment_data

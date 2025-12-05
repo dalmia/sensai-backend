@@ -28,7 +28,7 @@ from api.db.task import (
     create_draft_task_for_course,
     update_learning_material_task,
     update_draft_quiz,
-    create_assignment,
+    upsert_assignment,
     get_scorecard,
     create_scorecard,
 )
@@ -364,7 +364,7 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     TaskStatus.DRAFT,
                 )
             elif task_details["type"] == TaskType.ASSIGNMENT:
-                await create_assignment(
+                await upsert_assignment(
                     new_task_id,
                     task_details["title"],
                     task_details["assignment"],

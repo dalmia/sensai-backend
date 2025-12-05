@@ -673,7 +673,7 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
             TaskStatus.DRAFT,
         )
     elif task["type"] == TaskType.ASSIGNMENT:
-        await create_assignment(
+        await upsert_assignment(
             new_task_id,
             task["title"],
             task["assignment"],
@@ -1064,45 +1064,13 @@ async def add_generated_quiz(task_id: int, task_details: Dict):
 
 
 async def upsert_assignment(
-    cursor,
-    task_id: int,
-    assignment: Dict,
-) -> None:
-    """Upsert assignment (insert or update) in the assignment table"""
-    await cursor.execute(
-        f"""
-        INSERT INTO {assignment_table_name} 
-        (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(task_id) DO UPDATE SET
-            blocks = excluded.blocks,
-            input_type = excluded.input_type,
-            response_type = excluded.response_type,
-            context = excluded.context,
-            evaluation_criteria = excluded.evaluation_criteria,
-            max_attempts = excluded.max_attempts,
-            settings = excluded.settings
-        """,
-        (
-            task_id,
-            json.dumps(assignment["blocks"]),
-            str(assignment["input_type"]) if assignment.get("input_type") else None,
-            str(assignment["response_type"]) if assignment.get("response_type") else None,
-            json.dumps(assignment["context"]) if assignment.get("context") else None,
-            json.dumps(assignment["evaluation_criteria"]) if assignment.get("evaluation_criteria") else None,
-            assignment.get("max_attempts"),
-            json.dumps(assignment.get("settings", {})) if assignment.get("settings") else None,
-        ),
-    )
-
-
-async def create_assignment(
     task_id: int,
     title: str,
     assignment: Dict,
     scheduled_publish_at: Optional[datetime] = None,
     status: TaskStatus = TaskStatus.PUBLISHED,
 ) -> Dict:
+    """Upsert assignment (insert or update) in the assignment table"""
     if not await does_task_exist(task_id):
         return None
 
@@ -1121,54 +1089,32 @@ async def create_assignment(
             (title, str(status), scheduled_publish_at, task_id),
         )
 
-        # Upsert assignment row
-        await upsert_assignment(cursor, task_id, assignment)
-
-        await conn.commit()
-
-    return await get_assignment_task(task_id)
-
-
-async def update_assignment(
-    task_id: int,
-    title: str,
-    assignment: Dict,
-    scheduled_publish_at: Optional[datetime] = None,
-) -> Dict:
-    """Update an existing assignment record"""
-    # Validate task exists and is assignment type
-    task = await get_basic_task_details(task_id)
-    if not task:
-        return None
-    if task["type"] != TaskType.ASSIGNMENT:
-        return None
-    
-    # Validate evaluation criteria
-    criteria = assignment.get("evaluation_criteria")
-    if criteria is not None:
-        if criteria["min_score"] < 0:
-            return None
-        if criteria["max_score"] <= criteria["min_score"]:
-            return None
-        if not (criteria["min_score"] <= criteria["pass_score"] <= criteria["max_score"]):
-            return None
-
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-
-        # Update task row (do NOT change status)
+        # Upsert assignment row directly
         await cursor.execute(
             f"""
-            UPDATE {tasks_table_name}
-            SET title = ?,
-                scheduled_publish_at = ?
-            WHERE id = ?
+            INSERT INTO {assignment_table_name} 
+            (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(task_id) DO UPDATE SET
+                blocks = excluded.blocks,
+                input_type = excluded.input_type,
+                response_type = excluded.response_type,
+                context = excluded.context,
+                evaluation_criteria = excluded.evaluation_criteria,
+                max_attempts = excluded.max_attempts,
+                settings = excluded.settings
             """,
-            (title, scheduled_publish_at, task_id),
+            (
+                task_id,
+                json.dumps(assignment["blocks"]),
+                str(assignment["input_type"]) if assignment.get("input_type") else None,
+                str(assignment["response_type"]) if assignment.get("response_type") else None,
+                json.dumps(assignment["context"]) if assignment.get("context") else None,
+                json.dumps(assignment["evaluation_criteria"]) if assignment.get("evaluation_criteria") else None,
+                assignment.get("max_attempts"),
+                json.dumps(assignment.get("settings", {})) if assignment.get("settings") else None,
+            ),
         )
-
-        # Upsert assignment row
-        await upsert_assignment(cursor, task_id, assignment)
 
         await conn.commit()
 
