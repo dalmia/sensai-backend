@@ -1081,8 +1081,7 @@ async def upsert_assignment(
             context = excluded.context,
             evaluation_criteria = excluded.evaluation_criteria,
             max_attempts = excluded.max_attempts,
-            settings = excluded.settings,
-            updated_at = CURRENT_TIMESTAMP
+            settings = excluded.settings
         """,
         (
             task_id,

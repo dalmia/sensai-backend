@@ -2257,7 +2257,6 @@ class TestAssignmentOperations:
         assert "assignment" in query
         assert "ON CONFLICT(task_id) DO UPDATE SET" in query
         assert "blocks = excluded.blocks" in query
-        assert "updated_at = CURRENT_TIMESTAMP" in query
         
         # Verify the parameters passed to the UPSERT query
         assert params[0] == 1  # task_id
