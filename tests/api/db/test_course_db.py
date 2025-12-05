@@ -794,7 +794,7 @@ class TestCourseTransfer:
         mock_update_learning.assert_called_once()
         mock_update_quiz.assert_called_once()
 
-    @patch("src.api.db.task.upsert_assignment")
+    @patch("src.api.db.course.upsert_assignment")
     @patch("src.api.db.course.create_draft_task_for_course")
     @patch("src.api.db.course.add_milestone_to_course")
     @patch("src.api.db.course.create_course")
