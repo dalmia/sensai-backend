@@ -147,6 +147,17 @@ def convert_question_db_to_dict(question) -> Dict:
     return result
 
 
+def convert_assignment_to_task_dict(assignment: Dict) -> Dict:
+    return {
+        "blocks": assignment["blocks"] if assignment else [],
+        "context": assignment["context"] if assignment else None,
+        "evaluation_criteria": assignment["evaluation_criteria"] if assignment else None,
+        "input_type": assignment["input_type"] if assignment else None,
+        "response_type": assignment["response_type"] if assignment else None,
+        "max_attempts": assignment["max_attempts"] if assignment else None,
+        "settings": assignment["settings"] if assignment else None,
+    }
+
 async def get_scorecard(scorecard_id: int) -> Dict:
     if scorecard_id is None:
         return
@@ -247,14 +258,8 @@ async def get_task(task_id: int):
         ]
     
     elif task_data["type"] == TaskType.ASSIGNMENT:
-        assignment_data = await get_assignment(task_id)
-        task_data["blocks"] = assignment_data["blocks"] if assignment_data else []
-        task_data["context"] = assignment_data["context"] if assignment_data else None
-        task_data["evaluation_criteria"] = assignment_data["evaluation_criteria"] if assignment_data else None
-        task_data["input_type"] = assignment_data["input_type"] if assignment_data else None
-        task_data["response_type"] = assignment_data["response_type"] if assignment_data else None
-        task_data["max_attempts"] = assignment_data["max_attempts"] if assignment_data else None
-        task_data["settings"] = assignment_data["settings"] if assignment_data else None
+        assignment = await get_assignment(task_id)
+        task_data["assignment"] = convert_assignment_to_task_dict(assignment)
 
     return task_data
 
@@ -668,22 +673,12 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
             TaskStatus.DRAFT,
         )
     elif task["type"] == TaskType.ASSIGNMENT:
-            
-        assignment_data = {
-            "blocks": task.get("blocks", []),
-            "context": task.get("context"),
-            "evaluation_criteria": task.get("evaluation_criteria"),
-            "input_type": task.get("input_type"),
-            "response_type": task.get("response_type"),
-            "max_attempts": task.get("max_attempts"),
-            "settings": task.get("settings"),
-        }
-        
-        await update_assignment(
+        await create_assignment(
             new_task_id,
             task["title"],
-            assignment_data,
+            task["assignment"],
             None,
+            TaskStatus.DRAFT,
         )
     else:
         raise ValueError("Task type not supported")
@@ -1068,76 +1063,71 @@ async def add_generated_quiz(task_id: int, task_details: Dict):
     )
 
 
+async def upsert_assignment(
+    cursor,
+    task_id: int,
+    assignment: Dict,
+) -> None:
+    """Upsert assignment (insert or update) in the assignment table"""
+    await cursor.execute(
+        f"""
+        INSERT INTO {assignment_table_name} 
+        (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(task_id) DO UPDATE SET
+            blocks = excluded.blocks,
+            input_type = excluded.input_type,
+            response_type = excluded.response_type,
+            context = excluded.context,
+            evaluation_criteria = excluded.evaluation_criteria,
+            max_attempts = excluded.max_attempts,
+            settings = excluded.settings,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            task_id,
+            json.dumps(assignment["blocks"]),
+            str(assignment["input_type"]) if assignment.get("input_type") else None,
+            str(assignment["response_type"]) if assignment.get("response_type") else None,
+            json.dumps(assignment["context"]) if assignment.get("context") else None,
+            json.dumps(assignment["evaluation_criteria"]) if assignment.get("evaluation_criteria") else None,
+            assignment.get("max_attempts"),
+            json.dumps(assignment.get("settings", {})) if assignment.get("settings") else None,
+        ),
+    )
+
+
 async def create_assignment(
     task_id: int,
     title: str,
     assignment: Dict,
     scheduled_publish_at: Optional[datetime] = None,
-    status: Optional[str] = None,
+    status: TaskStatus = TaskStatus.PUBLISHED,
 ) -> Dict:
-    # Validate task exists and is assignment type
-    task = await get_basic_task_details(task_id)
-    if not task:
+    if not await does_task_exist(task_id):
         return None
-    if task["type"] != TaskType.ASSIGNMENT:
-        return None
-    
-    # Check if assignment already exists
-    existing_assignment = await get_assignment(task_id)
-    
+
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-        
-        # Update task with title, status, and scheduled_publish_at
+
+        # Update task row
         await cursor.execute(
-            f"UPDATE {tasks_table_name} SET title = ?, status = ?, scheduled_publish_at = ? WHERE id = ?",
-            (title, status or "published", scheduled_publish_at, task_id),
+            f"""
+            UPDATE {tasks_table_name}
+            SET title = ?,
+                status = ?,
+                scheduled_publish_at = ?
+            WHERE id = ?
+            """,
+            (title, str(status), scheduled_publish_at, task_id),
         )
-        
-        if existing_assignment:
-            # Update existing assignment record
-            await cursor.execute(
-                f"""
-                UPDATE {assignment_table_name} 
-                SET blocks = ?, input_type = ?, response_type = ?, context = ?, 
-                    evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?
-                WHERE task_id = ?
-                """,
-                (
-                    json.dumps(assignment["blocks"]),
-                    assignment["input_type"],
-                    assignment["response_type"],
-                    json.dumps(assignment["context"]) if assignment["context"] else None,
-                    json.dumps(assignment["evaluation_criteria"]),
-                    assignment["max_attempts"],
-                    json.dumps(assignment.get("settings", {})),
-                    datetime.now(),
-                    task_id,
-                ),
-            )
-        else:
-            # Create new assignment record
-            await cursor.execute(
-                f"""
-                INSERT INTO {assignment_table_name} 
-                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    task_id,
-                    json.dumps(assignment["blocks"]),
-                    assignment["input_type"],
-                    assignment["response_type"],
-                    json.dumps(assignment["context"]) if assignment["context"] else None,
-                    json.dumps(assignment["evaluation_criteria"]),
-                    assignment["max_attempts"],
-                    json.dumps(assignment.get("settings", {})),
-                ),
-            )
-        
+
+        # Upsert assignment row
+        await upsert_assignment(cursor, task_id, assignment)
+
         await conn.commit()
-        
-        return await get_assignment_task(task_id)
+
+    return await get_assignment_task(task_id)
 
 
 async def update_assignment(
@@ -1155,70 +1145,35 @@ async def update_assignment(
         return None
     
     # Validate evaluation criteria
-    criteria = assignment["evaluation_criteria"]
-    if criteria["min_score"] < 0:
-        return None
-    if criteria["max_score"] <= criteria["min_score"]:
-        return None
-    if not (criteria["min_score"] <= criteria["pass_score"] <= criteria["max_score"]):
-        return None
-    
+    criteria = assignment.get("evaluation_criteria")
+    if criteria is not None:
+        if criteria["min_score"] < 0:
+            return None
+        if criteria["max_score"] <= criteria["min_score"]:
+            return None
+        if not (criteria["min_score"] <= criteria["pass_score"] <= criteria["max_score"]):
+            return None
+
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-        
-        # Update task with title, and scheduled_publish_at
+
+        # Update task row (do NOT change status)
         await cursor.execute(
-            f"UPDATE {tasks_table_name} SET title = ?, scheduled_publish_at = ? WHERE id = ?",
+            f"""
+            UPDATE {tasks_table_name}
+            SET title = ?,
+                scheduled_publish_at = ?
+            WHERE id = ?
+            """,
             (title, scheduled_publish_at, task_id),
         )
-        
-        # Check if assignment exists, if not create it, otherwise update
-        existing_assignment = await get_assignment(task_id)
-        
-        if existing_assignment:
-            # Update existing assignment
-            await cursor.execute(
-                f"""
-                UPDATE {assignment_table_name} 
-                SET blocks = ?, input_type = ?, response_type = ?, context = ?, 
-                    evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?
-                WHERE task_id = ?
-                """,
-                (
-                    json.dumps(assignment["blocks"]),
-                    assignment["input_type"],
-                    assignment["response_type"],
-                    json.dumps(assignment["context"]) if assignment["context"] else None,
-                    json.dumps(assignment["evaluation_criteria"]),
-                    assignment["max_attempts"],
-                    json.dumps(assignment.get("settings", {})),
-                    datetime.now(),
-                    task_id,
-                ),
-            )
-        else:
-            # Create new assignment
-            await cursor.execute(
-                f"""
-                INSERT INTO {assignment_table_name} 
-                (task_id, blocks, input_type, response_type, context, evaluation_criteria, max_attempts, settings)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    task_id,
-                    json.dumps(assignment["blocks"]),
-                    assignment["input_type"],
-                    assignment["response_type"],
-                    json.dumps(assignment["context"]) if assignment["context"] else None,
-                    json.dumps(assignment["evaluation_criteria"]),
-                    assignment["max_attempts"],
-                    json.dumps(assignment.get("settings", {})),
-                ),
-            )
-        
+
+        # Upsert assignment row
+        await upsert_assignment(cursor, task_id, assignment)
+
         await conn.commit()
-        
-        return await get_assignment_task(task_id)
+
+    return await get_assignment_task(task_id)
 
 
 async def get_assignment(task_id: int) -> Optional[Dict]:
@@ -1243,7 +1198,7 @@ async def get_assignment(task_id: int) -> Optional[Dict]:
         "input_type": assignment[2],
         "response_type": assignment[3],
         "context": json.loads(assignment[4]) if assignment[4] else None,
-        "evaluation_criteria": json.loads(assignment[5]),
+        "evaluation_criteria": json.loads(assignment[5]) if assignment[5] else None,
         "max_attempts": assignment[6],
         "settings": json.loads(assignment[7]) if assignment[7] else None,
         "created_at": assignment[8],
@@ -1265,8 +1220,8 @@ async def get_assignment_task(task_id: int) -> Optional[Dict]:
     if not assignment_data:
         return None
     
-    # Combine task and assignment data
+    # Combine task and assignment data in the shape expected by AssignmentTask
     return {
-        **task_data,
-        **assignment_data
-      }
+        **task_data, 
+        "assignment": convert_assignment_to_task_dict(assignment_data)
+    }

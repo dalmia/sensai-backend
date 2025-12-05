@@ -187,55 +187,57 @@ async def recreate_chat_history_table():
         if table_exists:
             print(f"Recreating {chat_history_table_name} table with correct schema...")
             
-            # Get the current table schema to understand what columns exist
+            # Get all rows from the old table
+            await cursor.execute(f"SELECT * FROM {chat_history_table_name}")
+            all_rows = await cursor.fetchall()
+            
+            # Get column names from old table
             await cursor.execute(f"PRAGMA table_info({chat_history_table_name})")
             old_columns = await cursor.fetchall()
             old_column_names = [col[1] for col in old_columns]
             
-            print(f"Current table has columns: {old_column_names}")
-            
-            # Drop backup table if it exists from previous migration attempt
-            await cursor.execute(f"DROP TABLE IF EXISTS {chat_history_table_name}_backup")
-            
-            # Create backup table with all existing data
-            await cursor.execute(f"""
-                CREATE TABLE {chat_history_table_name}_backup AS 
-                SELECT * FROM {chat_history_table_name}
-            """)
-            
             # Drop the existing table
             await cursor.execute(f"DROP TABLE {chat_history_table_name}")
             
-            # Recreate the table with correct schema using the create_chat_history_table function
+            # Recreate the table with correct schema
             from api.db import create_chat_history_table
             await create_chat_history_table(cursor)
             
-            # Get the new table schema
+            # Get new table column names
             await cursor.execute(f"PRAGMA table_info({chat_history_table_name})")
             new_columns = await cursor.fetchall()
             new_column_names = [col[1] for col in new_columns]
             
-            print(f"New table has columns: {new_column_names}")
             
-            # Find common columns between old and new tables
-            common_columns = [col for col in old_column_names if col in new_column_names]
-            print(f"Common columns to copy: {common_columns}")
+            # Insert all rows back, mapping old columns to new columns
+            # New columns that don't exist in old table will get NULL/default values
+            for row in all_rows:
+                # Create a dictionary mapping old column names to values
+                row_dict = dict(zip(old_column_names, row))
+                
+                insert_columns = []
+                insert_values = []
+                
+                for col_name in new_column_names:
+                    if col_name == "id":
+                        # Skip id column - it will auto-increment
+                        continue
+                    insert_columns.append(col_name)
+                    if col_name in row_dict:
+                        insert_values.append(row_dict[col_name])
+                    else:
+                        insert_values.append(None)
+                
+                # Build and execute insert
+                columns_str = ", ".join(insert_columns)
+                placeholders = ", ".join(["?" for _ in insert_values])
+                
+                await cursor.execute(
+                    f"INSERT INTO {chat_history_table_name} ({columns_str}) VALUES ({placeholders})",
+                    insert_values
+                )
             
-            if common_columns:
-                # Copy data back from backup table, only for common columns
-                columns_str = ", ".join(common_columns)
-                await cursor.execute(f"""
-                    INSERT INTO {chat_history_table_name} ({columns_str})
-                    SELECT {columns_str} FROM {chat_history_table_name}_backup
-                """)
-                print(f"Copied data for columns: {common_columns}")
-            else:
-                print("No common columns found, skipping data copy")
-            
-            # Drop the backup table
-            await cursor.execute(f"DROP TABLE {chat_history_table_name}_backup")
-            
-            print(f"Successfully recreated {chat_history_table_name} table with correct schema")
+            print(f"Successfully migrated {len(all_rows)} rows to new table schema")
         else:
             print(f"{chat_history_table_name} table does not exist, creating it...")
             from api.db import create_chat_history_table
@@ -245,39 +247,22 @@ async def recreate_chat_history_table():
         await conn.commit()
 
 
-async def add_settings_column_to_assignment_table():
+async def create_assignment_table_migration():
     """
-    Migration: Adds the settings column to the assignment table if it doesn't exist.
+    Migration: Creates the assignment table if it doesn't exist.
     """
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-
+        
         # Check if table exists
         await cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
             (assignment_table_name,),
         )
-        table_exists = await cursor.fetchone()
-
-        if not table_exists:
-            print(f"{assignment_table_name} table does not exist, skipping settings column migration")
-            await conn.commit()
-            return
-
-        # Get existing columns
-        await cursor.execute(f"PRAGMA table_info({assignment_table_name})")
-        existing_columns = [col[1] for col in await cursor.fetchall()]
-
-        # Add settings column if it doesn't exist
-        if "settings" not in existing_columns:
-            print(f"Adding settings column to {assignment_table_name} table...")
-            await cursor.execute(
-                f"ALTER TABLE {assignment_table_name} ADD COLUMN settings JSON"
-            )
-            print(f"Successfully added settings column to {assignment_table_name} table")
-        else:
-            print(f"settings column already exists in {assignment_table_name} table")
-
+        if not await cursor.fetchone():
+            from api.db import create_assignment_table
+            await create_assignment_table(cursor)
+        
         await conn.commit()
 
 
@@ -285,20 +270,4 @@ async def run_migrations():
     await add_missing_timestamp_columns()
     await create_bq_sync_table_migration()
     await recreate_chat_history_table()
-
-    # Ensure assignment table exists
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-        # check table exists
-        await cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (assignment_table_name,),
-        )
-        if not await cursor.fetchone():
-            from api.db import create_assignment_table
-
-            await create_assignment_table(cursor)
-            await conn.commit()
-    
-    # Add settings column to assignment table
-    await add_settings_column_to_assignment_table()
+    await create_assignment_table_migration()

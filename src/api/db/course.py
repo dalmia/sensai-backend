@@ -28,7 +28,7 @@ from api.db.task import (
     create_draft_task_for_course,
     update_learning_material_task,
     update_draft_quiz,
-    update_assignment,
+    create_assignment,
     get_scorecard,
     create_scorecard,
 )
@@ -364,22 +364,12 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     TaskStatus.DRAFT,
                 )
             elif task_details["type"] == TaskType.ASSIGNMENT:
-                # Handle assignment tasks
-                assignment_data = {
-                    "blocks": task_details.get("blocks", []),
-                    "context": task_details.get("context"),
-                    "evaluation_criteria": task_details.get("evaluation_criteria"),
-                    "input_type": task_details.get("input_type"),
-                    "response_type": task_details.get("response_type"),
-                    "max_attempts": task_details.get("max_attempts"),
-                    "settings": task_details.get("settings"),
-                }
-                
-                await update_assignment(
+                await create_assignment(
                     new_task_id,
                     task_details["title"],
-                    assignment_data,
+                    task_details["assignment"],
                     None,
+                    TaskStatus.DRAFT,
                 )
             else:
                 raise ValueError(f"Task type {task_details['type']} not supported")

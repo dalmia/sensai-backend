@@ -269,6 +269,63 @@ def convert_scorecard_to_prompt(scorecard: list[dict]) -> str:
     return "\n\n".join(scoring_criteria_as_prompt)
 
 
+def build_evaluation_context_and_key_areas(
+    scorecard: dict, evaluation_criteria: dict
+) -> tuple[str, str]:
+    """
+    Build evaluation context string and key areas list from scorecard and criteria.
+    """
+    evaluation_context = convert_scorecard_to_prompt(scorecard)
+
+    # Build Key Areas section text from scorecard criteria
+    key_areas_section_parts: list[str] = []
+    if scorecard.get("criteria"):
+        key_areas_section_parts.append("\n\n<Key Areas>\n")
+        for i, criterion in enumerate(scorecard["criteria"], 1):
+            key_areas_section_parts.append(
+                f"{i}. **{criterion['name']}**\n"
+                f"   Description: {criterion['description']}\n"
+                f"   Scoring: {criterion['min_score']}-{criterion['max_score']} "
+                f"(Pass: {criterion.get('pass_score', criterion['max_score'])})\n\n"
+            )
+        key_areas_section_parts.append("</Key Areas>")
+    key_areas_section = "".join(key_areas_section_parts)
+
+    # Add overall scoring info from evaluation_criteria
+    evaluation_context += "\n\n**Overall Project Scoring:**\n"
+    evaluation_context += (
+        f"- Minimum Score: {evaluation_criteria.get('min_score', 0)}\n"
+    )
+    evaluation_context += (
+        f"- Maximum Score: {evaluation_criteria.get('max_score', 100)}\n"
+    )
+    evaluation_context += (
+        f"- Pass Score: {evaluation_criteria.get('pass_score', 60)}\n"
+    )
+
+    return evaluation_context, key_areas_section
+
+
+async def build_knowledge_base_from_context(context: dict) -> str:
+    """
+    Build knowledge base description from a context dict that may contain
+    blocks and linked material IDs.
+    """
+    if not context or not context.get("blocks"):
+        return ""
+
+    knowledge_blocks = context["blocks"]
+
+    # Add linked learning materials
+    linked_ids = context.get("linkedMaterialIds") or []
+    for material_id in linked_ids:
+        material_task = await get_task(int(material_id))
+        if material_task:
+            knowledge_blocks += material_task["blocks"]
+
+    return construct_description_from_blocks(knowledge_blocks)
+
+
 def get_ai_message_for_chat_history(ai_message: dict) -> str:
     message = json.loads(ai_message)
 
@@ -541,26 +598,14 @@ async def ai_response_for_question(request: AIChatRequest):
                     )
 
             if request.task_type == TaskType.QUIZ:
-                knowledge_base = ""
+                knowledge_base = await build_knowledge_base_from_context(
+                    question.get("context")
+                )
 
-                if question["context"]:
-                    linked_learning_material_ids = question["context"][
-                        "linkedMaterialIds"
-                    ]
-                    knowledge_blocks = question["context"]["blocks"]
-
-                    if linked_learning_material_ids:
-                        for id in linked_learning_material_ids:
-                            task = await get_task(int(id))
-                            if task:
-                                knowledge_blocks += task["blocks"]
-
-                    knowledge_base = construct_description_from_blocks(knowledge_blocks)
-
-                    if knowledge_base:
-                        question_details += (
-                            f"---\n\n**Knowledge Base**\n\n{knowledge_base}\n\n"
-                        )
+                if knowledge_base:
+                    question_details += (
+                        f"---\n\n**Knowledge Base**\n\n{knowledge_base}\n\n"
+                    )
 
                 if question["type"] == QuestionType.OBJECTIVE:
                     prompt_name = "objective-question"
@@ -670,32 +715,41 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 )
 
             metadata["task_title"] = task["title"]
-            metadata["task_type"] = "assignment"
+            
+            assignment = task["assignment"]
+            problem_blocks = assignment["blocks"]
+            evaluation_criteria = assignment["evaluation_criteria"]
+            if not evaluation_criteria:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Assignment is missing evaluation criteria",
+                )
 
-            # Get assignment details
-            assignment_data = task
-            problem_blocks = assignment_data["blocks"]
-            evaluation_criteria = assignment_data["evaluation_criteria"]
-            context = assignment_data.get("context")
-            input_type = assignment_data.get("input_type", "text")
+            if not evaluation_criteria.get("scorecard_id"):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Assignment evaluation criteria is missing scorecard_id",
+                )
 
-            # Get scorecard if evaluation_criteria has scorecard_id
-            scorecard = None
-            if evaluation_criteria and evaluation_criteria.get("scorecard_id"):
-                scorecard = await get_scorecard(evaluation_criteria["scorecard_id"])
+            context = assignment.get("context")
+            input_type = assignment.get("input_type", "text")
+
+            # Get scorecard for evaluation
+            scorecard = await get_scorecard(evaluation_criteria["scorecard_id"])
+            if not scorecard:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Scorecard not found for assignment evaluation criteria",
+                )
 
             # Get chat history for this assignment
             # Use request.chat_history if provided (for testing), otherwise fetch from database
             if request.chat_history:
                 chat_history = request.chat_history
             else:
-                try:
-                    chat_history = await get_task_chat_history_for_user(
-                        request.task_id, request.user_id
-                    )
-                except Exception:
-                    # If no chat history exists yet, start with empty list
-                    chat_history = []
+                chat_history = await get_task_chat_history_for_user(
+                    request.task_id, request.user_id
+                )
 
             # Convert chat history to the format expected by AI
             formatted_chat_history = [
@@ -721,63 +775,22 @@ async def ai_response_for_assignment(request: AIChatRequest):
             # Handle file submission - extract code
             submission_data = None
             if request.response_type == ChatResponseType.FILE:
-                try:
-                    submission_data = extract_submission_file(request.user_response)
-                except Exception as e:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"Error extracting submission file: {str(e)}"
-                    )
+                submission_data = extract_submission_file(request.user_response)
 
             # Build evaluation context with key areas from scorecard
-            evaluation_context = ""
-            key_areas = []
-            
-            if scorecard:
-                evaluation_context = convert_scorecard_to_prompt(scorecard)
-                
-                # Extract key areas from scorecard criteria
-                for criterion in scorecard["criteria"]:
-                    key_areas.append({
-                        "name": criterion["name"],
-                        "description": criterion["description"],
-                        "min_score": criterion["min_score"],
-                        "max_score": criterion["max_score"],
-                        "pass_score": criterion.get("pass_score", criterion["max_score"])
-                    })
-            
-            # Add evaluation criteria scores
-            if evaluation_criteria:
-                evaluation_context += f"\n\n**Overall Project Scoring:**\n"
-                evaluation_context += f"- Minimum Score: {evaluation_criteria.get('min_score', 0)}\n"
-                evaluation_context += f"- Maximum Score: {evaluation_criteria.get('max_score', 100)}\n"
-                evaluation_context += f"- Pass Score: {evaluation_criteria.get('pass_score', 60)}\n"
+            evaluation_context, key_areas_section = build_evaluation_context_and_key_areas(
+                scorecard, evaluation_criteria
+            )
 
             # Build context with linked materials if available
-            knowledge_base = ""
-            if context and context.get("blocks"):
-                knowledge_blocks = context["blocks"]
-                
-                # Add linked learning materials
-                if context.get("linkedMaterialIds"):
-                    for material_id in context["linkedMaterialIds"]:
-                        material_task = await get_task(int(material_id))
-                        if material_task:
-                            knowledge_blocks += material_task["blocks"]
-                
-                knowledge_base = construct_description_from_blocks(knowledge_blocks)
+            knowledge_base = await build_knowledge_base_from_context(context)
 
             # Build the complete assignment context
             assignment_details = f"<Problem Statement>\n{problem_statement}\n</Problem Statement>"
             
             # Add Key Areas from scorecard
-            if key_areas:
-                assignment_details += f"\n\n<Key Areas>\n"
-                for i, area in enumerate(key_areas, 1):
-                    assignment_details += f"{i}. **{area['name']}**\n"
-                    assignment_details += f"   Description: {area['description']}\n"
-                    assignment_details += f"   Scoring: {area['min_score']}-{area['max_score']} (Pass: {area['pass_score']})\n\n"
-                assignment_details += f"</Key Areas>"
+            if key_areas_section:
+                assignment_details += key_areas_section
             
             if evaluation_context:
                 assignment_details += f"\n\n<Evaluation Criteria>\n{evaluation_context}\n</Evaluation Criteria>"
@@ -797,8 +810,10 @@ async def ai_response_for_assignment(request: AIChatRequest):
             # Build full chat history
             if request.response_type == ChatResponseType.FILE:
                 # For file uploads, include only the new user message with file_uuid
+                # This branch is triggered when a learner submits an assignment as a file
                 full_chat_history = new_user_message
             else:
+                # This branch is triggered when a learner answers questions about the assignment with text or audio
                 full_chat_history = formatted_chat_history + new_user_message
 
             # Process chat history for audio content if needed

@@ -794,7 +794,7 @@ class TestCourseTransfer:
         mock_update_learning.assert_called_once()
         mock_update_quiz.assert_called_once()
 
-    @patch("src.api.db.course.update_assignment")
+    @patch("src.api.db.course.create_assignment")
     @patch("src.api.db.course.create_draft_task_for_course")
     @patch("src.api.db.course.add_milestone_to_course")
     @patch("src.api.db.course.create_course")
@@ -807,7 +807,7 @@ class TestCourseTransfer:
         mock_create_course,
         mock_add_milestone,
         mock_create_task,
-        mock_update_assignment,
+        mock_create_assignment,
     ):
         """Test duplicating course to organization with assignment task - covers lines 281-297."""
         # Mock course structure with assignment task
@@ -828,12 +828,15 @@ class TestCourseTransfer:
             "id": 1,
             "title": "Assignment Task",
             "type": "assignment",
-            "blocks": [{"type": "text", "content": "Assignment content"}],
-            "context": "Assignment context",
-            "evaluation_criteria": "Evaluation criteria",
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
+            "assignment": {
+                "blocks": [{"type": "text", "content": "Assignment content"}],
+                "context": "Assignment context",
+                "evaluation_criteria": "Evaluation criteria",
+                "input_type": "text",
+                "response_type": "text",
+                "max_attempts": 3,
+                "settings": None,
+            },
         }
 
         mock_get_course.return_value = course_data
@@ -845,22 +848,15 @@ class TestCourseTransfer:
         await duplicate_course_to_org(1, 999)
 
         # Verify assignment task was handled correctly
-        mock_update_assignment.assert_called_once()
-        call_args = mock_update_assignment.call_args[0]
+        mock_create_assignment.assert_called_once()
+        call_args = mock_create_assignment.call_args[0]
         
-        # Check the arguments passed to update_assignment
+        # Check the arguments passed to create_assignment
         assert call_args[0] == 10  # new_task_id
         assert call_args[1] == "Assignment Task"  # title
-        assert call_args[2] == {  # assignment_data
-            "blocks": [{"type": "text", "content": "Assignment content"}],
-            "context": "Assignment context",
-            "evaluation_criteria": "Evaluation criteria",
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
-            "settings": None,
-        }
+        assert call_args[2] == assignment_task["assignment"]  # assignment_data
         assert call_args[3] is None  # scheduled_publish_at
+        assert call_args[4].value == TaskStatus.DRAFT.value  # status
 
     @patch("src.api.db.course.create_draft_task_for_course")
     @patch("src.api.db.course.add_milestone_to_course")

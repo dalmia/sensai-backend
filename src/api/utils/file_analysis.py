@@ -1,6 +1,7 @@
 import os
 import zipfile
 import tempfile
+import shutil
 from typing import Dict, List, Tuple
 from pathlib import Path
 
@@ -37,22 +38,6 @@ def extract_zip_file(zip_file_path: str) -> Tuple[str, List[str]]:
         raise ValueError(f"Error extracting ZIP file: {str(e)}")
 
 
-
-def cleanup_temp_directory(temp_dir: str):
-    """
-    Clean up temporary directory and its contents.
-    
-    Args:
-        temp_dir: Path to temporary directory
-    """
-    try:
-        import shutil
-        shutil.rmtree(temp_dir)
-    except Exception as e:
-        # Log error but don't raise
-        print(f"Warning: Could not clean up temporary directory {temp_dir}: {e}")
-
-
 def extract_submission_file(file_uuid: str) -> Dict[str, any]:
     """
     Extract a submission ZIP file and return the raw extracted data.
@@ -83,17 +68,9 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
     
     # Download the file
     if settings.s3_folder_name:
-        try:
-            file_data = download_file_from_s3_as_bytes(
-                get_media_upload_s3_key_from_uuid(file_uuid, "zip")
-            )
-        except:
-            # Fallback to local file
-            file_path = os.path.join(settings.local_upload_folder, f"{file_uuid}.zip")
-            if not os.path.exists(file_path):
-                raise FileNotFoundError(f"File not found: {file_uuid}")
-            with open(file_path, 'rb') as f:
-                file_data = f.read()
+        file_data = download_file_from_s3_as_bytes(
+            get_media_upload_s3_key_from_uuid(file_uuid, "zip")
+        )
     else:
         file_path = os.path.join(settings.local_upload_folder, f"{file_uuid}.zip")
         if not os.path.exists(file_path):
@@ -101,31 +78,27 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
         with open(file_path, 'rb') as f:
             file_data = f.read()
     
-    # Create temporary ZIP file
-    temp_zip_path = None
+    # Create temporary ZIP file and handle extraction within its context
     temp_extract_dir = None
-    
-    try:
-        # Write to temporary ZIP file
-        with tempfile.NamedTemporaryFile(suffix='.zip', delete=False) as temp_zip:
-            temp_zip.write(file_data)
-            temp_zip_path = temp_zip.name
-        
+    with tempfile.NamedTemporaryFile(suffix='.zip') as temp_zip:
+        temp_zip.write(file_data)
+        temp_zip.flush()
+
         # Extract ZIP file
-        temp_extract_dir, extracted_files = extract_zip_file(temp_zip_path)
-        
+        temp_extract_dir, extracted_files = extract_zip_file(temp_zip.name)
+
         # Filter files to include only relevant code files
         code_files = []
         file_contents = {}
-        
+
         for file_path in extracted_files:
             # Get file extension
             file_ext = os.path.splitext(file_path)[1].lower()
-            
+
             # Only include files with allowed extensions
             if file_ext in ALLOWED_EXTENSIONS:
                 code_files.append(file_path)
-        
+
         # Read content of filtered code files
         for file_path in code_files:
             try:
@@ -134,17 +107,14 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
                     file_contents[relative_path] = f.read()
             except Exception:
                 continue
-        
-        # Prepare extraction result
-        return {
-            "file_uuid": file_uuid,
-            "extracted_files_count": len(code_files),
-            "file_contents": file_contents,
-        }
-        
-    finally:
-        # Clean up temporary files
-        if temp_zip_path and os.path.exists(temp_zip_path):
-            os.unlink(temp_zip_path)
-        if temp_extract_dir:
-            cleanup_temp_directory(temp_extract_dir)
+
+    # Clean up extracted directory after temp file is removed
+    if temp_extract_dir:
+        shutil.rmtree(temp_extract_dir)
+
+    # Prepare extraction result
+    return {
+        "file_uuid": file_uuid,
+        "extracted_files_count": len(code_files),
+        "file_contents": file_contents,
+    }

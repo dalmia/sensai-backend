@@ -356,50 +356,37 @@ class QuizTask(Task):
     questions: List[PublishedQuestion]
 
 
-class EvaluationCriteria(BaseModel):
+class AssignmentEvaluationCriteria(BaseModel):
     scorecard_id: Optional[int] = None
     min_score: float
     max_score: float
     pass_score: float
 
 
-class AssignmentContext(BaseModel):
+class Assignment(BaseModel):
     blocks: List[Block]
-    linkedMaterialIds: List[str]
-
-
-class AssignmentData(BaseModel):
-    blocks: List[Block]
-    context: Optional[AssignmentContext] = None
-    evaluation_criteria: EvaluationCriteria
-    input_type: str
-    response_type: Optional[str] = None
+    context: Optional[Dict] = None
+    evaluation_criteria: AssignmentEvaluationCriteria | None = None
+    input_type: TaskInputType | None = None
+    response_type: TaskAIResponseType | None = None
     max_attempts: Optional[int] = None
     settings: Optional[Any] = None
-
-
-class CreateAssignmentRequest(BaseModel):
-    title: str
-    assignment: AssignmentData
-    scheduled_publish_at: Optional[datetime] = None
-    status: Optional[str] = None
-
-
-class UpdateAssignmentRequest(BaseModel):
-    title: str
-    assignment: AssignmentData
-    scheduled_publish_at: Optional[datetime] = None
-    status: Optional[str] = None
 
 
 class AssignmentTask(Task):
-    blocks: List[Block]
-    context: Optional[AssignmentContext] = None
-    evaluation_criteria: EvaluationCriteria
-    input_type: str
-    response_type: Optional[str] = None
-    max_attempts: Optional[int] = None
-    settings: Optional[Any] = None
+    assignment: Assignment
+
+
+class CreateAssignmentRequest(AssignmentTask):
+    id: Optional[int] = None
+    type: Optional[TaskType] = None
+    status: Optional[str] = None
+
+
+class UpdateAssignmentRequest(AssignmentTask):
+    id: Optional[int] = None
+    type: Optional[TaskType] = None
+    status: Optional[str] = None
 
 
 class GenerateCourseJobStatus(str, Enum):
@@ -524,6 +511,7 @@ class ChatMessage(BaseModel):
     created_at: str
     user_id: int
     question_id: Optional[int] = None
+    task_id: Optional[int] = None
     role: ChatRole | None
     content: Optional[str] | None
     response_type: Optional[ChatResponseType] | None
@@ -636,7 +624,7 @@ class DuplicateTaskRequest(BaseModel):
 
 
 class DuplicateTaskResponse(BaseModel):
-    task: LearningMaterialTask | QuizTask
+    task: LearningMaterialTask | QuizTask | AssignmentTask
     ordering: int
 
 
@@ -727,7 +715,7 @@ class UserCohort(BaseModel):
 
 class AIChatRequest(BaseModel):
     user_response: str
-    task_type: Optional[TaskType] = None
+    task_type: TaskType
     question: Optional[DraftQuestion] = None
     chat_history: Optional[List[Dict]] = None
     question_id: Optional[int] = None

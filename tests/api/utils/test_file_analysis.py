@@ -2,14 +2,13 @@ import pytest
 import os
 import tempfile
 import zipfile
+import shutil
 from unittest.mock import patch, mock_open, MagicMock
 from pathlib import Path
 from src.api.utils.file_analysis import (
     extract_zip_file,
-    cleanup_temp_directory,
     extract_submission_file,
 )
-
 
 class TestFileAnalysis:
     """Test file analysis utility functions."""
@@ -45,7 +44,7 @@ class TestFileAnalysis:
                     assert 'Hello World' in content
             
             # Clean up extraction directory
-            cleanup_temp_directory(extract_dir)
+            shutil.rmtree(extract_dir)
             
         finally:
             # Clean up temporary ZIP file
@@ -73,46 +72,13 @@ class TestFileAnalysis:
         with pytest.raises(ValueError, match="Error extracting ZIP file"):
             extract_zip_file("/nonexistent/file.zip")
 
-    def test_cleanup_temp_directory_success(self):
-        """Test successful temporary directory cleanup."""
-        # Create a temporary directory with files
-        temp_dir = tempfile.mkdtemp()
-        try:
-            # Create some test files
-            test_file1 = os.path.join(temp_dir, 'test1.txt')
-            test_file2 = os.path.join(temp_dir, 'test2.txt')
-            
-            with open(test_file1, 'w') as f:
-                f.write('test content 1')
-            with open(test_file2, 'w') as f:
-                f.write('test content 2')
-            
-            # Verify directory exists
-            assert os.path.exists(temp_dir)
-            assert os.path.exists(test_file1)
-            assert os.path.exists(test_file2)
-            
-            # Clean up
-            cleanup_temp_directory(temp_dir)
-            
-            # Verify directory is removed
-            assert not os.path.exists(temp_dir)
-            
-        except Exception:
-            # Clean up if test fails
-            if os.path.exists(temp_dir):
-                cleanup_temp_directory(temp_dir)
 
-    def test_cleanup_temp_directory_nonexistent(self):
-        """Test cleanup with nonexistent directory."""
-        # Should not raise an exception
-        cleanup_temp_directory("/nonexistent/directory")
-
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
     @patch("api.utils.s3.download_file_from_s3_as_bytes")
     @patch("api.utils.s3.get_media_upload_s3_key_from_uuid")
     @patch("api.settings.settings")
     def test_extract_submission_file_s3_success(
-        self, mock_settings, mock_get_s3_key, mock_download_s3
+        self, mock_settings, mock_get_s3_key, mock_download_s3, mock_rmtree
     ):
         """Test successful submission file extraction from S3."""
         # Setup mocks
@@ -140,80 +106,10 @@ class TestFileAnalysis:
         mock_get_s3_key.assert_called_once_with("test-uuid", "zip")
         mock_download_s3.assert_called_once_with("uploads/test-uuid.zip")
 
-    @patch("api.utils.s3.download_file_from_s3_as_bytes")
-    @patch("api.utils.s3.get_media_upload_s3_key_from_uuid")
-    @patch("api.settings.settings")
-    def test_extract_submission_file_s3_fallback_to_local_success(
-        self, mock_settings, mock_get_s3_key, mock_download_s3
-    ):
-        """Test S3 failure fallback to local file - covers lines 75-81."""
-        # Setup mocks
-        mock_settings.s3_folder_name = "test-bucket"
-        mock_settings.local_upload_folder = "/tmp/uploads"
-        mock_get_s3_key.return_value = "uploads/test-uuid.zip"
-        
-        # Mock S3 download failure to trigger fallback
-        mock_download_s3.side_effect = Exception("S3 connection failed")
-        
-        # Create test ZIP file
-        test_zip_bytes = self._create_test_zip_bytes()
-        
-        # Mock local file operations
-        with patch("os.path.exists", return_value=True), \
-             patch("src.api.utils.file_analysis.extract_zip_file") as mock_extract:
-            
-            mock_extract.return_value = (
-                "/tmp/extract_dir",
-                ["/tmp/extract_dir/test1.txt"]
-            )
-            
-            # Mock file reading - need to handle both ZIP file read and extracted file reads
-            def mock_file_open(file_path, mode, **kwargs):
-                if mode == 'rb' and 'test-uuid.zip' in file_path:
-                    return mock_open(read_data=test_zip_bytes)()
-                elif mode == 'r':
-                    return mock_open(read_data="Hello World")()
-                else:
-                    return mock_open(read_data=b"")()
-            
-            with patch("builtins.open", side_effect=mock_file_open):
-                result = extract_submission_file("test-uuid")
-        
-        # Verify result
-        assert result["file_uuid"] == "test-uuid"
-        assert result["extracted_files_count"] == 1
-        assert "file_contents" in result
-        
-        # Verify S3 was attempted first
-        mock_get_s3_key.assert_called_once_with("test-uuid", "zip")
-        mock_download_s3.assert_called_once_with("uploads/test-uuid.zip")
 
-    @patch("api.utils.s3.download_file_from_s3_as_bytes")
-    @patch("api.utils.s3.get_media_upload_s3_key_from_uuid")
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
     @patch("api.settings.settings")
-    def test_extract_submission_file_s3_fallback_to_local_not_found(
-        self, mock_settings, mock_get_s3_key, mock_download_s3
-    ):
-        """Test S3 failure fallback to local file when local file doesn't exist - covers lines 75-81."""
-        # Setup mocks
-        mock_settings.s3_folder_name = "test-bucket"
-        mock_settings.local_upload_folder = "/tmp/uploads"
-        mock_get_s3_key.return_value = "uploads/test-uuid.zip"
-        
-        # Mock S3 download failure to trigger fallback
-        mock_download_s3.side_effect = Exception("S3 connection failed")
-        
-        # Mock local file not found
-        with patch("os.path.exists", return_value=False):
-            with pytest.raises(FileNotFoundError, match="File not found: test-uuid"):
-                extract_submission_file("test-uuid")
-        
-        # Verify S3 was attempted first
-        mock_get_s3_key.assert_called_once_with("test-uuid", "zip")
-        mock_download_s3.assert_called_once_with("uploads/test-uuid.zip")
-
-    @patch("api.settings.settings")
-    def test_extract_submission_file_local_success(self, mock_settings):
+    def test_extract_submission_file_local_success(self, mock_settings, mock_rmtree):
         """Test successful submission file extraction from local storage."""
         # Setup mocks
         mock_settings.s3_folder_name = None
@@ -261,53 +157,12 @@ class TestFileAnalysis:
             with pytest.raises(FileNotFoundError, match="File not found: test-uuid"):
                 extract_submission_file("test-uuid")
 
-    @patch("api.utils.s3.download_file_from_s3_as_bytes")
-    @patch("api.utils.s3.get_media_upload_s3_key_from_uuid")
-    @patch("api.settings.settings")
-    def test_extract_submission_file_s3_fallback_to_local(
-        self, mock_settings, mock_get_s3_key, mock_download_s3
-    ):
-        """Test S3 failure fallback to local file."""
-        # Setup mocks
-        mock_settings.s3_folder_name = "test-bucket"
-        mock_settings.local_upload_folder = "/tmp/uploads"
-        mock_get_s3_key.return_value = "uploads/test-uuid.zip"
-        
-        # Mock S3 download failure
-        mock_download_s3.side_effect = Exception("S3 error")
-        
-        # Create test ZIP file
-        test_zip_bytes = self._create_test_zip_bytes()
-        
-        # Mock local file operations
-        with patch("os.path.exists", return_value=True), \
-             patch("src.api.utils.file_analysis.extract_zip_file") as mock_extract:
-            
-            mock_extract.return_value = (
-                "/tmp/extract_dir",
-                ["/tmp/extract_dir/test1.txt"]
-            )
-            
-            # Mock file reading
-            def mock_file_open(file_path, mode, **kwargs):
-                if mode == 'rb' and 'test-uuid.zip' in file_path:
-                    return mock_open(read_data=test_zip_bytes)()
-                elif mode == 'r':
-                    return mock_open(read_data="Hello World")()
-                else:
-                    return mock_open(read_data=b"")()
-            
-            with patch("builtins.open", side_effect=mock_file_open):
-                result = extract_submission_file("test-uuid")
-        
-        # Verify result
-        assert result["file_uuid"] == "test-uuid"
-        assert result["extracted_files_count"] == 1
 
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
     @patch("src.api.utils.file_analysis.extract_zip_file")
     @patch("api.settings.settings")
     def test_extract_submission_file_unicode_decode_error(
-        self, mock_settings, mock_extract
+        self, mock_settings, mock_extract, mock_rmtree
     ):
         """Test handling of Unicode decode errors when reading files."""
         # Setup mocks
@@ -353,10 +208,11 @@ class TestFileAnalysis:
             os.unlink(temp_zip.name)
             return zip_bytes
 
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
     @patch("src.api.utils.file_analysis.extract_zip_file")
     @patch("api.settings.settings")
     def test_extract_submission_file_general_exception_handling(
-        self, mock_settings, mock_extract
+        self, mock_settings, mock_extract, mock_rmtree
     ):
         """Test handling of general exceptions when reading files."""
         # Setup mocks

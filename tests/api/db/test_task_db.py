@@ -41,6 +41,7 @@ from src.api.db.task import (
     update_assignment,
     get_assignment,
     get_assignment_task,
+    convert_assignment_to_task_dict,
 )
 from src.api.models import (
     TaskType,
@@ -388,13 +389,7 @@ class TestTaskOperations:
             "status": TaskStatus.PUBLISHED,
             "org_id": 123,
             "scheduled_publish_at": None,
-            "blocks": mock_assignment_data["blocks"],
-            "context": mock_assignment_data["context"],
-            "evaluation_criteria": mock_assignment_data["evaluation_criteria"],
-            "input_type": mock_assignment_data["input_type"],
-            "response_type": mock_assignment_data["response_type"],
-            "max_attempts": mock_assignment_data["max_attempts"],
-            "settings": mock_assignment_data["settings"],
+            "assignment": mock_assignment_data,
         }
 
         assert result == expected
@@ -424,13 +419,7 @@ class TestTaskOperations:
             "status": TaskStatus.PUBLISHED,
             "org_id": 123,
             "scheduled_publish_at": None,
-            "blocks": [],
-            "context": None,
-            "evaluation_criteria": None,
-            "input_type": None,
-            "response_type": None,
-            "max_attempts": None,
-            "settings": None,
+            "assignment": convert_assignment_to_task_dict(None),
         }
 
         assert result == expected
@@ -1754,10 +1743,10 @@ class TestTaskDuplication:
     @patch("src.api.db.task.get_org_id_for_course")
     @patch("src.api.db.task.get_task")
     @patch("src.api.db.task.create_draft_task_for_course")
-    @patch("src.api.db.task.update_assignment")
+    @patch("src.api.db.task.create_assignment")
     async def test_duplicate_task_assignment(
         self,
-        mock_update_assignment,
+        mock_create_assignment,
         mock_create_draft,
         mock_get_task,
         mock_get_org,
@@ -1781,12 +1770,19 @@ class TestTaskDuplication:
             "id": 1,
             "title": "Original Assignment",
             "type": "assignment",
-            "blocks": [{"type": "paragraph", "content": "Assignment content"}],
-            "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
-            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
+            "assignment": {
+                "blocks": [{"type": "paragraph", "content": "Assignment content"}],
+                "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
+                "evaluation_criteria": {
+                    "min_score": 0,
+                    "max_score": 100,
+                    "pass_score": 70,
+                },
+                "input_type": "text",
+                "response_type": "text",
+                "max_attempts": 3,
+                "settings": None,
+            },
         }
         mock_get_task.return_value = mock_original_task
 
@@ -1794,12 +1790,7 @@ class TestTaskDuplication:
             "id": 10,
             "title": "Original Assignment",
             "type": "assignment",
-            "blocks": [{"type": "paragraph", "content": "Assignment content"}],
-            "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
-            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
+            "assignment": mock_original_task["assignment"],
         }
 
         # Mock the second call to get_task (for the duplicated task)
@@ -1814,23 +1805,16 @@ class TestTaskDuplication:
 
         assert result == expected
 
-        # Verify update_assignment was called with correct parameters
-        mock_update_assignment.assert_called_once()
-        call_args = mock_update_assignment.call_args[0]
+        # Verify create_assignment was called with correct parameters
+        mock_create_assignment.assert_called_once()
+        call_args = mock_create_assignment.call_args[0]
         
-        # Check the arguments passed to update_assignment
+        # Check the arguments passed to create_assignment
         assert call_args[0] == 10  # new_task_id
         assert call_args[1] == "Original Assignment"  # title
-        assert call_args[2] == {  # assignment_data
-            "blocks": [{"type": "paragraph", "content": "Assignment content"}],
-            "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
-            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
-            "settings": None,
-        }
+        assert call_args[2] == mock_original_task["assignment"]  # assignment_data
         assert call_args[3] is None  # scheduled_publish_at
+        assert call_args[4].value == TaskStatus.DRAFT.value  # status
 
     @patch("src.api.db.task.get_new_db_connection")
     async def test_schedule_module_tasks_no_tasks(self, mock_db_conn):
@@ -2255,36 +2239,35 @@ class TestAssignmentOperations:
         assert result["title"] == "Updated Assignment"
         assert result["max_attempts"] == 5
         
-        # Verify database operations - should be UPDATE task + UPDATE assignment (not INSERT)
-        assert mock_cursor.execute.call_count == 2  # Update task + Update assignment
+        # Verify database operations - should be UPDATE task + UPSERT assignment
+        assert mock_cursor.execute.call_count == 2  # Update task + Upsert assignment
         mock_conn_instance.commit.assert_called_once()
         
-        # Verify the UPDATE assignment query was called with correct parameters
-        update_calls = [call for call in mock_cursor.execute.call_args_list 
-                       if "UPDATE" in str(call[0][0]) and "assignment" in str(call[0][0])]
-        assert len(update_calls) == 1
+        # Verify the UPSERT assignment query was called with correct parameters
+        upsert_calls = [call for call in mock_cursor.execute.call_args_list 
+                       if "INSERT" in str(call[0][0]) and "assignment" in str(call[0][0]) and "ON CONFLICT" in str(call[0][0])]
+        assert len(upsert_calls) == 1
         
-        # Check the UPDATE query parameters
-        update_call = update_calls[0]
-        query = update_call[0][0]
-        params = update_call[0][1]
+        # Check the UPSERT query parameters
+        upsert_call = upsert_calls[0]
+        query = upsert_call[0][0]
+        params = upsert_call[0][1]
         
-        assert "UPDATE" in query
+        assert "INSERT INTO" in query
         assert "assignment" in query
-        assert "SET blocks = ?, input_type = ?, response_type = ?, context = ?" in query
-        assert "evaluation_criteria = ?, max_attempts = ?, settings = ?, updated_at = ?" in query
-        assert "WHERE task_id = ?" in query
+        assert "ON CONFLICT(task_id) DO UPDATE SET" in query
+        assert "blocks = excluded.blocks" in query
+        assert "updated_at = CURRENT_TIMESTAMP" in query
         
-        # Verify the parameters passed to the UPDATE query
-        assert params[0] == json.dumps(assignment_data["blocks"])  # blocks
-        assert params[1] == assignment_data["input_type"]  # input_type
-        assert params[2] == assignment_data["response_type"]  # response_type
-        assert params[3] == json.dumps(assignment_data["context"])  # context
-        assert params[4] == json.dumps(assignment_data["evaluation_criteria"])  # evaluation_criteria
-        assert params[5] == assignment_data["max_attempts"]  # max_attempts
-        assert params[6] == json.dumps(assignment_data.get("settings", {}))  # settings
-        assert isinstance(params[7], datetime)  # updated_at
-        assert params[8] == 1  # task_id
+        # Verify the parameters passed to the UPSERT query
+        assert params[0] == 1  # task_id
+        assert params[1] == json.dumps(assignment_data["blocks"])  # blocks
+        assert params[2] == assignment_data["input_type"]  # input_type
+        assert params[3] == assignment_data["response_type"]  # response_type
+        assert params[4] == json.dumps(assignment_data["context"])  # context
+        assert params[5] == json.dumps(assignment_data["evaluation_criteria"])  # evaluation_criteria
+        assert params[6] == assignment_data["max_attempts"]  # max_attempts
+        assert params[7] is None  # settings
 
     @patch("src.api.db.task.get_basic_task_details")
     async def test_create_assignment_task_not_found(self, mock_get_basic):
@@ -2610,7 +2593,7 @@ class TestAssignmentOperations:
         assert params[4] == json.dumps(assignment_data["context"])  # context
         assert params[5] == json.dumps(assignment_data["evaluation_criteria"])  # evaluation_criteria
         assert params[6] == assignment_data["max_attempts"]  # max_attempts
-        assert params[7] == json.dumps(assignment_data.get("settings", {}))  # settings
+        assert params[7] is None  # settings
 
     @patch("src.api.db.task.execute_db_operation")
     async def test_get_assignment_success(self, mock_execute):
@@ -2686,22 +2669,20 @@ class TestAssignmentOperations:
 
         result = await get_assignment_task(1)
 
-        expected = {
-            "id": 1,
-            "title": "Test Assignment",
-            "type": "assignment",
-            "status": TaskStatus.PUBLISHED,
-            "scheduled_publish_at": None,
-            "blocks": mock_assignment_data["blocks"],
-            "context": mock_assignment_data["context"],
-            "evaluation_criteria": mock_assignment_data["evaluation_criteria"],
-            "input_type": mock_assignment_data["input_type"],
-            "response_type": mock_assignment_data["response_type"],
-            "max_attempts": mock_assignment_data["max_attempts"],
-            "settings": mock_assignment_data["settings"],
-        }
-
-        assert result == expected
+        # get_assignment_task returns a merged dict of task and assignment data;
+        # ensure key fields are present and correctly mapped.
+        assert result["id"] == 1
+        assert result["title"] == "Test Assignment"
+        assert result["type"] == "assignment"
+        assert result["status"] == TaskStatus.PUBLISHED
+        assert "assignment" in result
+        assert result["assignment"]["blocks"] == mock_assignment_data["blocks"]
+        assert result["assignment"]["context"] == mock_assignment_data["context"]
+        assert result["assignment"]["evaluation_criteria"] == mock_assignment_data["evaluation_criteria"]
+        assert result["assignment"]["input_type"] == mock_assignment_data["input_type"]
+        assert result["assignment"]["response_type"] == mock_assignment_data["response_type"]
+        assert result["assignment"]["max_attempts"] == mock_assignment_data["max_attempts"]
+        assert result["assignment"]["settings"] == mock_assignment_data["settings"]
         mock_get_basic.assert_called_once_with(1)
         mock_get_assignment.assert_called_once_with(1)
 
