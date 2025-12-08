@@ -451,6 +451,21 @@ async def create_assignment_table(cursor):
         f"""CREATE INDEX IF NOT EXISTS idx_assignment_task_id ON {assignment_table_name} (task_id)"""
     )
 
+    trigger_name = f"set_updated_at_{assignment_table_name}"
+    await cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+    await cursor.execute(
+        f"""
+        CREATE TRIGGER {trigger_name}
+        AFTER UPDATE ON {assignment_table_name}
+        FOR EACH ROW
+        BEGIN
+            UPDATE {assignment_table_name}
+            SET updated_at = CURRENT_TIMESTAMP
+            WHERE id = NEW.id;
+        END;
+        """
+    )
+
 
 async def create_scorecards_table(cursor):
     await cursor.execute(

@@ -214,7 +214,7 @@ class TestFileAnalysis:
     def test_extract_submission_file_general_exception_handling(
         self, mock_settings, mock_extract, mock_rmtree
     ):
-        """Test handling of general exceptions when reading files."""
+        """Test that exceptions when reading files propagate correctly."""
         # Setup mocks
         mock_settings.s3_folder_name = None
         mock_settings.local_upload_folder = "/tmp/uploads"
@@ -236,10 +236,6 @@ class TestFileAnalysis:
                     return mock_open(read_data="text content")()
             
             with patch("builtins.open", side_effect=mock_file_open):
-                result = extract_submission_file("test-uuid")
-        
-        # Verify result - should only contain the file that could be read
-        assert result["file_uuid"] == "test-uuid"
-        assert result["extracted_files_count"] == 2
-        assert len(result["file_contents"]) == 1  # Only one file should be included
-        assert "test2.txt" in result["file_contents"]
+                # Exception should propagate
+                with pytest.raises(PermissionError, match="Permission denied"):
+                    extract_submission_file("test-uuid")

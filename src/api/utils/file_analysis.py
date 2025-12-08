@@ -90,26 +90,22 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
         code_files = []
         file_contents = {}
 
-        try:
-            for file_path in extracted_files:
-                # Get file extension
-                file_ext = os.path.splitext(file_path)[1].lower()
+        for file_path in extracted_files:
+            # Get file extension
+            file_ext = os.path.splitext(file_path)[1].lower()
 
-                # Only include files with allowed extensions
-                if file_ext in ALLOWED_EXTENSIONS:
-                    code_files.append(file_path)
+            # Only include files with allowed extensions
+            if file_ext in ALLOWED_EXTENSIONS:
+                code_files.append(file_path)
 
-            # Read content of filtered code files
-            for file_path in code_files:
-                try:
-                    relative_path = os.path.relpath(file_path, temp_extract_dir).replace(os.sep, '/')
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        file_contents[relative_path] = f.read()
-                except Exception:
-                    continue
-        finally:
-            # Clean up extracted directory after processing
-            shutil.rmtree(temp_extract_dir)
+        # Read content of filtered code files
+        for file_path in code_files:
+            relative_path = os.path.relpath(file_path, temp_extract_dir).replace(os.sep, '/')
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_contents[relative_path] = f.read()
+
+        # Clean up extracted directory after processing
+        shutil.rmtree(temp_extract_dir)
 
     # Prepare extraction result
     return {
