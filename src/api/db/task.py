@@ -673,7 +673,7 @@ async def duplicate_task(task_id: int, course_id: int, milestone_id: int) -> int
             TaskStatus.DRAFT,
         )
     elif task["type"] == TaskType.ASSIGNMENT:
-        await upsert_assignment(
+        await create_assignment(
             new_task_id,
             task["title"],
             task["assignment"],
@@ -1070,7 +1070,6 @@ async def upsert_assignment(
     scheduled_publish_at: Optional[datetime] = None,
     status: TaskStatus = TaskStatus.PUBLISHED,
 ) -> Dict:
-    """Upsert assignment (insert or update) in the assignment table"""
     if not await does_task_exist(task_id):
         return None
 
@@ -1121,8 +1120,49 @@ async def upsert_assignment(
     return await get_task(task_id)
 
 
+async def create_assignment(
+    task_id: int,
+    title: str,
+    assignment: Dict,
+    scheduled_publish_at: Optional[datetime] = None,
+    status: TaskStatus = TaskStatus.PUBLISHED,
+) -> Dict:
+    # Check if assignment already exists
+    existing_assignment = await get_assignment(task_id)
+    if existing_assignment:
+        return None  # Assignment already exists, should use update instead
+    
+    return await upsert_assignment(
+        task_id=task_id,
+        title=title,
+        assignment=assignment,
+        scheduled_publish_at=scheduled_publish_at,
+        status=status,
+    )
+
+
+async def update_assignment(
+    task_id: int,
+    title: str,
+    assignment: Dict,
+    scheduled_publish_at: Optional[datetime] = None,
+    status: TaskStatus = TaskStatus.PUBLISHED,
+) -> Dict:
+    # Check if assignment exists
+    existing_assignment = await get_assignment(task_id)
+    if not existing_assignment:
+        return None  # Assignment doesn't exist, should use create instead
+    
+    return await upsert_assignment(
+        task_id=task_id,
+        title=title,
+        assignment=assignment,
+        scheduled_publish_at=scheduled_publish_at,
+        status=status,
+    )
+
+
 async def get_assignment(task_id: int) -> Optional[Dict]:
-    """Get assignment data for a task"""
     assignment = await execute_db_operation(
         f"""
         SELECT task_id, blocks, input_type, response_type, context, 

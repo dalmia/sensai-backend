@@ -12,7 +12,8 @@ from api.db.task import (
     mark_task_completed as mark_task_completed_in_db,
     duplicate_task as duplicate_task_in_db,
     get_all_learning_material_tasks_for_course as get_all_learning_material_tasks_for_course_from_db,
-    upsert_assignment as upsert_assignment_in_db,
+    create_assignment as create_assignment_in_db,
+    update_assignment as update_assignment_in_db,
 )
 from api.models import (
     Task,
@@ -161,10 +162,10 @@ async def mark_task_completed(task_id: int, request: MarkTaskCompletedRequest):
 
 
 @router.post("/{task_id}/assignment", response_model=AssignmentTask)
-async def upsert_assignment(
+async def create_assignment(
     task_id: int, request: AssignmentRequest
 ) -> AssignmentTask:
-    result = await upsert_assignment_in_db(
+    result = await create_assignment_in_db(
         task_id=task_id,
         title=request.title,
         assignment=request.assignment.model_dump(),
@@ -172,5 +173,21 @@ async def upsert_assignment(
         status=request.status,
     )
     if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise HTTPException(status_code=404, detail="Task not found or assignment already exists")
+    return result
+
+
+@router.put("/{task_id}/assignment", response_model=AssignmentTask)
+async def update_assignment(
+    task_id: int, request: AssignmentRequest
+) -> AssignmentTask:
+    result = await update_assignment_in_db(
+        task_id=task_id,
+        title=request.title,
+        assignment=request.assignment.model_dump(),
+        scheduled_publish_at=request.scheduled_publish_at,
+        status=request.status,
+    )
+    if not result:
+        raise HTTPException(status_code=404, detail="Task not found or assignment does not exist")
     return result

@@ -1737,18 +1737,20 @@ class TestTaskDuplication:
             await duplicate_task(1, 1, 10)
 
     @patch("src.api.db.task.get_basic_task_details")
+    @patch("src.api.db.task.get_assignment")
     @patch("src.api.db.task.execute_db_operation")
     @patch("src.api.db.task.get_org_id_for_course")
     @patch("src.api.db.task.get_task")
     @patch("src.api.db.task.create_draft_task_for_course")
-    @patch("src.api.db.task.upsert_assignment")
+    @patch("src.api.db.task.create_assignment")
     async def test_duplicate_task_assignment(
         self,
-        mock_upsert_assignment,
+        mock_create_assignment,
         mock_create_draft,
         mock_get_task,
         mock_get_org,
         mock_execute,
+        mock_get_assignment,
         mock_get_basic,
     ):
         """Test duplicating assignment task - covers lines 654-670."""
@@ -1763,6 +1765,7 @@ class TestTaskDuplication:
 
         mock_execute.return_value = (2,)  # task ordering
         mock_create_draft.return_value = (10, 3)  # (new_task_id, visible_ordering)
+        mock_get_assignment.return_value = None  # No existing assignment for new task
 
         mock_original_task = {
             "id": 1,
@@ -1793,6 +1796,8 @@ class TestTaskDuplication:
 
         # Mock the second call to get_task (for the duplicated task)
         mock_get_task.side_effect = [mock_original_task, mock_duplicated_task]
+        # Mock create_assignment to return the duplicated task
+        mock_create_assignment.return_value = mock_duplicated_task
 
         result = await duplicate_task(1, 100, 200)
 
@@ -1803,11 +1808,11 @@ class TestTaskDuplication:
 
         assert result == expected
 
-        # Verify upsert_assignment was called with correct parameters
-        mock_upsert_assignment.assert_called_once()
-        call_args = mock_upsert_assignment.call_args[0]
+        # Verify create_assignment was called with correct parameters
+        mock_create_assignment.assert_called_once()
+        call_args = mock_create_assignment.call_args[0]
         
-        # Check the arguments passed to upsert_assignment
+        # Check the arguments passed to create_assignment
         assert call_args[0] == 10  # new_task_id
         assert call_args[1] == "Original Assignment"  # title
         assert call_args[2] == mock_original_task["assignment"]  # assignment_data

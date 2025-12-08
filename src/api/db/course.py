@@ -28,9 +28,9 @@ from api.db.task import (
     create_draft_task_for_course,
     update_learning_material_task,
     update_draft_quiz,
-    upsert_assignment,
     get_scorecard,
     create_scorecard,
+    create_assignment,
 )
 from api.db.utils import EnumEncoder, get_org_id_for_course
 from api.utils.db import (
@@ -364,7 +364,7 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     TaskStatus.DRAFT,
                 )
             elif task_details["type"] == TaskType.ASSIGNMENT:
-                await upsert_assignment(
+                await create_assignment(
                     new_task_id,
                     task_details["title"],
                     task_details["assignment"],

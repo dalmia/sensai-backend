@@ -548,7 +548,7 @@ async def test_create_assignment_success(client, mock_db):
     """
     Test creating an assignment task successfully - covers lines 170-179.
     """
-    with patch("api.routes.task.upsert_assignment_in_db") as mock_upsert_assignment:
+    with patch("api.routes.task.create_assignment_in_db") as mock_create_assignment:
         task_id = 1
         request_body = {
             "title": "New Assignment",
@@ -603,7 +603,7 @@ async def test_create_assignment_success(client, mock_db):
         }
 
         # Test successful creation
-        mock_upsert_assignment.return_value = expected_response
+        mock_create_assignment.return_value = expected_response
 
         response = client.post(f"/tasks/{task_id}/assignment", json=request_body)
 
@@ -615,8 +615,8 @@ async def test_create_assignment_success(client, mock_db):
         assert result["status"] == expected_response["status"]
 
         # Verify the database function was called with correct parameters
-        mock_upsert_assignment.assert_called_once()
-        call_args = mock_upsert_assignment.call_args[1]  # Get keyword arguments
+        mock_create_assignment.assert_called_once()
+        call_args = mock_create_assignment.call_args[1]  # Get keyword arguments
         assert call_args["task_id"] == task_id
         assert call_args["title"] == request_body["title"]
         assert call_args["assignment"]["blocks"][0]["type"] == "paragraph"
@@ -630,7 +630,7 @@ async def test_create_assignment_task_not_found(client, mock_db):
     """
     Test creating an assignment when task is not found - covers lines 177-178.
     """
-    with patch("api.routes.task.upsert_assignment_in_db") as mock_upsert_assignment:
+    with patch("api.routes.task.create_assignment_in_db") as mock_create_assignment:
         task_id = 1
         request_body = {
             "title": "New Assignment",
@@ -669,9 +669,9 @@ async def test_create_assignment_task_not_found(client, mock_db):
         }
 
         # Test task not found scenario
-        mock_upsert_assignment.return_value = None
+        mock_create_assignment.return_value = None
 
         response = client.post(f"/tasks/{task_id}/assignment", json=request_body)
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
-        assert response.json() == {"detail": "Task not found"}
+        assert response.json() == {"detail": "Task not found or assignment already exists"}
