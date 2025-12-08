@@ -2390,6 +2390,63 @@ class TestAssignmentOperations:
     @patch("src.api.db.task.get_task")
     @patch("src.api.db.task.get_new_db_connection")
     @patch("src.api.db.task.does_task_exist")
+    async def test_create_assignment_calls_upsert(
+        self, mock_does_task_exist, mock_db_conn, mock_get_task, mock_get_assignment
+    ):
+        """Test that create_assignment calls upsert_assignment when no existing assignment - covers lines 1135-1141."""
+        mock_does_task_exist.return_value = True
+        # Mock that assignment doesn't exist
+        mock_get_assignment.return_value = None
+
+        # Mock database connection
+        mock_cursor = AsyncMock()
+        mock_conn_instance = AsyncMock()
+        mock_conn_instance.cursor.return_value = mock_cursor
+        mock_conn_instance.__aenter__.return_value = mock_conn_instance
+        mock_db_conn.return_value = mock_conn_instance
+
+        assignment_data = {
+            "blocks": [{"type": "paragraph", "content": "Assignment content"}],
+            "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
+            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
+            "input_type": "text",
+            "response_type": "text",
+            "max_attempts": 3,
+            "settings": {},
+        }
+
+        mock_get_task.return_value = {
+            "id": 1,
+            "title": "Test Assignment",
+            "type": "assignment",
+            "status": "published",
+            "assignment": convert_assignment_to_task_dict(assignment_data),
+        }
+
+        result = await create_assignment(
+            task_id=1,
+            title="Test Assignment",
+            assignment=assignment_data,
+            scheduled_publish_at=None,
+            status=TaskStatus.PUBLISHED,
+        )
+
+        assert result is not None
+        assert result["id"] == 1
+        assert result["title"] == "Test Assignment"
+        assert result["type"] == TaskType.ASSIGNMENT
+        
+        # Verify get_assignment was called to check for existing assignment
+        mock_get_assignment.assert_called_once_with(1)
+        
+        # Verify database operations (upsert_assignment was called)
+        assert mock_cursor.execute.call_count == 2  # Update task + Insert assignment
+        mock_conn_instance.commit.assert_called_once()
+
+    @patch("src.api.db.task.get_assignment")
+    @patch("src.api.db.task.get_task")
+    @patch("src.api.db.task.get_new_db_connection")
+    @patch("src.api.db.task.does_task_exist")
     async def test_update_assignment_not_exists(
         self, mock_does_task_exist, mock_db_conn, mock_get_task, mock_get_assignment
     ):
