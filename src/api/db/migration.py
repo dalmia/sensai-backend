@@ -171,78 +171,28 @@ async def create_bq_sync_table_migration():
 
 
 async def recreate_chat_history_table():
-    """
-    Migration: Drops and recreates the chat_history table with correct schema (nullable question_id and task_id).
-    """
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-
-        # Check if table exists
-        await cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (chat_history_table_name,),
-        )
-        table_exists = await cursor.fetchone()
-
-        if table_exists:
-            print(f"Recreating {chat_history_table_name} table with correct schema...")
-            
-            # Get all rows from the old table
-            await cursor.execute(f"SELECT * FROM {chat_history_table_name}")
-            all_rows = await cursor.fetchall()
-            
-            # Get column names from old table
-            await cursor.execute(f"PRAGMA table_info({chat_history_table_name})")
-            old_columns = await cursor.fetchall()
-            old_column_names = [col[1] for col in old_columns]
-            
-            # Drop the existing table
-            await cursor.execute(f"DROP TABLE {chat_history_table_name}")
-            
-            # Recreate the table with correct schema
+        await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (chat_history_table_name,))
+        if not await cursor.fetchone():
             from api.db import create_chat_history_table
             await create_chat_history_table(cursor)
-            
-            # Get new table column names
-            await cursor.execute(f"PRAGMA table_info({chat_history_table_name})")
-            new_columns = await cursor.fetchall()
-            new_column_names = [col[1] for col in new_columns]
-            
-            
-            # Insert all rows back, mapping old columns to new columns
-            # New columns that don't exist in old table will get NULL/default values
-            for row in all_rows:
-                # Create a dictionary mapping old column names to values
-                row_dict = dict(zip(old_column_names, row))
-                
-                insert_columns = []
-                insert_values = []
-                
-                for col_name in new_column_names:
-                    if col_name == "id":
-                        # Skip id column - it will auto-increment
-                        continue
-                    insert_columns.append(col_name)
-                    if col_name in row_dict:
-                        insert_values.append(row_dict[col_name])
-                    else:
-                        insert_values.append(None)
-                
-                # Build and execute insert
-                columns_str = ", ".join(insert_columns)
-                placeholders = ", ".join(["?" for _ in insert_values])
-                
-                await cursor.execute(
-                    f"INSERT INTO {chat_history_table_name} ({columns_str}) VALUES ({placeholders})",
-                    insert_values
-                )
-            
-            print(f"Successfully migrated {len(all_rows)} rows to new table schema")
-        else:
-            print(f"{chat_history_table_name} table does not exist, creating it...")
-            from api.db import create_chat_history_table
-            await create_chat_history_table(cursor)
-            print(f"Successfully created {chat_history_table_name} table")
+            await conn.commit()
+            return
+
+        await cursor.execute(f"SELECT id, user_id, question_id, role, content, response_type, created_at, updated_at, deleted_at FROM {chat_history_table_name}")
+        rows = await cursor.fetchall()
+
+        await cursor.execute(f"DROP TABLE IF EXISTS {chat_history_table_name}")
+        from api.db import create_chat_history_table
+        await create_chat_history_table(cursor)
+
+        if rows:
+            values = [(r[0], r[1], r[2], None, r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows]
+            await cursor.executemany(
+                f"INSERT INTO {chat_history_table_name} (id, user_id, question_id, task_id, role, content, response_type, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                values,
+            )
 
         await conn.commit()
 
@@ -262,6 +212,22 @@ async def create_assignment_table_migration():
         if not await cursor.fetchone():
             from api.db import create_assignment_table
             await create_assignment_table(cursor)
+
+        # Ensure updated_at is maintained on updates
+        trigger_name = f"set_updated_at_{assignment_table_name}"
+        await cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+        await cursor.execute(
+            f"""
+            CREATE TRIGGER {trigger_name}
+            AFTER UPDATE ON {assignment_table_name}
+            FOR EACH ROW
+            BEGIN
+                UPDATE {assignment_table_name}
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE id = NEW.id;
+            END;
+            """
+        )
         
         await conn.commit()
 

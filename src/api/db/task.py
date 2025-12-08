@@ -1118,7 +1118,7 @@ async def upsert_assignment(
 
         await conn.commit()
 
-    return await get_assignment_task(task_id)
+    return await get_task(task_id)
 
 
 async def get_assignment(task_id: int) -> Optional[Dict]:
@@ -1148,25 +1148,4 @@ async def get_assignment(task_id: int) -> Optional[Dict]:
         "settings": json.loads(assignment[7]) if assignment[7] else None,
         "created_at": assignment[8],
         "updated_at": assignment[9],
-    }
-
-
-async def get_assignment_task(task_id: int) -> Optional[Dict]:
-    """Get a complete assignment task with both task and assignment data"""
-    # Get basic task details
-    task_data = await get_basic_task_details(task_id)
-    
-    if not task_data or task_data["type"] != TaskType.ASSIGNMENT:
-        return None
-    
-    # Get assignment data
-    assignment_data = await get_assignment(task_id)
-    
-    if not assignment_data:
-        return None
-    
-    # Combine task and assignment data in the shape expected by AssignmentTask
-    return {
-        **task_data, 
-        "assignment": convert_assignment_to_task_dict(assignment_data)
     }

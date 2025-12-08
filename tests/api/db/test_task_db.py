@@ -39,7 +39,6 @@ from src.api.db.task import (
     upsert_question,
     upsert_assignment,
     get_assignment,
-    get_assignment_task,
     convert_assignment_to_task_dict,
 )
 from src.api.models import (
@@ -2102,36 +2101,14 @@ class TestTaskDuplication:
 class TestAssignmentOperations:
     """Test assignment-related database operations."""
 
-    @patch("src.api.db.task.get_basic_task_details")
-    @patch("src.api.db.task.get_assignment")
+    @patch("src.api.db.task.get_task")
     @patch("src.api.db.task.get_new_db_connection")
-    @patch("src.api.db.task.get_assignment_task")
+    @patch("src.api.db.task.does_task_exist")
     async def test_create_assignment_success(
-        self, mock_get_assignment_task, mock_db_conn, mock_get_assignment, mock_get_basic
+        self, mock_does_task_exist, mock_db_conn, mock_get_task
     ):
         """Test creating assignment successfully - covers lines 1046-1114."""
-        mock_get_basic.return_value = {
-            "id": 1,
-            "title": "Test Assignment",
-            "type": "assignment",
-            "status": TaskStatus.DRAFT,
-            "org_id": 123,
-            "scheduled_publish_at": None,
-        }
-        
-        mock_get_assignment.return_value = None  # No existing assignment
-        mock_get_assignment_task.return_value = {
-            "id": 1,
-            "title": "Test Assignment",
-            "type": "assignment",
-            "status": "published",
-            "blocks": [{"type": "paragraph", "content": "Assignment content"}],
-            "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
-            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
-        }
+        mock_does_task_exist.return_value = True
 
         # Mock database connection
         mock_cursor = AsyncMock()
@@ -2147,6 +2124,15 @@ class TestAssignmentOperations:
             "input_type": "text",
             "response_type": "text",
             "max_attempts": 3,
+            "settings": {},
+        }
+
+        mock_get_task.return_value = {
+            "id": 1,
+            "title": "Test Assignment",
+            "type": "assignment",
+            "status": "published",
+            "assignment": convert_assignment_to_task_dict(assignment_data),
         }
 
         result = await upsert_assignment(
@@ -2160,54 +2146,20 @@ class TestAssignmentOperations:
         assert result is not None
         assert result["id"] == 1
         assert result["title"] == "Test Assignment"
-        assert result["type"] == "assignment"
+        assert result["type"] == TaskType.ASSIGNMENT
         
         # Verify database operations
         assert mock_cursor.execute.call_count == 2  # Update task + Insert assignment
         mock_conn_instance.commit.assert_called_once()
 
-    @patch("src.api.db.task.get_basic_task_details")
-    @patch("src.api.db.task.get_assignment")
+    @patch("src.api.db.task.get_task")
     @patch("src.api.db.task.get_new_db_connection")
-    @patch("src.api.db.task.get_assignment_task")
+    @patch("src.api.db.task.does_task_exist")
     async def test_create_assignment_update_existing(
-        self, mock_get_assignment_task, mock_db_conn, mock_get_assignment, mock_get_basic
+        self, mock_does_task_exist, mock_db_conn, mock_get_task
     ):
         """Test creating assignment when existing assignment needs to be updated - covers lines 1073-1092."""
-        mock_get_basic.return_value = {
-            "id": 1,
-            "title": "Test Assignment",
-            "type": "assignment",
-            "status": TaskStatus.DRAFT,
-            "org_id": 123,
-            "scheduled_publish_at": None,
-        }
-        
-        # Mock existing assignment data
-        mock_get_assignment.return_value = {
-            "task_id": 1,
-            "blocks": [{"type": "paragraph", "content": "Old content"}],
-            "context": {"blocks": [{"type": "paragraph", "content": "Old context"}]},
-            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 3,
-            "created_at": datetime.now(),
-            "updated_at": datetime.now(),
-        }
-        
-        mock_get_assignment_task.return_value = {
-            "id": 1,
-            "title": "Updated Assignment",
-            "type": "assignment",
-            "status": "published",
-            "blocks": [{"type": "paragraph", "content": "Updated content"}],
-            "context": {"blocks": [{"type": "paragraph", "content": "Updated context"}]},
-            "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 80},
-            "input_type": "text",
-            "response_type": "text",
-            "max_attempts": 5,
-        }
+        mock_does_task_exist.return_value = True
 
         # Mock database connection
         mock_cursor = AsyncMock()
@@ -2223,6 +2175,15 @@ class TestAssignmentOperations:
             "input_type": "text",
             "response_type": "text",
             "max_attempts": 5,
+            "settings": {},
+        }
+
+        mock_get_task.return_value = {
+            "id": 1,
+            "title": "Updated Assignment",
+            "type": "assignment",
+            "status": "published",
+            "assignment": convert_assignment_to_task_dict(assignment_data),
         }
 
         result = await upsert_assignment(
@@ -2236,7 +2197,7 @@ class TestAssignmentOperations:
         assert result is not None
         assert result["id"] == 1
         assert result["title"] == "Updated Assignment"
-        assert result["max_attempts"] == 5
+        assert result["assignment"]["max_attempts"] == 5
         
         # Verify database operations - should be UPDATE task + UPSERT assignment
         assert mock_cursor.execute.call_count == 2  # Update task + Upsert assignment
@@ -2289,10 +2250,10 @@ class TestAssignmentOperations:
 
         assert result is None
 
-    @patch("src.api.db.task.get_assignment_task")
+    @patch("src.api.db.task.get_task")
     @patch("src.api.db.task.get_new_db_connection")
     @patch("src.api.db.task.does_task_exist")
-    async def test_create_assignment_wrong_type(self, mock_does_task_exist, mock_db_conn, mock_get_assignment_task):
+    async def test_create_assignment_wrong_type(self, mock_does_task_exist, mock_db_conn, mock_get_task):
         """Test creating assignment when task is not assignment type."""
         # Task exists, so function will proceed
         mock_does_task_exist.return_value = True
@@ -2304,15 +2265,23 @@ class TestAssignmentOperations:
         mock_conn_instance.__aenter__.return_value = mock_conn_instance
         mock_db_conn.return_value = mock_conn_instance
         
-        # Mock the return value from get_assignment_task
-        mock_get_assignment_task.return_value = {
+        # Mock the return value from get_task
+        mock_get_task.return_value = {
             "id": 1,
             "title": "Test Assignment",
-            "type": "assignment",
+            "type": TaskType.ASSIGNMENT,
             "status": "published",
-            "assignment": {
-                "blocks": [{"type": "paragraph", "content": "Assignment content"}],
-            }
+            "assignment": convert_assignment_to_task_dict(
+                {
+                    "blocks": [{"type": "paragraph", "content": "Assignment content"}],
+                    "context": {"blocks": [{"type": "paragraph", "content": "Context"}]},
+                    "evaluation_criteria": {"min_score": 0, "max_score": 100, "pass_score": 70},
+                    "input_type": "text",
+                    "response_type": "text",
+                    "max_attempts": 3,
+                    "settings": {},
+                }
+            ),
         }
 
         assignment_data = {
@@ -2381,12 +2350,12 @@ class TestAssignmentOperations:
 
     @patch("src.api.db.task.get_basic_task_details")
     @patch("src.api.db.task.get_assignment")
-    async def test_get_assignment_task_success(self, mock_get_assignment, mock_get_basic):
+    async def test_get_task_assignment_success(self, mock_get_assignment, mock_get_basic):
         """Test getting complete assignment task successfully - covers lines 1225-1252."""
         mock_get_basic.return_value = {
             "id": 1,
             "title": "Test Assignment",
-            "type": "assignment",
+            "type": TaskType.ASSIGNMENT,
             "status": TaskStatus.PUBLISHED,
             "org_id": 123,
             "scheduled_publish_at": None,
@@ -2406,60 +2375,54 @@ class TestAssignmentOperations:
         }
         mock_get_assignment.return_value = mock_assignment_data
 
-        result = await get_assignment_task(1)
+        result = await get_task(1)
 
-        # get_assignment_task returns a merged dict of task and assignment data;
-        # ensure key fields are present and correctly mapped.
+        # get_task returns a merged dict of task and assignment data for assignments.
         assert result["id"] == 1
         assert result["title"] == "Test Assignment"
-        assert result["type"] == "assignment"
+        assert result["type"] == TaskType.ASSIGNMENT
         assert result["status"] == TaskStatus.PUBLISHED
-        assert "assignment" in result
-        assert result["assignment"]["blocks"] == mock_assignment_data["blocks"]
-        assert result["assignment"]["context"] == mock_assignment_data["context"]
-        assert result["assignment"]["evaluation_criteria"] == mock_assignment_data["evaluation_criteria"]
-        assert result["assignment"]["input_type"] == mock_assignment_data["input_type"]
-        assert result["assignment"]["response_type"] == mock_assignment_data["response_type"]
-        assert result["assignment"]["max_attempts"] == mock_assignment_data["max_attempts"]
-        assert result["assignment"]["settings"] == mock_assignment_data["settings"]
         mock_get_basic.assert_called_once_with(1)
-        mock_get_assignment.assert_called_once_with(1)
 
     @patch("src.api.db.task.get_basic_task_details")
-    async def test_get_assignment_task_not_found(self, mock_get_basic):
+    async def test_get_task_assignment_not_found(self, mock_get_basic):
         """Test getting assignment task when task doesn't exist."""
         mock_get_basic.return_value = None
 
-        result = await get_assignment_task(999)
+        result = await get_task(999)
 
         assert result is None
         mock_get_basic.assert_called_once_with(999)
 
+    @patch("src.api.db.task.execute_db_operation")
     @patch("src.api.db.task.get_basic_task_details")
-    async def test_get_assignment_task_wrong_type(self, mock_get_basic):
-        """Test getting assignment task when task is not assignment type."""
+    async def test_get_task_assignment_wrong_type(self, mock_get_basic, mock_execute):
+        """Test getting task when task is not assignment type."""
         mock_get_basic.return_value = {
             "id": 1,
             "title": "Test Quiz",
-            "type": "quiz",  # Wrong type
+            "type": TaskType.QUIZ,  # Wrong type
             "status": TaskStatus.PUBLISHED,
             "org_id": 123,
             "scheduled_publish_at": None,
         }
+        mock_execute.return_value = []
 
-        result = await get_assignment_task(1)
+        result = await get_task(1)
 
-        assert result is None
+        assert result is not None
+        assert "assignment" not in result
+        assert result["type"] == TaskType.QUIZ
         mock_get_basic.assert_called_once_with(1)
 
     @patch("src.api.db.task.get_basic_task_details")
     @patch("src.api.db.task.get_assignment")
-    async def test_get_assignment_task_no_assignment_data(self, mock_get_assignment, mock_get_basic):
+    async def test_get_task_assignment_no_assignment_data(self, mock_get_assignment, mock_get_basic):
         """Test getting assignment task when assignment data doesn't exist."""
         mock_get_basic.return_value = {
             "id": 1,
             "title": "Test Assignment",
-            "type": "assignment",
+            "type": TaskType.ASSIGNMENT,
             "status": TaskStatus.PUBLISHED,
             "org_id": 123,
             "scheduled_publish_at": None,
@@ -2467,8 +2430,8 @@ class TestAssignmentOperations:
 
         mock_get_assignment.return_value = None
 
-        result = await get_assignment_task(1)
+        result = await get_task(1)
 
-        assert result is None
+        assert result is not None
+        assert "assignment" not in result
         mock_get_basic.assert_called_once_with(1)
-        mock_get_assignment.assert_called_once_with(1)

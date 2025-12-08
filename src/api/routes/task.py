@@ -13,7 +13,6 @@ from api.db.task import (
     duplicate_task as duplicate_task_in_db,
     get_all_learning_material_tasks_for_course as get_all_learning_material_tasks_for_course_from_db,
     upsert_assignment as upsert_assignment_in_db,
-    get_assignment_task as get_assignment_task_from_db,
 )
 from api.models import (
     Task,
