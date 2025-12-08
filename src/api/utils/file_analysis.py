@@ -100,9 +100,13 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
 
         # Read content of filtered code files
         for file_path in code_files:
-            relative_path = os.path.relpath(file_path, temp_extract_dir).replace(os.sep, '/')
-            with open(file_path, 'r', encoding='utf-8') as f:
-                file_contents[relative_path] = f.read()
+            try:
+                relative_path = os.path.relpath(file_path, temp_extract_dir).replace(os.sep, '/')
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    file_contents[relative_path] = f.read()
+            except Exception:
+                # Skip files that can't be read
+                continue
 
         # Clean up extracted directory after processing
         shutil.rmtree(temp_extract_dir)
