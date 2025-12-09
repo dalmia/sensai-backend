@@ -30,6 +30,7 @@ from api.db.task import (
     update_draft_quiz,
     get_scorecard,
     create_scorecard,
+    create_assignment,
 )
 from api.db.utils import EnumEncoder, get_org_id_for_course
 from api.utils.db import (
@@ -319,7 +320,7 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     None,
                     TaskStatus.DRAFT,
                 )
-            else:
+            elif task_details["type"] == TaskType.QUIZ:
                 # Handle quiz tasks with scorecard duplication
                 scorecard_mapping = {}  # Map original scorecard_id to new scorecard_id
 
@@ -362,6 +363,16 @@ async def duplicate_course_to_org(course_id: int, org_id: int):
                     None,
                     TaskStatus.DRAFT,
                 )
+            elif task_details["type"] == TaskType.ASSIGNMENT:
+                await create_assignment(
+                    new_task_id,
+                    task_details["title"],
+                    task_details["assignment"],
+                    None,
+                    TaskStatus.DRAFT,
+                )
+            else:
+                raise ValueError(f"Task type {task_details['type']} not supported")
 
     return await get_course(new_course_id)
 

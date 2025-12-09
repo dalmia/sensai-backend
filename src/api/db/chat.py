@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from datetime import datetime
 from api.utils.db import get_new_db_connection, execute_db_operation
 from api.config import (
@@ -16,24 +16,30 @@ from api.db.task import get_basic_task_details
 async def store_messages(
     messages: List[StoreMessageRequest],
     user_id: int,
-    question_id: int,
-    is_complete: bool,
+    question_id: Optional[int] = None,
+    task_id: Optional[int] = None,
+    is_complete: bool = False,
 ):
+    # Validate that at least one of question_id or task_id is provided
+    if not question_id and not task_id:
+        raise ValueError("Either question_id or task_id must be provided")
+
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
         new_row_ids = []
 
         for message in messages:
-            # Insert the new message
+            # Insert the new message with either question_id or task_id (or both)
             await cursor.execute(
                 f"""
-            INSERT INTO {chat_history_table_name} (user_id, question_id, role, content, response_type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO {chat_history_table_name} (user_id, question_id, task_id, role, content, response_type, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     user_id,
                     question_id,
+                    task_id,
                     message.role,
                     message.content,
                     message.response_type,
@@ -45,13 +51,24 @@ async def store_messages(
             new_row_ids.append(new_row_id)
 
         if is_complete:
-            await cursor.execute(
-                f"""
-                INSERT INTO {task_completions_table_name} (user_id, question_id)
-                VALUES (?, ?) ON CONFLICT(user_id, question_id) DO NOTHING
-                """,
-                (user_id, question_id),
-            )
+            if question_id:
+                # For quiz questions, use the existing task_completions table
+                await cursor.execute(
+                    f"""
+                    INSERT INTO {task_completions_table_name} (user_id, question_id)
+                    VALUES (?, ?) ON CONFLICT(user_id, question_id) DO NOTHING
+                    """,
+                    (user_id, question_id),
+                )
+            elif task_id:
+                # For assignments, also use the task_completions table with task_id
+                await cursor.execute(
+                    f"""
+                    INSERT INTO {task_completions_table_name} (user_id, task_id)
+                    VALUES (?, ?) ON CONFLICT(user_id, task_id) DO NOTHING
+                    """,
+                    (user_id, task_id),
+                )
 
         await conn.commit()
 
@@ -147,16 +164,27 @@ async def get_task_chat_history_for_user(
         raise ValueError("Task does not exist")
 
     if task["type"] == TaskType.LEARNING_MATERIAL:
-        raise ValueError("Task is not a quiz")
+        raise ValueError("Task is not a quiz or assignment")
 
-    query = f"""
-        SELECT ch.id, ch.created_at, ch.user_id, ch.question_id, ch.role, ch.content, ch.response_type
-        FROM {chat_history_table_name} ch
-        JOIN {questions_table_name} q ON ch.question_id = q.id
-        WHERE q.task_id = ? 
-        AND ch.user_id = ? AND ch.deleted_at IS NULL AND q.deleted_at IS NULL
-        ORDER BY ch.created_at ASC
-    """
+    if task["type"] == TaskType.QUIZ:
+        # For quiz tasks, get chat history through questions
+        query = f"""
+            SELECT ch.id, ch.created_at, ch.user_id, ch.question_id, ch.role, ch.content, ch.response_type
+            FROM {chat_history_table_name} ch
+            JOIN {questions_table_name} q ON ch.question_id = q.id
+            WHERE q.task_id = ? 
+            AND ch.user_id = ? AND ch.deleted_at IS NULL AND q.deleted_at IS NULL
+            ORDER BY ch.created_at ASC
+        """
+    elif task["type"] == TaskType.ASSIGNMENT:
+        # For assignment tasks, get chat history directly by task_id
+        query = f"""
+            SELECT ch.id, ch.created_at, ch.user_id, ch.question_id, ch.role, ch.content, ch.response_type
+            FROM {chat_history_table_name} ch
+            WHERE ch.task_id = ? 
+            AND ch.user_id = ? AND ch.deleted_at IS NULL
+            ORDER BY ch.created_at ASC
+        """
 
     chat_history = await execute_db_operation(
         query,

@@ -83,7 +83,7 @@ async def get_cohort_completion(
         {
             task_id: {
                 "is_complete": bool,
-                "questions": [{"question_id": int, "is_complete": bool}]
+                "questions": [{"question_id": int, "is_complete": bool}]  # Only for quiz tasks
             }
         }
     """
@@ -121,13 +121,13 @@ async def get_cohort_completion(
         completed_question_ids_for_user[user_id].add(question_id)
 
     # Get all tasks for the cohort
-    # Get learning material tasks
+    # Get learning material and assignment tasks
     query = f"""
         SELECT DISTINCT t.id
         FROM {tasks_table_name} t
         JOIN {course_tasks_table_name} ct ON t.id = ct.task_id
         JOIN {course_cohorts_table_name} cc ON ct.course_id = cc.course_id
-        WHERE cc.cohort_id = ? AND t.deleted_at IS NULL AND t.type = '{TaskType.LEARNING_MATERIAL}' AND t.status = '{TaskStatus.PUBLISHED}' AND t.scheduled_publish_at IS NULL
+        WHERE cc.cohort_id = ? AND t.deleted_at IS NULL AND t.type IN ('{TaskType.LEARNING_MATERIAL}', '{TaskType.ASSIGNMENT}') AND t.status = '{TaskStatus.PUBLISHED}' AND t.scheduled_publish_at IS NULL
         """
     params = (cohort_id,)
 
@@ -135,15 +135,15 @@ async def get_cohort_completion(
         query += " AND ct.course_id = ?"
         params += (course_id,)
 
-    learning_material_tasks = await execute_db_operation(
+    learning_material_and_assignment_tasks = await execute_db_operation(
         query,
         params,
         fetch_all=True,
     )
 
     for user_id in user_ids:
-        for task in learning_material_tasks:
-            # For learning material, check if it's in the completed tasks list
+        for task in learning_material_and_assignment_tasks:
+            # For learning material and assignment tasks, check if it's in the completed tasks list
             results[user_id][task[0]] = {
                 "is_complete": task[0] in completed_task_ids_for_user[user_id]
             }

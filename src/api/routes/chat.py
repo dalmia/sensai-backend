@@ -20,6 +20,7 @@ async def store_messages(request: StoreMessagesRequest) -> List[ChatMessage]:
         messages=request.messages,
         user_id=request.user_id,
         question_id=request.question_id,
+        task_id=request.task_id,
         is_complete=request.is_complete,
     )
 

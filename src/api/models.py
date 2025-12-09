@@ -189,6 +189,7 @@ class Milestone(BaseModel):
 class TaskType(Enum):
     QUIZ = "quiz"
     LEARNING_MATERIAL = "learning_material"
+    ASSIGNMENT = "assignment"
 
     def __str__(self):
         return self.value
@@ -355,6 +356,33 @@ class QuizTask(Task):
     questions: List[PublishedQuestion]
 
 
+class AssignmentEvaluationCriteria(BaseModel):
+    scorecard_id: Optional[int] = None
+    min_score: float
+    max_score: float
+    pass_score: float
+
+
+class Assignment(BaseModel):
+    blocks: List[Block]
+    context: Optional[Dict] = None
+    evaluation_criteria: AssignmentEvaluationCriteria | None = None
+    input_type: TaskInputType | None = None
+    response_type: TaskAIResponseType | None = None
+    max_attempts: Optional[int] = None
+    settings: Optional[Any] = None
+
+
+class AssignmentTask(Task):
+    assignment: Assignment
+
+
+class AssignmentRequest(AssignmentTask):
+    id: Optional[int] = None
+    type: Optional[TaskType] = None
+    status: Optional[str] = None
+
+
 class GenerateCourseJobStatus(str, Enum):
     STARTED = "started"
     PENDING = "pending"
@@ -469,13 +497,15 @@ class ChatResponseType(str, Enum):
     TEXT = "text"
     CODE = "code"
     AUDIO = "audio"
+    FILE = "file"
 
 
 class ChatMessage(BaseModel):
     id: int
     created_at: str
     user_id: int
-    question_id: int
+    question_id: Optional[int] = None
+    task_id: Optional[int] = None
     role: ChatRole | None
     content: Optional[str] | None
     response_type: Optional[ChatResponseType] | None
@@ -588,7 +618,7 @@ class DuplicateTaskRequest(BaseModel):
 
 
 class DuplicateTaskResponse(BaseModel):
-    task: LearningMaterialTask | QuizTask
+    task: LearningMaterialTask | QuizTask | AssignmentTask
     ordering: int
 
 
@@ -602,7 +632,8 @@ class StoreMessageRequest(BaseModel):
 class StoreMessagesRequest(BaseModel):
     messages: List[StoreMessageRequest]
     user_id: int
-    question_id: int
+    question_id: Optional[int] = None
+    task_id: Optional[int] = None
     is_complete: bool
 
 

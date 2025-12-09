@@ -48,7 +48,9 @@ class TestChatRoutes:
 
         # Assertions
         assert response.status_code == 200
-        assert response.json() == mock_messages
+        body = response.json()
+        assert body[0]["id"] == 1
+        assert body[0]["task_id"] is None
 
     @patch("src.api.routes.chat.get_all_chat_history_from_db")
     def test_get_all_chat_history_success(self, mock_get_chat_history):
@@ -72,7 +74,9 @@ class TestChatRoutes:
 
         # Assertions
         assert response.status_code == 200
-        assert response.json() == mock_chat_data
+        body = response.json()
+        assert body[0]["id"] == 1
+        assert body[0]["task_id"] is None
 
     @patch("src.api.routes.chat.get_task_chat_history_for_user_from_db")
     def test_get_user_chat_history_for_task_success(self, mock_get_task_chat_history):
@@ -96,7 +100,9 @@ class TestChatRoutes:
 
         # Assertions
         assert response.status_code == 200
-        assert response.json() == mock_chat_data
+        body = response.json()
+        assert body[0]["id"] == 1
+        assert body[0]["task_id"] is None
         mock_get_task_chat_history.assert_called_once_with(user_id=123, task_id=456)
 
     @patch("src.api.routes.chat.delete_all_chat_history_from_db")

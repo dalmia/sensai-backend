@@ -24,75 +24,8 @@ from api.config import (
     task_generation_jobs_table_name,
     code_drafts_table_name,
     integrations_table_name,
+    assignment_table_name
 )
-
-
-async def add_title_column_to_questions():
-    """
-    Migration: Adds a 'title' column to the questions table and updates all existing rows
-    to have title = f"Question {position+1}".
-    """
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-        # Check if 'title' column already exists
-        await cursor.execute(f"PRAGMA table_info({questions_table_name})")
-        columns = [col[1] for col in await cursor.fetchall()]
-        if "title" not in columns:
-            await cursor.execute(
-                f"ALTER TABLE {questions_table_name} ADD COLUMN title TEXT NOT NULL DEFAULT ''"
-            )
-        # Update all rows to set title = 'Question {position+1}'
-        await cursor.execute(
-            f"UPDATE {questions_table_name} SET title = 'Question ' || (position + 1)"
-        )
-        await conn.commit()
-
-
-async def get_task_titles_map():
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-
-        await cursor.execute("SELECT id, title FROM tasks")
-        result = await cursor.fetchall()
-
-        return {row[0]: row[1] for row in result}
-
-
-async def get_question_titles_map():
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-
-        await cursor.execute("SELECT id, title FROM questions")
-        result = await cursor.fetchall()
-
-        return {row[0]: row[1] for row in result}
-
-
-async def get_user_email_map():
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-
-        await cursor.execute("SELECT id, email FROM users")
-        result = await cursor.fetchall()
-
-        return {row[0]: row[1] for row in result}
-
-
-async def remove_openai_columns_from_organizations():
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-
-        # Check if 'openai_api_key' column exists before dropping
-        await cursor.execute(f"PRAGMA table_info({organizations_table_name})")
-        columns = [col[1] for col in await cursor.fetchall()]
-        if "openai_api_key" in columns:
-            await cursor.execute(
-                f"ALTER TABLE {organizations_table_name} DROP COLUMN openai_api_key"
-            )
-        if "openai_free_trial" in columns:
-            await cursor.execute(
-                f"ALTER TABLE {organizations_table_name} DROP COLUMN openai_free_trial"
-            )
 
 
 async def add_missing_timestamp_columns():
@@ -224,19 +157,6 @@ async def add_missing_timestamp_columns():
         await conn.commit()
 
 
-async def create_integrations_table_migration():
-    """
-    Migration: Creates the integrations table if it doesn't exist.
-    """
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-        from api.db import create_integrations_table
-
-        await create_integrations_table(cursor)
-
-        await conn.commit()
-
-
 async def create_bq_sync_table_migration():
     """
     Migration: Creates the bq_sync table if it doesn't exist.
@@ -250,28 +170,70 @@ async def create_bq_sync_table_migration():
         await conn.commit()
 
 
-async def add_settings_column_to_questions():
+async def recreate_chat_history_table():
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+        await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (chat_history_table_name,))
+        if not await cursor.fetchone():
+            from api.db import create_chat_history_table
+            await create_chat_history_table(cursor)
+            await conn.commit()
+            return
+
+        await cursor.execute(f"SELECT id, user_id, question_id, role, content, response_type, created_at, updated_at, deleted_at FROM {chat_history_table_name}")
+        rows = await cursor.fetchall()
+
+        await cursor.execute(f"DROP TABLE IF EXISTS {chat_history_table_name}")
+        from api.db import create_chat_history_table
+        await create_chat_history_table(cursor)
+
+        if rows:
+            values = [(r[0], r[1], r[2], None, r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows]
+            await cursor.executemany(
+                f"INSERT INTO {chat_history_table_name} (id, user_id, question_id, task_id, role, content, response_type, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                values,
+            )
+
+        await conn.commit()
+
+
+async def create_assignment_table_migration():
     """
-    Migration: Adds a 'settings' column to the questions table.
+    Migration: Creates the assignment table if it doesn't exist.
     """
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
+        
+        # Check if table exists
+        await cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (assignment_table_name,),
+        )
+        if not await cursor.fetchone():
+            from api.db import create_assignment_table
+            await create_assignment_table(cursor)
 
-        # Check if 'settings' column already exists
-        await cursor.execute(f"PRAGMA table_info({questions_table_name})")
-        columns = [col[1] for col in await cursor.fetchall()]
-
-        if "settings" not in columns:
-            await cursor.execute(
-                f"ALTER TABLE {questions_table_name} ADD COLUMN settings JSON"
-            )
-            print(f"Added 'settings' column to {questions_table_name} table")
-        else:
-            print(f"'settings' column already exists in {questions_table_name} table")
-
+        # Ensure updated_at is maintained on updates
+        trigger_name = f"set_updated_at_{assignment_table_name}"
+        await cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+        await cursor.execute(
+            f"""
+            CREATE TRIGGER {trigger_name}
+            AFTER UPDATE ON {assignment_table_name}
+            FOR EACH ROW
+            BEGIN
+                UPDATE {assignment_table_name}
+                SET updated_at = CURRENT_TIMESTAMP
+                WHERE id = NEW.id;
+            END;
+            """
+        )
+        
         await conn.commit()
 
 
 async def run_migrations():
     await add_missing_timestamp_columns()
     await create_bq_sync_table_migration()
+    await recreate_chat_history_table()
+    await create_assignment_table_migration()
