@@ -930,7 +930,6 @@ async def ai_response_for_assignment(request: AIChatRequest):
             
             # Use FileSubmissionOutput for file submissions, otherwise use base Output
             response_model = FileSubmissionOutput if request.response_type == ChatResponseType.FILE else Output
-            print(response_model)
             
             # Process streaming response with Langfuse observation
             with langfuse.start_as_current_observation(
