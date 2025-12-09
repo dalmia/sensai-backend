@@ -856,12 +856,16 @@ async def ai_response_for_assignment(request: AIChatRequest):
                     description="Pass score possible for this category as per the scoring criteria"
                 )
 
-            # Dynamic output model based on evaluation phase
+            # Base output model for all phases
             class Output(BaseModel):
                 feedback: Optional[str] = Field(description="Current feedback and response", default="")
                 evaluation_status: Optional[str] = Field(description="in_progress, needs_resubmission, or completed", default="in_progress")
                 key_area_scores: Optional[Dict[str, KeyAreaScore]] = Field(description="Completed key area scores with detailed feedback", default={})
                 current_key_area: Optional[str] = Field(description="Current key area being evaluated")
+            
+            # Output model for file submissions that includes project score
+            class FileSubmissionOutput(Output):
+                project_score: Optional[float] = Field(description="Project score assigned when evaluating initial file submission")
 
             # Get Langfuse prompt for assignment evaluation
             prompt = langfuse.get_prompt("assignment", type="chat", label="production")
@@ -924,6 +928,10 @@ async def ai_response_for_assignment(request: AIChatRequest):
 
             llm_output = ""
             
+            # Use FileSubmissionOutput for file submissions, otherwise use base Output
+            response_model = FileSubmissionOutput if request.response_type == ChatResponseType.FILE else Output
+            print(response_model)
+            
             # Process streaming response with Langfuse observation
             with langfuse.start_as_current_observation(
                 as_type="generation", name="response", prompt=prompt
@@ -932,7 +940,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
                     async for chunk in stream_llm_with_openai(
                         model=model,
                         messages=messages,
-                        response_model=Output,
+                        response_model=response_model,
                         max_output_tokens=8192,
                         api_mode=openai_api_mode,
                     ):
