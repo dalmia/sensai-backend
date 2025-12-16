@@ -48,11 +48,7 @@ async def sync_org_api_keys_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{org_api_keys_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery org_api_keys table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -90,11 +86,7 @@ async def sync_courses_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{courses_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery courses table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -132,11 +124,7 @@ async def sync_cohorts_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{cohorts_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery cohorts table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -174,11 +162,7 @@ async def sync_milestones_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{milestones_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id, has_created_at=False)
-        logger.info("Deleted all existing records from BigQuery milestones table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -218,11 +202,7 @@ async def sync_course_tasks_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{course_tasks_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery course_tasks table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -262,13 +242,7 @@ async def sync_course_milestones_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{course_milestones_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info(
-            "Deleted all existing records from BigQuery course_milestones table"
-        )
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -310,11 +284,7 @@ async def sync_organizations_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{organizations_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery organizations table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -352,11 +322,7 @@ async def sync_scorecards_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{scorecards_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery scorecards table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -396,13 +362,7 @@ async def sync_question_scorecards_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{question_scorecards_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info(
-            "Deleted all existing records from BigQuery question_scorecards table"
-        )
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -444,11 +404,7 @@ async def sync_task_completions_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{task_completions_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery task_completions table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -488,11 +444,7 @@ async def sync_chat_history_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{chat_history_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery chat_history table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -532,11 +484,7 @@ async def sync_users_to_bigquery():
             f"{settings.bq_project_name}.{settings.bq_dataset_name}.{users_table_name}"
         )
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery users table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -576,11 +524,7 @@ async def sync_tasks_to_bigquery():
             f"{settings.bq_project_name}.{settings.bq_dataset_name}.{tasks_table_name}"
         )
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery tasks table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -618,11 +562,7 @@ async def sync_questions_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{questions_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery questions table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -660,11 +600,7 @@ async def sync_assignment_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{assignment_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id)
-        logger.info("Deleted all existing records from BigQuery assignment table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -704,11 +640,7 @@ async def sync_user_cohorts_to_bigquery():
         bq_client = get_bq_client()
         table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{user_cohorts_table_name}"
 
-        # Step 3: Delete all existing data from BigQuery table
-        _delete_all_from_bq_table(bq_client, table_id, has_created_at=False)
-        logger.info("Deleted all existing records from BigQuery user_cohorts table")
-
-        # Step 4: Insert SQLite data into BigQuery
+        # Step 3: Insert SQLite data into BigQuery
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
             logger.info(
@@ -1241,41 +1173,13 @@ async def _fetch_user_cohorts_from_sqlite() -> List[Dict[str, Any]]:
         return data
 
 
-def _delete_all_from_bq_table(
-    bq_client: bigquery.Client, table_id: str, has_created_at: bool = True
-):
-    """Delete all records from BigQuery table. If table doesn't exist, skip deletion."""
-    try:
-        # Check if table exists first
-        bq_client.get_table(table_id)
-    except NotFound:
-        # Table doesn't exist yet, skip deletion
-        logger.info(f"Table {table_id} does not exist, skipping deletion")
-        return
-
-    if has_created_at:
-        # Use TIMESTAMP for all created_at comparisons to avoid TIMESTAMP/DATETIME mismatches
-        query = (
-            f"DELETE FROM `{table_id}` WHERE TRUE "
-            f"AND created_at > TIMESTAMP('2024-01-01 00:00:00')"
-        )
-    else:
-        query = f"DELETE FROM `{table_id}` WHERE TRUE"
-
-    job_config = bigquery.QueryJobConfig()
-    query_job = bq_client.query(query, job_config=job_config)
-
-    # Wait for the job to complete
-    query_job.result()
-
-
 def _insert_data_to_bq_table(
     bq_client: bigquery.Client, table_id: str, data: List[Dict[str, Any]]
 ):
     """Insert data into BigQuery table.
 
     Always reflects the latest SQLite schema in BigQuery by:
-    - Dropping the existing table (if any)
+    - Dropping the existing table, if any
     - Recreating it from the JSON data with autodetected schema
     """
     # Always drop existing table so schema fully matches current data
@@ -1285,7 +1189,7 @@ def _insert_data_to_bq_table(
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
         ignore_unknown_values=False,
-        autodetect=True,  # Auto-detect schema if table doesn't exist
+        autodetect=True,
     )
 
     # Load data into a fresh table; BigQuery will create it
