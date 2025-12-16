@@ -500,6 +500,7 @@ async def sync_chat_history_to_bigquery():
 
         # Step 1: Fetch all data from SQLite
         sqlite_data = await _fetch_chat_history_from_sqlite()
+        print(f"Fetched {len(sqlite_data)} records from SQLite chat_history table")
         logger.info(
             f"Fetched {len(sqlite_data)} records from SQLite chat_history table"
         )
@@ -523,6 +524,7 @@ async def sync_chat_history_to_bigquery():
                 )
         except NotFound:
             # If the table doesn't exist, let the delete helper handle it gracefully.
+            print(f"BigQuery table {table_id} not found when ensuring task_id column.")
             logger.info(
                 f"BigQuery table {table_id} not found when ensuring task_id column."
             )
@@ -532,8 +534,10 @@ async def sync_chat_history_to_bigquery():
         logger.info("Deleted all existing records from BigQuery chat_history table")
 
         # Step 4: Insert SQLite data into BigQuery
+        print(f"Inserting {len(sqlite_data)} records into BigQuery chat_history table")
         if sqlite_data:
             _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
+            print(f"Inserted {len(sqlite_data)} records into BigQuery chat_history table")
             logger.info(
                 f"Inserted {len(sqlite_data)} records into BigQuery chat_history table"
             )
