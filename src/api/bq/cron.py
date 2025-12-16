@@ -1,5 +1,5 @@
 from google.cloud import bigquery
-from google.api_core.exceptions import NotFound, BadRequest
+from google.api_core.exceptions import NotFound
 from typing import List, Dict, Any
 from api.settings import settings
 from api.utils.db import get_new_db_connection
@@ -1274,55 +1274,29 @@ def _insert_data_to_bq_table(
 ):
     """Insert data into BigQuery table.
 
-    - If table doesn't exist: create it automatically using autodetected schema.
-    - If schema mismatch occurs: drop the table once and recreate it, then retry.
+    Always reflects the latest SQLite schema in BigQuery by:
+    - Dropping the existing table (if any)
+    - Recreating it from the JSON data with autodetected schema
     """
-    try:
-        table = bq_client.get_table(table_id)
-    except NotFound:
-        table = None
+    # Always drop existing table so schema fully matches current data
+    bq_client.delete_table(table_id, not_found_ok=True)
 
-    # Configure the job to append data and ignore unknown values
-    # If table doesn't exist, WRITE_APPEND will create it
+    # Configure the job to create table from JSON with autodetected schema
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-        # drop and recreate the table automatically below.
         ignore_unknown_values=False,
         autodetect=True,  # Auto-detect schema if table doesn't exist
     )
 
-    def _load():
-        # Insert the data
-        if table:
-            return bq_client.load_table_from_json(data, table, job_config=job_config)
-        else:
-            # Table doesn't exist, load directly to table_id
-            return bq_client.load_table_from_json(
-                data,
-                table_id,
-                job_config=job_config,
-            )
+    # Load data into a fresh table; BigQuery will create it
+    job = bq_client.load_table_from_json(
+        data,
+        table_id,
+        job_config=job_config,
+    )
 
-    try:
-        job = _load()
-        job.result()
-    except BadRequest as e:
-        # Handle schema mismatch by dropping table and recreating it once
-        msg = str(e)
-        if "Provided Schema does not match Table" in msg:
-            logger.info(
-                f"Schema mismatch for {table_id}, dropping table and recreating it"
-            )
-            bq_client.delete_table(table_id, not_found_ok=True)
-            # Retry load into a fresh table with autodetected schema
-            job = bq_client.load_table_from_json(
-                data,
-                table_id,
-                job_config=job_config,
-            )
-            job.result()
-        else:
-            raise
+    # Wait for the job to complete
+    job.result()
 
     if job.errors:
         raise Exception(f"BigQuery insert job failed with errors: {job.errors}")
