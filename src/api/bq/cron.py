@@ -1,5 +1,5 @@
 from google.cloud import bigquery
-from google.api_core.exceptions import NotFound
+from google.api_core.exceptions import NotFound, BadRequest
 from typing import List, Dict, Any
 from api.settings import settings
 from api.utils.db import get_new_db_connection
@@ -7,6 +7,7 @@ from api.config import (
     org_api_keys_table_name,
     courses_table_name,
     milestones_table_name,
+    cohorts_table_name,
     course_tasks_table_name,
     course_milestones_table_name,
     organizations_table_name,
@@ -108,6 +109,48 @@ async def sync_courses_to_bigquery():
     except Exception as e:
         logger.error(f"Error syncing courses table to BigQuery: {str(e)}")
         print(f"Courses sync failed: {str(e)}")
+        raise
+
+
+async def sync_cohorts_to_bigquery():
+    """
+    Sync cohorts table from SQLite to BigQuery.
+    This method:
+    1. Fetches all data from SQLite cohorts table
+    2. Deletes all existing data from BigQuery cohorts table
+    3. Inserts all SQLite data into BigQuery
+    """
+    try:
+        logger.info("Starting sync of cohorts table to BigQuery")
+        print("Starting sync of cohorts table to BigQuery")
+
+        # Step 1: Fetch all data from SQLite
+        sqlite_data = await _fetch_cohorts_from_sqlite()
+        logger.info(f"Fetched {len(sqlite_data)} records from SQLite cohorts table")
+
+        # Step 2: Get BigQuery client and table reference
+        bq_client = get_bq_client()
+        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{cohorts_table_name}"
+
+        # Step 3: Delete all existing data from BigQuery table
+        _delete_all_from_bq_table(bq_client, table_id)
+        logger.info("Deleted all existing records from BigQuery cohorts table")
+
+        # Step 4: Insert SQLite data into BigQuery
+        if sqlite_data:
+            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
+            logger.info(
+                f"Inserted {len(sqlite_data)} records into BigQuery cohorts table"
+            )
+        else:
+            logger.info("No data to insert into BigQuery cohorts table")
+
+        logger.info("Successfully completed sync of cohorts table to BigQuery")
+        print("Cohorts sync completed successfully!")
+
+    except Exception as e:
+        logger.error(f"Error syncing cohorts table to BigQuery: {str(e)}")
+        print(f"Cohorts sync failed: {str(e)}")
         raise
 
 
@@ -738,6 +781,36 @@ async def _fetch_courses_from_sqlite() -> List[Dict[str, Any]]:
         return data
 
 
+async def _fetch_cohorts_from_sqlite() -> List[Dict[str, Any]]:
+    """Fetch all records from SQLite cohorts table"""
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute(
+            f"""
+            SELECT id, name, org_id, created_at 
+            FROM {cohorts_table_name}
+            ORDER BY id
+        """
+        )
+
+        rows = await cursor.fetchall()
+
+        # Convert rows to list of dictionaries
+        data = []
+        for row in rows:
+            data.append(
+                {
+                    "id": row[0],
+                    "name": row[1],
+                    "org_id": row[2],
+                    "created_at": row[3],
+                }
+            )
+
+        return data
+
+
 async def _fetch_milestones_from_sqlite() -> List[Dict[str, Any]]:
     """Fetch all records from SQLite milestones table"""
     async with get_new_db_connection() as conn:
@@ -1181,10 +1254,11 @@ def _delete_all_from_bq_table(
         return
 
     if has_created_at:
-        if org_api_keys_table_name in table_id:
-            query = f"DELETE FROM `{table_id}` WHERE TRUE AND created_at > DATETIME('2024-01-01 00:00:00')"
-        else:
-            query = f"DELETE FROM `{table_id}` WHERE TRUE AND created_at > TIMESTAMP('2024-01-01 00:00:00')"
+        # Use TIMESTAMP for all created_at comparisons to avoid TIMESTAMP/DATETIME mismatches
+        query = (
+            f"DELETE FROM `{table_id}` WHERE TRUE "
+            f"AND created_at > TIMESTAMP('2024-01-01 00:00:00')"
+        )
     else:
         query = f"DELETE FROM `{table_id}` WHERE TRUE"
 
@@ -1198,7 +1272,11 @@ def _delete_all_from_bq_table(
 def _insert_data_to_bq_table(
     bq_client: bigquery.Client, table_id: str, data: List[Dict[str, Any]]
 ):
-    """Insert data into BigQuery table. Creates table if it doesn't exist."""
+    """Insert data into BigQuery table.
+
+    - If table doesn't exist: create it automatically using autodetected schema.
+    - If schema mismatch occurs: drop the table once and recreate it, then retry.
+    """
     try:
         table = bq_client.get_table(table_id)
     except NotFound:
@@ -1212,17 +1290,38 @@ def _insert_data_to_bq_table(
         autodetect=True,  # Auto-detect schema if table doesn't exist
     )
 
-    # Insert the data
-    if table:
-        job = bq_client.load_table_from_json(data, table, job_config=job_config)
-    else:
-        # Table doesn't exist, load directly to table_id
-        job = bq_client.load_table_from_json(
-            data, table_id, job_config=job_config
-        )
+    def _load():
+        # Insert the data
+        if table:
+            return bq_client.load_table_from_json(data, table, job_config=job_config)
+        else:
+            # Table doesn't exist, load directly to table_id
+            return bq_client.load_table_from_json(
+                data,
+                table_id,
+                job_config=job_config,
+            )
 
-    # Wait for the job to complete
-    job.result()
+    try:
+        job = _load()
+        job.result()
+    except BadRequest as e:
+        # Handle schema mismatch by dropping table and recreating it once
+        msg = str(e)
+        if "Provided Schema does not match Table" in msg:
+            logger.info(
+                f"Schema mismatch for {table_id}, dropping table and recreating it"
+            )
+            bq_client.delete_table(table_id, not_found_ok=True)
+            # Retry load into a fresh table with autodetected schema
+            job = bq_client.load_table_from_json(
+                data,
+                table_id,
+                job_config=job_config,
+            )
+            job.result()
+        else:
+            raise
 
     if job.errors:
         raise Exception(f"BigQuery insert job failed with errors: {job.errors}")
@@ -1247,6 +1346,7 @@ async def run_all_syncs():
 
         await sync_org_api_keys_to_bigquery()
         await sync_courses_to_bigquery()
+        await sync_cohorts_to_bigquery()
         await sync_milestones_to_bigquery()
         await sync_course_tasks_to_bigquery()
         await sync_course_milestones_to_bigquery()
