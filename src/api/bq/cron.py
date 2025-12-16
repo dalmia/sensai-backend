@@ -1286,7 +1286,8 @@ def _insert_data_to_bq_table(
     # If table doesn't exist, WRITE_APPEND will create it
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
-        ignore_unknown_values=True,
+        # drop and recreate the table automatically below.
+        ignore_unknown_values=False,
         autodetect=True,  # Auto-detect schema if table doesn't exist
     )
 
