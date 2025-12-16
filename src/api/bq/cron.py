@@ -1,4 +1,5 @@
 from google.cloud import bigquery
+from google.api_core.exceptions import NotFound
 from typing import List, Dict, Any
 from api.settings import settings
 from api.utils.db import get_new_db_connection
@@ -1170,7 +1171,15 @@ async def _fetch_user_cohorts_from_sqlite() -> List[Dict[str, Any]]:
 def _delete_all_from_bq_table(
     bq_client: bigquery.Client, table_id: str, has_created_at: bool = True
 ):
-    """Delete all records from BigQuery table"""
+    """Delete all records from BigQuery table. If table doesn't exist, skip deletion."""
+    try:
+        # Check if table exists first
+        bq_client.get_table(table_id)
+    except NotFound:
+        # Table doesn't exist yet, skip deletion
+        logger.info(f"Table {table_id} does not exist, skipping deletion")
+        return
+
     if has_created_at:
         if org_api_keys_table_name in table_id:
             query = f"DELETE FROM `{table_id}` WHERE TRUE AND created_at > DATETIME('2024-01-01 00:00:00')"
@@ -1189,17 +1198,28 @@ def _delete_all_from_bq_table(
 def _insert_data_to_bq_table(
     bq_client: bigquery.Client, table_id: str, data: List[Dict[str, Any]]
 ):
-    """Insert data into BigQuery table"""
-    table = bq_client.get_table(table_id)
+    """Insert data into BigQuery table. Creates table if it doesn't exist."""
+    try:
+        table = bq_client.get_table(table_id)
+    except NotFound:
+        table = None
 
     # Configure the job to append data and ignore unknown values
+    # If table doesn't exist, WRITE_APPEND will create it
     job_config = bigquery.LoadJobConfig(
         write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
         ignore_unknown_values=True,
+        autodetect=True,  # Auto-detect schema if table doesn't exist
     )
 
     # Insert the data
-    job = bq_client.load_table_from_json(data, table, job_config=job_config)
+    if table:
+        job = bq_client.load_table_from_json(data, table, job_config=job_config)
+    else:
+        # Table doesn't exist, load directly to table_id
+        job = bq_client.load_table_from_json(
+            data, table_id, job_config=job_config
+        )
 
     # Wait for the job to complete
     job.result()
