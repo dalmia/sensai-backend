@@ -16,6 +16,8 @@ from api.config import (
     users_table_name,
     tasks_table_name,
     questions_table_name,
+    assignment_table_name,
+    user_cohorts_table_name,
     bq_sync_table_name,
 )
 from api.utils.logging import logger
@@ -594,6 +596,92 @@ async def sync_questions_to_bigquery():
         raise
 
 
+async def sync_assignment_to_bigquery():
+    """
+    Sync assignment table from SQLite to BigQuery.
+    This method:
+    1. Fetches all data from SQLite assignment table
+    2. Deletes all existing data from BigQuery assignment table
+    3. Inserts all SQLite data into BigQuery
+    """
+    try:
+        logger.info("Starting sync of assignment table to BigQuery")
+        print("Starting sync of assignment table to BigQuery")
+
+        # Step 1: Fetch all data from SQLite
+        sqlite_data = await _fetch_assignment_from_sqlite()
+        logger.info(f"Fetched {len(sqlite_data)} records from SQLite assignment table")
+
+        # Step 2: Get BigQuery client and table reference
+        bq_client = get_bq_client()
+        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{assignment_table_name}"
+
+        # Step 3: Delete all existing data from BigQuery table
+        _delete_all_from_bq_table(bq_client, table_id)
+        logger.info("Deleted all existing records from BigQuery assignment table")
+
+        # Step 4: Insert SQLite data into BigQuery
+        if sqlite_data:
+            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
+            logger.info(
+                f"Inserted {len(sqlite_data)} records into BigQuery assignment table"
+            )
+        else:
+            logger.info("No data to insert into BigQuery assignment table")
+
+        logger.info("Successfully completed sync of assignment table to BigQuery")
+        print("Assignment sync completed successfully!")
+
+    except Exception as e:
+        logger.error(f"Error syncing assignment table to BigQuery: {str(e)}")
+        print(f"Assignment sync failed: {str(e)}")
+        raise
+
+
+async def sync_user_cohorts_to_bigquery():
+    """
+    Sync user_cohorts table from SQLite to BigQuery.
+    This method:
+    1. Fetches all data from SQLite user_cohorts table
+    2. Deletes all existing data from BigQuery user_cohorts table
+    3. Inserts all SQLite data into BigQuery
+    """
+    try:
+        logger.info("Starting sync of user_cohorts table to BigQuery")
+        print("Starting sync of user_cohorts table to BigQuery")
+
+        # Step 1: Fetch all data from SQLite
+        sqlite_data = await _fetch_user_cohorts_from_sqlite()
+        logger.info(
+            f"Fetched {len(sqlite_data)} records from SQLite user_cohorts table"
+        )
+
+        # Step 2: Get BigQuery client and table reference
+        bq_client = get_bq_client()
+        table_id = f"{settings.bq_project_name}.{settings.bq_dataset_name}.{user_cohorts_table_name}"
+
+        # Step 3: Delete all existing data from BigQuery table
+        _delete_all_from_bq_table(bq_client, table_id, has_created_at=False)
+        logger.info("Deleted all existing records from BigQuery user_cohorts table")
+
+        # Step 4: Insert SQLite data into BigQuery
+        if sqlite_data:
+            _insert_data_to_bq_table(bq_client, table_id, sqlite_data)
+            logger.info(
+                f"Inserted {len(sqlite_data)} records into BigQuery user_cohorts table"
+            )
+        else:
+            logger.info("No data to insert into BigQuery user_cohorts table")
+
+        logger.info("Successfully completed sync of user_cohorts table to BigQuery")
+        print("User Cohorts sync completed successfully!")
+
+    except Exception as e:
+        logger.error(f"Error syncing user_cohorts table to BigQuery: {str(e)}")
+        print(f"User Cohorts sync failed: {str(e)}")
+        raise
+
+
 async def _fetch_org_api_keys_from_sqlite() -> List[Dict[str, Any]]:
     """Fetch all records from SQLite org_api_keys table"""
     async with get_new_db_connection() as conn:
@@ -868,7 +956,7 @@ async def _fetch_chat_history_from_sqlite() -> List[Dict[str, Any]]:
 
         await cursor.execute(
             f"""
-            SELECT id, user_id, question_id, role, content, response_type, created_at 
+            SELECT id, user_id, question_id, task_id, role, content, response_type, created_at 
             FROM {chat_history_table_name}
             ORDER BY id
         """
@@ -884,10 +972,11 @@ async def _fetch_chat_history_from_sqlite() -> List[Dict[str, Any]]:
                     "id": row[0],
                     "user_id": row[1],
                     "question_id": row[2],
-                    "role": row[3],
-                    "content": row[4],
-                    "response_type": row[5],
-                    "created_at": row[6],
+                    "task_id": row[3],
+                    "role": row[4],
+                    "content": row[5],
+                    "response_type": row[6],
+                    "created_at": row[7],
                 }
             )
 
@@ -1006,6 +1095,78 @@ async def _fetch_questions_from_sqlite() -> List[Dict[str, Any]]:
         return data
 
 
+async def _fetch_assignment_from_sqlite() -> List[Dict[str, Any]]:
+    """Fetch all records from SQLite assignment table"""
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute(
+            f"""
+            SELECT id, task_id, blocks, input_type, response_type, context, 
+                   evaluation_criteria, max_attempts, settings, created_at, updated_at 
+            FROM {assignment_table_name}
+            WHERE deleted_at IS NULL
+            ORDER BY id
+        """
+        )
+
+        rows = await cursor.fetchall()
+
+        # Convert rows to list of dictionaries
+        data = []
+        for row in rows:
+            data.append(
+                {
+                    "id": row[0],
+                    "task_id": row[1],
+                    "blocks": row[2],
+                    "input_type": row[3],
+                    "response_type": row[4],
+                    "context": row[5],
+                    "evaluation_criteria": row[6],
+                    "max_attempts": row[7],
+                    "settings": row[8],
+                    "created_at": row[9],
+                    "updated_at": row[10],
+                }
+            )
+
+        return data
+
+
+async def _fetch_user_cohorts_from_sqlite() -> List[Dict[str, Any]]:
+    """Fetch all records from SQLite user_cohorts table"""
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        await cursor.execute(
+            f"""
+            SELECT id, user_id, cohort_id, role, joined_at, updated_at 
+            FROM {user_cohorts_table_name}
+            WHERE deleted_at IS NULL
+            ORDER BY id
+        """
+        )
+
+        rows = await cursor.fetchall()
+
+        # Convert rows to list of dictionaries
+        data = []
+        for row in rows:
+            data.append(
+                {
+                    "id": row[0],
+                    "user_id": row[1],
+                    "cohort_id": row[2],
+                    "role": row[3],
+                    "joined_at": row[4],
+                    "updated_at": row[5],
+                }
+            )
+
+        return data
+
+
 def _delete_all_from_bq_table(
     bq_client: bigquery.Client, table_id: str, has_created_at: bool = True
 ):
@@ -1077,6 +1238,8 @@ async def run_all_syncs():
         await sync_users_to_bigquery()
         await sync_tasks_to_bigquery()
         await sync_questions_to_bigquery()
+        await sync_assignment_to_bigquery()
+        await sync_user_cohorts_to_bigquery()
         print("All table syncs completed successfully!")
     except Exception as e:
         print(f"Table sync failed: {str(e)}")
