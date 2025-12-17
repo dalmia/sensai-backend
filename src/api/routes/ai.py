@@ -292,7 +292,7 @@ def build_evaluation_context_and_key_areas(
     key_areas_section = "".join(key_areas_section_parts)
 
     # Add overall scoring info from evaluation_criteria
-    evaluation_context += "\n\n**Overall Project Scoring:**\n"
+    evaluation_context += "\n\n**Overall Assignment Scoring:**\n"
     evaluation_context += (
         f"- Minimum Score: {evaluation_criteria.get('min_score', 0)}\n"
     )
@@ -863,9 +863,9 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 key_area_scores: Optional[Dict[str, KeyAreaScore]] = Field(description="Completed key area scores with detailed feedback", default={})
                 current_key_area: Optional[str] = Field(description="Current key area being evaluated")
             
-            # Output model for file submissions that includes project score
+            # Output model for file submissions that includes assignment score
             class FileSubmissionOutput(Output):
-                project_score: Optional[float] = Field(description="Project score assigned when evaluating initial file submission")
+                assignment_score: Optional[float] = Field(description="Assignment score assigned when evaluating initial file submission")
 
             # Get Langfuse prompt for assignment evaluation
             prompt = langfuse.get_prompt("assignment", type="chat", label="production")
