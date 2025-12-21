@@ -90,7 +90,7 @@ async def update_learning_material_task(
 
 @router.post("/{task_id}/quiz", response_model=QuizTask)
 async def update_draft_quiz(task_id: int, request: UpdateDraftQuizRequest) -> QuizTask:
-    result = await update_draft_quiz_in_db(
+    result, http_exception = await update_draft_quiz_in_db(
         task_id=task_id,
         title=request.title,
         questions=request.questions,
@@ -98,7 +98,7 @@ async def update_draft_quiz(task_id: int, request: UpdateDraftQuizRequest) -> Qu
         status=request.status,
     )
     if not result:
-        raise HTTPException(status_code=404, detail="Task not found")
+        raise http_exception
     return result
 
 

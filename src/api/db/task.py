@@ -29,6 +29,7 @@ from api.models import (
     TaskStatus,
     ScorecardStatus,
     LearningMaterialTask,
+    QuizTask,
     LeaderboardViewType,
     GenerateTaskJobStatus,
     TaskAIResponseType,
@@ -473,16 +474,25 @@ async def update_draft_quiz(
     questions: List[Dict],
     scheduled_publish_at: datetime,
     status: TaskStatus = TaskStatus.PUBLISHED,
-):
+) -> tuple[QuizTask | bool, None | HTTPException]:
     if not await does_task_exist(task_id):
-        return False
+        return False, HTTPException(status_code=404, detail="Task not found")
 
     task = await get_basic_task_details(task_id)
 
     if not task:
-        return False
+        return False, HTTPException(status_code=404, detail="Task not found")
 
     org_id = task["org_id"]
+
+    # Check if unpublishing the last task in the course
+    is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
+    is_last_task_in_course = None
+    if is_being_unpublished:
+        is_last_task_in_course = await is_last_published_task_for_the_course(task_id)
+
+    if is_being_unpublished and is_last_task_in_course:
+        return False, HTTPException(status_code=400, detail="Last task of the course cannot be unpublished")
 
     scorecard_uuid_to_id = {}
 
@@ -585,7 +595,7 @@ async def update_draft_quiz(
 
         await conn.commit()
 
-        return await get_task(task_id)
+        return await get_task(task_id), None
 
 
 async def update_published_quiz(
