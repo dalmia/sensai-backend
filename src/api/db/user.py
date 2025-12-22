@@ -253,6 +253,15 @@ async def get_user_by_id(user_id: str) -> Dict:
     return convert_user_db_to_dict(user)
 
 
+async def get_user_first_name(user_id: str) -> str:
+    user = await get_user_by_id(user_id)
+
+    if not user or not user["first_name"]:
+        return None
+
+    return user["first_name"]
+
+
 async def get_user_cohorts(user_id: int) -> List[Dict]:
     """Get all cohorts (and the groups in each cohort) that the user is a part of along with their role in each group"""
     results = await execute_db_operation(
