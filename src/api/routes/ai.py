@@ -729,11 +729,6 @@ async def ai_response_for_assignment(request: AIChatRequest):
                     detail="Task ID is required for assignment tasks",
                 )
 
-            # For first-time submissions (file uploads), chat_history might be empty
-            # We'll initialize it as empty if not provided
-            if request.chat_history is None:
-                request.chat_history = []
-
             # Get assignment data
             task = await get_task(request.task_id)
             if not task:
@@ -747,6 +742,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
             assignment = task["assignment"]
             problem_blocks = assignment["blocks"]
             evaluation_criteria = assignment["evaluation_criteria"]
+
             if not evaluation_criteria:
                 raise HTTPException(
                     status_code=400,
@@ -760,10 +756,10 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 )
 
             context = assignment.get("context")
-            input_type = assignment.get("input_type", "text")
 
             # Get scorecard for evaluation
             scorecard = await get_scorecard(evaluation_criteria["scorecard_id"])
+
             if not scorecard:
                 raise HTTPException(
                     status_code=400,
@@ -771,9 +767,14 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 )
 
             # Get chat history for this assignment
-            # Use request.chat_history if provided (for testing), otherwise fetch from database
+            # Use request.chat_history if provided (for preview mode), otherwise fetch from database
             if request.chat_history:
                 chat_history = request.chat_history
+
+                if chat_history is None:
+                    # For first-time submissions (file uploads), chat_history might be empty
+                    # We'll initialize it as empty if not provided
+                    chat_history = []
             else:
                 chat_history = await get_task_chat_history_for_user(
                     request.task_id, request.user_id
@@ -811,6 +812,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
 
             # Handle file submission - extract code
             submission_data = None
+
             if request.response_type == ChatResponseType.FILE:
                 submission_data = extract_submission_file(request.user_response)
             else:
@@ -904,7 +906,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
             # Base output model for all phases
             class Output(BaseModel):
                 chain_of_thought: str = Field(
-                    description="Concise analysis of the student's response and what the evaluation should be"
+                    description="Concise analysis of the student's response to the question asked and what the evaluation result should be"
                 )
                 feedback: Optional[str] = Field(
                     description="A single, comprehensive summary based on the scoring criteria; address the student by name if their name has been provided.",
@@ -922,6 +924,9 @@ async def ai_response_for_assignment(request: AIChatRequest):
 
             # Output model for file submissions that includes project score
             class FileSubmissionOutput(Output):
+                chain_of_thought: str = Field(
+                    description="Concise analysis of the student's submission to the assignment and what the evaluation result should be"
+                )
                 assignment_score: Optional[float] = Field(
                     description="Assignment score assigned when evaluating initial file submission"
                 )
@@ -936,17 +941,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 user_details=user_details,
             )
 
-            # Compile the prompt with assignment details and evaluation criteria
-            if request.response_type == ChatResponseType.AUDIO:
-                # For audio responses, build messages audio content
-                # Add chat history with audio content
-                for message in full_chat_history:
-                    messages.append(
-                        {"role": message["role"], "content": message["content"]}
-                    )
-            else:
-                # For text responses, add chat history
-                messages += full_chat_history
+            messages += full_chat_history
 
             # Build input for metadata
             llm_input = f"""`Assignment Details`:\n\n{assignment_details}\n\n`Chat History`:\n\n{format_chat_history_with_audio(full_chat_history)}"""
