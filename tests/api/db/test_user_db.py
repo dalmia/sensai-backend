@@ -18,6 +18,7 @@ from src.api.db.user import (
     get_user_active_in_last_n_days,
     get_user_activity_for_year,
     get_user_streak,
+    get_user_first_name,
 )
 
 
@@ -123,6 +124,70 @@ class TestUserDatabaseOperations:
             (999,),
             fetch_one=True,
         )
+
+    @patch("src.api.db.user.get_user_by_id")
+    async def test_get_user_first_name_success(self, mock_get_user_by_id):
+        """Test successful retrieval of user first name."""
+        mock_get_user_by_id.return_value = {
+            "id": 1,
+            "email": "test@example.com",
+            "first_name": "John",
+            "middle_name": "William",
+            "last_name": "Doe",
+            "default_dp_color": "#FF5733",
+            "created_at": "2023-01-01 12:00:00",
+        }
+
+        result = await get_user_first_name("1")
+
+        assert result == "John"
+        mock_get_user_by_id.assert_called_once_with("1")
+
+    @patch("src.api.db.user.get_user_by_id")
+    async def test_get_user_first_name_user_not_found(self, mock_get_user_by_id):
+        """Test get_user_first_name when user doesn't exist."""
+        mock_get_user_by_id.return_value = None
+
+        result = await get_user_first_name("999")
+
+        assert result is None
+        mock_get_user_by_id.assert_called_once_with("999")
+
+    @patch("src.api.db.user.get_user_by_id")
+    async def test_get_user_first_name_no_first_name(self, mock_get_user_by_id):
+        """Test get_user_first_name when user exists but has no first_name."""
+        mock_get_user_by_id.return_value = {
+            "id": 1,
+            "email": "test@example.com",
+            "first_name": None,
+            "middle_name": None,
+            "last_name": "Doe",
+            "default_dp_color": "#FF5733",
+            "created_at": "2023-01-01 12:00:00",
+        }
+
+        result = await get_user_first_name("1")
+
+        assert result is None
+        mock_get_user_by_id.assert_called_once_with("1")
+
+    @patch("src.api.db.user.get_user_by_id")
+    async def test_get_user_first_name_empty_first_name(self, mock_get_user_by_id):
+        """Test get_user_first_name when user exists but first_name is empty string."""
+        mock_get_user_by_id.return_value = {
+            "id": 1,
+            "email": "test@example.com",
+            "first_name": "",
+            "middle_name": None,
+            "last_name": "Doe",
+            "default_dp_color": "#FF5733",
+            "created_at": "2023-01-01 12:00:00",
+        }
+
+        result = await get_user_first_name("1")
+
+        assert result is None
+        mock_get_user_by_id.assert_called_once_with("1")
 
     @patch("src.api.db.user.execute_db_operation")
     async def test_get_user_by_email_success(self, mock_execute):

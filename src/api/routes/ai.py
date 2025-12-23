@@ -1,7 +1,7 @@
 import os
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from typing import AsyncGenerator, Optional, List, Dict
+from typing import AsyncGenerator, Optional, Dict
 import json
 from copy import deepcopy
 from pydantic import BaseModel, Field, create_model
@@ -23,7 +23,10 @@ from api.db.task import (
     get_task,
     get_scorecard,
 )
-from api.db.chat import get_question_chat_history_for_user, get_task_chat_history_for_user
+from api.db.chat import (
+    get_question_chat_history_for_user,
+    get_task_chat_history_for_user,
+)
 from api.db.utils import construct_description_from_blocks
 from api.utils.s3 import (
     download_file_from_s3_as_bytes,
@@ -31,11 +34,14 @@ from api.utils.s3 import (
 )
 from api.utils.audio import prepare_audio_input_for_ai
 from api.utils.file_analysis import extract_submission_file
+from api.db.user import get_user_first_name
 from langfuse import get_client, observe
 
 router = APIRouter()
 
 langfuse = get_client()
+
+LANGFUSE_PROMPT_LABEL = settings.langfuse_tracing_environment
 
 
 def convert_chat_history_to_prompt(chat_history: list[dict]) -> str:
@@ -102,7 +108,9 @@ async def rewrite_query(
     is_root_trace: bool = False,
 ):
     # rewrite query
-    prompt = langfuse.get_prompt("rewrite-query", type="chat", label="production")
+    prompt = langfuse.get_prompt(
+        "rewrite-query", type="chat", label=LANGFUSE_PROMPT_LABEL
+    )
 
     messages = prompt.compile(
         chat_history=convert_chat_history_to_prompt(chat_history),
@@ -168,7 +176,7 @@ async def get_model_for_task(
             description="Whether to use a reasoning model to evaluate the student's response"
         )
 
-    prompt = langfuse.get_prompt("router", type="chat", label="production")
+    prompt = langfuse.get_prompt("router", type="chat", label=LANGFUSE_PROMPT_LABEL)
 
     messages = prompt.compile(
         task_details=question_details,
@@ -299,9 +307,7 @@ def build_evaluation_context_and_key_areas(
     evaluation_context += (
         f"- Maximum Score: {evaluation_criteria.get('max_score', 100)}\n"
     )
-    evaluation_context += (
-        f"- Pass Score: {evaluation_criteria.get('pass_score', 60)}\n"
-    )
+    evaluation_context += f"- Pass Score: {evaluation_criteria.get('pass_score', 60)}\n"
 
     return evaluation_context, key_areas_section
 
@@ -337,6 +343,15 @@ def get_ai_message_for_chat_history(ai_message: dict) -> str:
     return f"""Feedback:\n```\n{message['feedback']}\n```\n\nScorecard:\n```\n{scorecard_as_prompt}\n```"""
 
 
+async def get_user_details_for_prompt(user_id: str) -> str:
+    user_first_name = await get_user_first_name(user_id)
+
+    if not user_first_name:
+        return ""
+
+    return f"Name: {user_first_name}"
+
+
 @router.post("/chat")
 async def ai_response_for_question(request: AIChatRequest):
     # Define an async generator for streaming
@@ -349,6 +364,8 @@ async def ai_response_for_question(request: AIChatRequest):
                 "user_id": request.user_id,
                 "user_email": request.user_email,
             }
+
+            user_details = await get_user_details_for_prompt(request.user_id)
 
             if request.task_type == TaskType.QUIZ:
                 if request.question_id is None and request.question is None:
@@ -478,7 +495,10 @@ async def ai_response_for_question(request: AIChatRequest):
 
             for message in chat_history:
                 if message["role"] == "user":
-                    if request.response_type == ChatResponseType.AUDIO and message.get("response_type") == ChatResponseType.AUDIO:
+                    if (
+                        request.response_type == ChatResponseType.AUDIO
+                        and message.get("response_type") == ChatResponseType.AUDIO
+                    ):
                         message["content"] = get_user_audio_message_for_chat_history(
                             message["content"]
                         )
@@ -533,7 +553,7 @@ async def ai_response_for_question(request: AIChatRequest):
                             description="A detailed analysis of the student's response"
                         )
                         feedback: str = Field(
-                            description="Feedback on the student's response; add newline characters to the feedback to make it more readable where necessary"
+                            description="Feedback on the student's response; add newline characters to the feedback to make it more readable where necessary; address the student by name if their name has been provided."
                         )
                         is_correct: bool = Field(
                             description="Whether the student's response correctly solves the original task that the student is supposed to solve. For this to be true, the original task needs to be completely solved and not just partially solved. Giving the right answer to one step of the task does not count as solving the entire task."
@@ -583,18 +603,21 @@ async def ai_response_for_question(request: AIChatRequest):
                     )
 
                     class Output(BaseModel):
+                        chain_of_thought: str = Field(
+                            description="Concise analysis of the student's response and what the scorecard should be."
+                        )
                         feedback: str = Field(
-                            description="A single, comprehensive summary based on the scoring criteria"
+                            description="A single, comprehensive summary based on the scoring criteria; address the student by name if their name has been provided."
                         )
                         scorecard: Optional[Scorecard] = Field(
-                            description="score and feedback for each criterion from the scoring criteria; only include this in the response if the student's response is a valid response to the task"
+                            description="Score and feedback for each criterion from the scoring criteria; only include this in the response if the student's response is a valid response to the task"
                         )
 
             else:
 
                 class Output(BaseModel):
                     response: str = Field(
-                        description="Response to the student's query; add proper formatting to the response to make it more readable where necessary"
+                        description="Response to the student's query; add proper formatting to the response to make it more readable where necessary; address the student by name if their name has been provided."
                     )
 
             if request.task_type == TaskType.QUIZ:
@@ -613,17 +636,19 @@ async def ai_response_for_question(request: AIChatRequest):
                     prompt_name = "subjective-question"
 
                 prompt = langfuse.get_prompt(
-                    prompt_name, type="chat", label="production"
+                    prompt_name, type="chat", label=LANGFUSE_PROMPT_LABEL
                 )
                 messages = prompt.compile(
                     task_details=question_details,
+                    user_details=user_details,
                 )
             else:
                 prompt = langfuse.get_prompt(
-                    "doubt_solving", type="chat", label="production"
+                    "doubt_solving", type="chat", label=LANGFUSE_PROMPT_LABEL
                 )
                 messages = prompt.compile(
                     reference_material=question_details,
+                    user_details=user_details,
                 )
 
             messages += chat_history
@@ -691,6 +716,8 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 "user_email": request.user_email,
             }
 
+            user_details = await get_user_details_for_prompt(request.user_id)
+
             # Validate required fields for assignment
             if request.task_id is None:
                 raise HTTPException(
@@ -709,13 +736,10 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 raise HTTPException(status_code=404, detail="Task not found")
 
             if task["type"] != TaskType.ASSIGNMENT:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Task is not an assignment"
-                )
+                raise HTTPException(status_code=400, detail="Task is not an assignment")
 
             metadata["task_title"] = task["title"]
-            
+
             assignment = task["assignment"]
             problem_blocks = assignment["blocks"]
             evaluation_criteria = assignment["evaluation_criteria"]
@@ -768,7 +792,7 @@ async def ai_response_for_assignment(request: AIChatRequest):
                     ),
                 }
             ]
-            
+
             # Build problem statement from blocks
             problem_statement = construct_description_from_blocks(problem_blocks)
 
@@ -778,33 +802,41 @@ async def ai_response_for_assignment(request: AIChatRequest):
                 submission_data = extract_submission_file(request.user_response)
 
             # Build evaluation context with key areas from scorecard
-            evaluation_context, key_areas_section = build_evaluation_context_and_key_areas(
-                scorecard, evaluation_criteria
+            evaluation_context, key_areas_section = (
+                build_evaluation_context_and_key_areas(scorecard, evaluation_criteria)
             )
 
             # Build context with linked materials if available
             knowledge_base = await build_knowledge_base_from_context(context)
 
             # Build the complete assignment context
-            assignment_details = f"<Problem Statement>\n{problem_statement}\n</Problem Statement>"
-            
+            assignment_details = (
+                f"<Problem Statement>\n{problem_statement}\n</Problem Statement>"
+            )
+
             # Add Key Areas from scorecard
             if key_areas_section:
                 assignment_details += key_areas_section
-            
+
             if evaluation_context:
                 assignment_details += f"\n\n<Evaluation Criteria>\n{evaluation_context}\n</Evaluation Criteria>"
-            
+
             if knowledge_base:
-                assignment_details += f"\n\n<Knowledge Base>\n{knowledge_base}\n</Knowledge Base>"
+                assignment_details += (
+                    f"\n\n<Knowledge Base>\n{knowledge_base}\n</Knowledge Base>"
+                )
 
             # Add submission data for file uploads
             if submission_data:
                 assignment_details += f"\n\n<Student Submission Data>\n"
-                assignment_details += f"**Files Extracted:** {submission_data['extracted_files_count']}\n"
+                assignment_details += (
+                    f"**Files Extracted:** {submission_data['extracted_files_count']}\n"
+                )
                 assignment_details += f"\n**File Contents:**\n"
-                for filename, content in submission_data['file_contents'].items():
-                    assignment_details += f"\n--- {filename} ---\n{content}\n--- End of {filename} ---\n"
+                for filename, content in submission_data["file_contents"].items():
+                    assignment_details += (
+                        f"\n--- {filename} ---\n{content}\n--- End of {filename} ---\n"
+                    )
                 assignment_details += f"</Student Submission Data>"
 
             # Build full chat history
@@ -819,7 +851,10 @@ async def ai_response_for_assignment(request: AIChatRequest):
             # Process chat history for audio content if needed
             if request.response_type == ChatResponseType.AUDIO:
                 for message in full_chat_history:
-                    if message["role"] == "user" and message.get("response_type") == ChatResponseType.AUDIO:
+                    if (
+                        message["role"] == "user"
+                        and message.get("response_type") == ChatResponseType.AUDIO
+                    ):
                         message["content"] = get_user_audio_message_for_chat_history(
                             message["content"]
                         )
@@ -858,64 +893,49 @@ async def ai_response_for_assignment(request: AIChatRequest):
 
             # Base output model for all phases
             class Output(BaseModel):
-                feedback: Optional[str] = Field(description="Current feedback and response", default="")
-                evaluation_status: Optional[str] = Field(description="in_progress, needs_resubmission, or completed", default="in_progress")
-                key_area_scores: Optional[Dict[str, KeyAreaScore]] = Field(description="Completed key area scores with detailed feedback", default={})
-                current_key_area: Optional[str] = Field(description="Current key area being evaluated")
-            
-            # Output model for file submissions that includes assignment score
+                chain_of_thought: str = Field(
+                    description="Concise analysis of the student's response and what the evaluation should be"
+                )
+                feedback: Optional[str] = Field(
+                    description="A single, comprehensive summary based on the scoring criteria; address the student by name if their name has been provided.",
+                )
+                evaluation_status: Optional[str] = Field(
+                    description="The status of the evaluation; can be `in_progress`, `needs_resubmission`, or `completed`",
+                )
+                key_area_scores: Optional[Dict[str, KeyAreaScore]] = Field(
+                    description="Completed key area scores with detailed feedback",
+                    default={},
+                )
+                current_key_area: Optional[str] = Field(
+                    description="Current key area being evaluated"
+                )
+
+            # Output model for file submissions that includes project score
             class FileSubmissionOutput(Output):
-                assignment_score: Optional[float] = Field(description="Assignment score assigned when evaluating initial file submission")
+                assignment_score: Optional[float] = Field(
+                    description="Assignment score assigned when evaluating initial file submission"
+                )
 
             # Get Langfuse prompt for assignment evaluation
-            prompt = langfuse.get_prompt("assignment", type="chat", label="production")
-            
-            # Extract evaluation criteria values for dynamic prompt
-            min_score = evaluation_criteria.get('min_score', 0) if evaluation_criteria else 0
-            max_score = evaluation_criteria.get('max_score', 100) if evaluation_criteria else 100
-            pass_score = evaluation_criteria.get('pass_score', 60) if evaluation_criteria else 60
-            
+            prompt = langfuse.get_prompt(
+                "assignment", type="chat", label=LANGFUSE_PROMPT_LABEL
+            )
+
+            messages = prompt.compile(
+                assignment_details=assignment_details,
+                user_details=user_details,
+            )
+
             # Compile the prompt with assignment details and evaluation criteria
             if request.response_type == ChatResponseType.AUDIO:
-                # For audio responses, build messages with compiled prompt and audio content
-                messages = prompt.compile(
-                    assignment_details=assignment_details,
-                    min_score=min_score,
-                    max_score=max_score,
-                    pass_score=pass_score
-                )
-                
-                # Replace placeholders if they exist
-                for msg in messages:
-                    if isinstance(msg.get("content"), str):
-                        msg["content"] = msg["content"].replace("{assignment_details}", assignment_details)
-                        msg["content"] = msg["content"].replace("{min_score}", str(min_score))
-                        msg["content"] = msg["content"].replace("{max_score}", str(max_score))
-                        msg["content"] = msg["content"].replace("{pass_score}", str(pass_score))
-                
+                # For audio responses, build messages audio content
                 # Add chat history with audio content
                 for message in full_chat_history:
-                    messages.append({
-                        "role": message["role"],
-                        "content": message["content"]
-                    })
+                    messages.append(
+                        {"role": message["role"], "content": message["content"]}
+                    )
             else:
-                # For text responses, compile prompt with assignment details and add chat history
-                messages = prompt.compile(
-                    assignment_details=assignment_details,
-                    min_score=min_score,
-                    max_score=max_score,
-                    pass_score=pass_score
-                )
-                
-                # Replace placeholders if they exist
-                for msg in messages:
-                    if isinstance(msg.get("content"), str):
-                        msg["content"] = msg["content"].replace("{assignment_details}", assignment_details)
-                        msg["content"] = msg["content"].replace("{min_score}", str(min_score))
-                        msg["content"] = msg["content"].replace("{max_score}", str(max_score))
-                        msg["content"] = msg["content"].replace("{pass_score}", str(pass_score))
-                
+                # For text responses, add chat history
                 messages += full_chat_history
 
             # Build input for metadata
@@ -923,14 +943,18 @@ async def ai_response_for_assignment(request: AIChatRequest):
             response_metadata = {
                 "input": llm_input,
             }
-            
+
             metadata.update(response_metadata)
 
             llm_output = ""
-            
+
             # Use FileSubmissionOutput for file submissions, otherwise use base Output
-            response_model = FileSubmissionOutput if request.response_type == ChatResponseType.FILE else Output
-            
+            response_model = (
+                FileSubmissionOutput
+                if request.response_type == ChatResponseType.FILE
+                else Output
+            )
+
             # Process streaming response with Langfuse observation
             with langfuse.start_as_current_observation(
                 as_type="generation", name="response", prompt=prompt
