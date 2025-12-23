@@ -57,6 +57,29 @@ def convert_chat_history_to_prompt(chat_history: list[dict]) -> str:
     )
 
 
+def get_latest_file_uuid_from_chat_history(chat_history: list[dict]) -> Optional[str]:
+    """
+    Extract the latest file_uuid from chat history.
+    """
+    if not chat_history:
+        return None
+
+    # Iterate through chat history in reverse to find the latest file submission
+    for message in reversed(chat_history):
+        if message.get("role") == "user":
+            content = message.get("content", "")
+            if isinstance(content, str):
+                try:
+                    # Try to parse as JSON to check if it's a file submission
+                    file_data = json.loads(content)
+                    if isinstance(file_data, dict) and "file_uuid" in file_data:
+                        return file_data["file_uuid"]
+                except (json.JSONDecodeError, TypeError):
+                    # Not a JSON string, continue
+                    continue
+    return None
+
+
 def format_chat_history_with_audio(chat_history: list[dict]) -> str:
     chat_history = deepcopy(chat_history)
 
@@ -277,30 +300,11 @@ def convert_scorecard_to_prompt(scorecard: list[dict]) -> str:
     return "\n\n".join(scoring_criteria_as_prompt)
 
 
-def build_evaluation_context_and_key_areas(
-    scorecard: dict, evaluation_criteria: dict
-) -> tuple[str, str]:
+def build_evaluation_context(evaluation_criteria: dict) -> str:
     """
-    Build evaluation context string and key areas list from scorecard and criteria.
+    Build evaluation context string with overall scoring info.
     """
-    evaluation_context = convert_scorecard_to_prompt(scorecard)
-
-    # Build Key Areas section text from scorecard criteria
-    key_areas_section_parts: list[str] = []
-    if scorecard.get("criteria"):
-        key_areas_section_parts.append("\n\n<Key Areas>\n")
-        for i, criterion in enumerate(scorecard["criteria"], 1):
-            key_areas_section_parts.append(
-                f"{i}. **{criterion['name']}**\n"
-                f"   Description: {criterion['description']}\n"
-                f"   Scoring: {criterion['min_score']}-{criterion['max_score']} "
-                f"(Pass: {criterion.get('pass_score', criterion['max_score'])})\n\n"
-            )
-        key_areas_section_parts.append("</Key Areas>")
-    key_areas_section = "".join(key_areas_section_parts)
-
-    # Add overall scoring info from evaluation_criteria
-    evaluation_context += "\n\n**Overall Assignment Scoring:**\n"
+    evaluation_context = "**Overall Assignment Scoring:**\n"
     evaluation_context += (
         f"- Minimum Score: {evaluation_criteria.get('min_score', 0)}\n"
     )
@@ -309,7 +313,7 @@ def build_evaluation_context_and_key_areas(
     )
     evaluation_context += f"- Pass Score: {evaluation_criteria.get('pass_score', 60)}\n"
 
-    return evaluation_context, key_areas_section
+    return evaluation_context
 
 
 async def build_knowledge_base_from_context(context: dict) -> str:
@@ -796,49 +800,6 @@ async def ai_response_for_assignment(request: AIChatRequest):
             # Build problem statement from blocks
             problem_statement = construct_description_from_blocks(problem_blocks)
 
-            # Handle file submission - extract code
-            submission_data = None
-            if request.response_type == ChatResponseType.FILE:
-                submission_data = extract_submission_file(request.user_response)
-
-            # Build evaluation context with key areas from scorecard
-            evaluation_context, key_areas_section = (
-                build_evaluation_context_and_key_areas(scorecard, evaluation_criteria)
-            )
-
-            # Build context with linked materials if available
-            knowledge_base = await build_knowledge_base_from_context(context)
-
-            # Build the complete assignment context
-            assignment_details = (
-                f"<Problem Statement>\n{problem_statement}\n</Problem Statement>"
-            )
-
-            # Add Key Areas from scorecard
-            if key_areas_section:
-                assignment_details += key_areas_section
-
-            if evaluation_context:
-                assignment_details += f"\n\n<Evaluation Criteria>\n{evaluation_context}\n</Evaluation Criteria>"
-
-            if knowledge_base:
-                assignment_details += (
-                    f"\n\n<Knowledge Base>\n{knowledge_base}\n</Knowledge Base>"
-                )
-
-            # Add submission data for file uploads
-            if submission_data:
-                assignment_details += f"\n\n<Student Submission Data>\n"
-                assignment_details += (
-                    f"**Files Extracted:** {submission_data['extracted_files_count']}\n"
-                )
-                assignment_details += f"\n**File Contents:**\n"
-                for filename, content in submission_data["file_contents"].items():
-                    assignment_details += (
-                        f"\n--- {filename} ---\n{content}\n--- End of {filename} ---\n"
-                    )
-                assignment_details += f"</Student Submission Data>"
-
             # Build full chat history
             if request.response_type == ChatResponseType.FILE:
                 # For file uploads, include only the new user message with file_uuid
@@ -847,6 +808,55 @@ async def ai_response_for_assignment(request: AIChatRequest):
             else:
                 # This branch is triggered when a learner answers questions about the assignment with text or audio
                 full_chat_history = formatted_chat_history + new_user_message
+
+            # Handle file submission - extract code
+            submission_data = None
+            if request.response_type == ChatResponseType.FILE:
+                submission_data = extract_submission_file(request.user_response)
+            else:
+                # Not a file upload, check chat history for latest file submission
+                latest_file_uuid = get_latest_file_uuid_from_chat_history(
+                    full_chat_history
+                )
+
+                if latest_file_uuid:
+                    submission_data = extract_submission_file(latest_file_uuid)
+
+            # Build evaluation context
+            evaluation_context = build_evaluation_context(evaluation_criteria)
+
+            # Build Key Areas section from scorecard
+            key_areas_section = f"\n\n<Key Areas>\n\n{convert_scorecard_to_prompt(scorecard)}\n\n</Key Areas>"
+
+            # Build context with linked materials if available
+            knowledge_base = await build_knowledge_base_from_context(context)
+
+            # Build the complete assignment context
+            assignment_details = (
+                f"<Problem Statement>\n\n{problem_statement}\n\n</Problem Statement>"
+            )
+
+            # Add Key Areas from scorecard
+            if key_areas_section:
+                assignment_details += key_areas_section
+
+            if evaluation_context:
+                assignment_details += f"\n\n<Evaluation Criteria>\n\n{evaluation_context}\n\n</Evaluation Criteria>"
+
+            if knowledge_base:
+                assignment_details += (
+                    f"\n\n<Knowledge Base>\n\n{knowledge_base}\n\n</Knowledge Base>"
+                )
+
+            # Add submission data for file uploads
+            if submission_data:
+                assignment_details += f"\n\n<Student Submission Data>"
+                assignment_details += f"\n\n**File Contents:**\n"
+                for filename, content in submission_data["file_contents"].items():
+                    assignment_details += (
+                        f"\n--- {filename} ---\n{content}\n--- End of {filename} ---\n"
+                    )
+                assignment_details += f"\n\n</Student Submission Data>"
 
             # Process chat history for audio content if needed
             if request.response_type == ChatResponseType.AUDIO:
