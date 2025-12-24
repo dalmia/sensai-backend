@@ -24,7 +24,7 @@ from api.config import (
     task_generation_jobs_table_name,
     code_drafts_table_name,
     integrations_table_name,
-    assignment_table_name
+    assignment_table_name,
 )
 
 
@@ -173,22 +173,32 @@ async def create_bq_sync_table_migration():
 async def recreate_chat_history_table():
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-        await cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (chat_history_table_name,))
+        await cursor.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+            (chat_history_table_name,),
+        )
         if not await cursor.fetchone():
             from api.db import create_chat_history_table
+
             await create_chat_history_table(cursor)
             await conn.commit()
             return
 
-        await cursor.execute(f"SELECT id, user_id, question_id, role, content, response_type, created_at, updated_at, deleted_at FROM {chat_history_table_name}")
+        await cursor.execute(
+            f"SELECT id, user_id, question_id, role, content, response_type, created_at, updated_at, deleted_at FROM {chat_history_table_name}"
+        )
         rows = await cursor.fetchall()
 
         await cursor.execute(f"DROP TABLE IF EXISTS {chat_history_table_name}")
         from api.db import create_chat_history_table
+
         await create_chat_history_table(cursor)
 
         if rows:
-            values = [(r[0], r[1], r[2], None, r[3], r[4], r[5], r[6], r[7], r[8]) for r in rows]
+            values = [
+                (r[0], r[1], r[2], None, r[3], r[4], r[5], r[6], r[7], r[8])
+                for r in rows
+            ]
             await cursor.executemany(
                 f"INSERT INTO {chat_history_table_name} (id, user_id, question_id, task_id, role, content, response_type, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 values,
@@ -203,7 +213,7 @@ async def create_assignment_table_migration():
     """
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-        
+
         # Check if table exists
         await cursor.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
@@ -211,6 +221,7 @@ async def create_assignment_table_migration():
         )
         if not await cursor.fetchone():
             from api.db import create_assignment_table
+
             await create_assignment_table(cursor)
 
         # Ensure updated_at is maintained on updates
@@ -228,12 +239,9 @@ async def create_assignment_table_migration():
             END;
             """
         )
-        
+
         await conn.commit()
 
 
 async def run_migrations():
-    await add_missing_timestamp_columns()
-    await create_bq_sync_table_migration()
-    await recreate_chat_history_table()
-    await create_assignment_table_migration()
+    pass
