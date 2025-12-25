@@ -1,4 +1,5 @@
 from typing import Tuple, List, Dict, Optional
+from fastapi import HTTPException
 import json
 from datetime import datetime, timedelta, timezone
 import uuid
@@ -28,6 +29,7 @@ from api.models import (
     TaskStatus,
     ScorecardStatus,
     LearningMaterialTask,
+    QuizTask,
     LeaderboardViewType,
     GenerateTaskJobStatus,
     TaskAIResponseType,
@@ -379,6 +381,54 @@ async def upsert_question(cursor, question: Dict, task_id: int, position: int) -
 
     return question_id
 
+async def is_last_published_task_for_the_course(task_id: int) -> bool:
+    # Get course_id for the corresponding task_id from course_tasks table
+    # Get count of tasks for the course_id from course_tasks table
+    # If the count is >1 return False; else True
+
+
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Get course_id for the corresponding task_id from course_tasks table
+        await cursor.execute(
+            f"SELECT course_id FROM {course_tasks_table_name} WHERE task_id = ?",
+            (task_id,),
+        )
+        result = await cursor.fetchone()
+        course_id = result[0]
+
+        # Get count of published tasks for the course
+        await cursor.execute(
+            f"""SELECT COUNT(status) FROM {tasks_table_name} WHERE
+            id IN (SELECT task_id FROM {course_tasks_table_name} WHERE course_id = ? AND deleted_at IS NULL) AND
+            status = 'published'
+            """,# "deleted_at IS NULL" is used in this query since we don't want to include deleted tasks
+            (course_id,),
+        )
+        result = await cursor.fetchone()
+        total_published_task_count_for_the_course = result[0]
+
+
+        return total_published_task_count_for_the_course <= 1
+
+async def is_task_being_unpublished(task_id: int, desired_task_status: TaskStatus) -> bool:
+
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Get current task status
+        await cursor.execute(
+            f"SELECT status FROM {tasks_table_name} WHERE id = ?",
+            (task_id,),
+        )
+        result = await cursor.fetchone()
+        current_task_status = result[0]
+
+        # If current_task_status is PUBLISHED and desired_task_status is DRAFT return True; else False
+        if current_task_status == TaskStatus.PUBLISHED and desired_task_status == TaskStatus.DRAFT:
+            return True
+        return False
 
 async def update_learning_material_task(
     task_id: int,
@@ -386,9 +436,17 @@ async def update_learning_material_task(
     blocks: List[Dict],
     scheduled_publish_at: datetime,
     status: TaskStatus = TaskStatus.PUBLISHED,
-) -> LearningMaterialTask:
+) -> tuple[LearningMaterialTask | bool, None | HTTPException]:
     if not await does_task_exist(task_id):
-        return False
+        return False, HTTPException(status_code=404, detail="Task not found")
+
+    is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
+    is_last_task_in_course = None
+    if is_being_unpublished:                        # This if condition here will reduce the number of DB queries made
+        is_last_task_in_course = await is_last_published_task_for_the_course(task_id)
+    
+    if is_being_unpublished and is_last_task_in_course:
+        return False, HTTPException(status_code=400, detail="Last task of the course cannot be unpublished")
 
     # Execute all operations in a single transaction
     async with get_new_db_connection() as conn:
@@ -407,7 +465,7 @@ async def update_learning_material_task(
 
         await conn.commit()
 
-        return await get_task(task_id)
+        return await get_task(task_id), None
 
 
 async def update_draft_quiz(
@@ -416,16 +474,25 @@ async def update_draft_quiz(
     questions: List[Dict],
     scheduled_publish_at: datetime,
     status: TaskStatus = TaskStatus.PUBLISHED,
-):
+) -> tuple[QuizTask | bool, None | HTTPException]:
     if not await does_task_exist(task_id):
-        return False
+        return False, HTTPException(status_code=404, detail="Task not found")
 
     task = await get_basic_task_details(task_id)
 
     if not task:
-        return False
+        return False, HTTPException(status_code=404, detail="Task not found")
 
     org_id = task["org_id"]
+
+    # Check if unpublishing the last task in the course
+    is_being_unpublished = await is_task_being_unpublished(task_id, desired_task_status=status)
+    is_last_task_in_course = None
+    if is_being_unpublished:
+        is_last_task_in_course = await is_last_published_task_for_the_course(task_id)
+
+    if is_being_unpublished and is_last_task_in_course:
+        return False, HTTPException(status_code=400, detail="Last task of the course cannot be unpublished")
 
     scorecard_uuid_to_id = {}
 
@@ -528,7 +595,7 @@ async def update_draft_quiz(
 
         await conn.commit()
 
-        return await get_task(task_id)
+        return await get_task(task_id), None
 
 
 async def update_published_quiz(
