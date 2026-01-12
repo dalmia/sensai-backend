@@ -245,6 +245,7 @@ class TaskInputType(Enum):
     CODE = "code"
     TEXT = "text"
     AUDIO = "audio"
+    FILE = "file"
 
     def __str__(self):
         return self.value
