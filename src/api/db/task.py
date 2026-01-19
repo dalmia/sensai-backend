@@ -581,23 +581,23 @@ async def update_published_quiz(
                 existing_mapping = await cursor.fetchone()
 
                 if existing_mapping:
-                    # Update existing mapping
+                    # Soft delete OTHER existing mappings
                     await cursor.execute(
-                        f"UPDATE {question_scorecards_table_name} SET scorecard_id = ? WHERE question_id = ?",
-                        (question["scorecard_id"], question["id"]),
-                    )
-                else:
-                    # Insert new mapping
-                    await cursor.execute(
-                        f"""
-                        INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id)
-                        VALUES (?, ?)
-                        ON CONFLICT(question_id, scorecard_id) DO UPDATE SET
-                            deleted_at = NULL,
-                            updated_at = CURRENT_TIMESTAMP
-                        """,
+                        f"UPDATE {question_scorecards_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND scorecard_id != ? AND deleted_at IS NULL",
                         (question["id"], question["scorecard_id"]),
                     )
+
+                # Insert new mapping
+                await cursor.execute(
+                    f"""
+                    INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id)
+                    VALUES (?, ?)
+                    ON CONFLICT(question_id, scorecard_id) DO UPDATE SET
+                        deleted_at = NULL,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (question["id"], question["scorecard_id"]),
+                )
 
                 await cursor.execute(
                     f"SELECT id FROM {scorecards_table_name} WHERE id = ? AND status = ?",
