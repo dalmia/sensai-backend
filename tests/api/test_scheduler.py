@@ -8,6 +8,7 @@ from src.api.scheduler import (
     # daily_traces,
     check_memory,
     ist_timezone,
+    with_error_reporting,
 )
 
 
@@ -26,6 +27,71 @@ class TestSchedulerConfiguration:
 
         assert isinstance(scheduler, AsyncIOScheduler)
         assert scheduler.timezone == ist_timezone
+
+
+@pytest.mark.asyncio
+class TestErrorReportingDecorator:
+    """Test the with_error_reporting decorator."""
+
+    @patch("src.api.scheduler.bugsnag")
+    @patch("src.api.scheduler.settings")
+    async def test_with_error_reporting_with_bugsnag_enabled(
+        self, mock_settings, mock_bugsnag
+    ):
+        """Test decorator reports to Bugsnag when API key is set - covers lines 27-30."""
+        # Setup mock settings
+        mock_settings.bugsnag_api_key = "test_api_key"
+
+        # Create a test function that raises an exception
+        @with_error_reporting("test_context")
+        async def failing_function():
+            raise ValueError("Test error")
+
+        # Verify the exception is raised and Bugsnag is notified
+        with pytest.raises(ValueError, match="Test error"):
+            await failing_function()
+
+        # Verify bugsnag.notify was called with the exception and context
+        mock_bugsnag.notify.assert_called_once()
+        call_args = mock_bugsnag.notify.call_args
+        assert isinstance(call_args[0][0], ValueError)
+        assert str(call_args[0][0]) == "Test error"
+        assert call_args[1]["context"] == "test_context"
+
+    @patch("src.api.scheduler.bugsnag")
+    @patch("src.api.scheduler.settings")
+    async def test_with_error_reporting_without_bugsnag_key(
+        self, mock_settings, mock_bugsnag
+    ):
+        """Test decorator doesn't report when Bugsnag API key is not set - covers lines 27-30."""
+        # Setup mock settings without bugsnag_api_key
+        mock_settings.bugsnag_api_key = None
+
+        # Create a test function that raises an exception
+        @with_error_reporting("test_context")
+        async def failing_function():
+            raise ValueError("Test error")
+
+        # Verify the exception is raised but Bugsnag is NOT notified
+        with pytest.raises(ValueError, match="Test error"):
+            await failing_function()
+
+        # Verify bugsnag.notify was NOT called
+        mock_bugsnag.notify.assert_not_called()
+
+    @patch("src.api.scheduler.settings")
+    async def test_with_error_reporting_successful_execution(self, mock_settings):
+        """Test decorator doesn't interfere with successful execution."""
+        mock_settings.bugsnag_api_key = "test_api_key"
+
+        # Create a test function that succeeds
+        @with_error_reporting("test_context")
+        async def successful_function():
+            return "success"
+
+        # Verify the function executes normally
+        result = await successful_function()
+        assert result == "success"
 
 
 @pytest.mark.asyncio

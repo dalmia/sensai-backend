@@ -277,6 +277,37 @@ class TestDbOperations:
 @pytest.mark.asyncio
 class TestDbConnectionExceptions:
     @patch("src.api.utils.db.aiosqlite.connect")
+    async def test_get_new_db_connection_successful_yield(self, mock_connect):
+        """Test successful connection yield in get_new_db_connection"""
+        # Setup mock connection
+        mock_conn = AsyncMock()
+
+        # Create an async coroutine function that returns the mock connection
+        async def mock_connect_coroutine(*args, **kwargs):
+            return mock_conn
+
+        # Make connect return the coroutine
+        mock_connect.return_value = mock_connect_coroutine()
+
+        # Make execute and set_trace_callback work normally
+        mock_conn.execute.return_value = AsyncMock()
+        mock_conn.set_trace_callback.return_value = None
+
+        # Test successful yield
+        async with get_new_db_connection() as conn:
+            # Verify we got the connection
+            assert conn == mock_conn
+            # Verify PRAGMA was executed
+            mock_conn.execute.assert_called_once_with("PRAGMA synchronous=NORMAL;")
+            # Verify trace callback was set
+            mock_conn.set_trace_callback.assert_called_once()
+
+        # Verify close was called in finally block
+        mock_conn.close.assert_called_once()
+        # Verify rollback was NOT called since no exception occurred
+        mock_conn.rollback.assert_not_called()
+
+    @patch("src.api.utils.db.aiosqlite.connect")
     async def test_get_new_db_connection_exception_handling(self, mock_connect):
         """Test exception handling in get_new_db_connection when conn exists."""
         # Setup mock connection
