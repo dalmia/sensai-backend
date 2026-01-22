@@ -1,4 +1,5 @@
 import os
+import base64
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import AsyncGenerator, Optional, Dict
@@ -10,6 +11,7 @@ from api.models import (
     AIChatRequest,
     ChatResponseType,
     TaskType,
+    TaskInputType,
     QuestionType,
 )
 from api.llm import (
@@ -268,6 +270,36 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
     ]
 
 
+def get_user_file_message_for_chat_history(file_uuid: str, filename: str) -> list[dict]:
+    """
+    Get file content formatted for OpenAI's chat completions API.
+    Returns file as base64-encoded data URL for PDFs.
+    """
+    # Download file from S3 or local storage
+    if settings.s3_folder_name:
+        file_data = download_file_from_s3_as_bytes(
+            get_media_upload_s3_key_from_uuid(file_uuid, "pdf")
+        )
+    else:
+        with open(os.path.join(settings.local_upload_folder, f"{file_uuid}.pdf"), "rb") as f:
+            file_data = f.read()
+
+    # Encode as base64 and format as data URL
+    base64_data = base64.b64encode(file_data).decode("utf-8")
+    data_url = f"data:application/pdf;base64,{base64_data}"
+
+    # Return in OpenAI's multimodal format
+    return [
+        {
+            "type": "file",
+            "file": {
+                "filename": filename,
+                "file_data": data_url,
+            },
+        },
+    ]
+
+
 def format_ai_scorecard_report(scorecard: list[dict]) -> str:
     scorecard_as_prompt = []
     for criterion in scorecard:
@@ -414,14 +446,35 @@ async def ai_response_for_question(request: AIChatRequest):
 
             metadata["task_title"] = task["title"]
 
+            # Parse file_uuid if FILE response type
+            if request.response_type == ChatResponseType.FILE:
+                file_uuid = request.user_response.strip()
+
+                # Check if it's a JSON object (from chat history) or just UUID (new submission)
+                if file_uuid.startswith('{'):
+                    try:
+                        file_data = json.loads(file_uuid)
+                        file_uuid = file_data["file_uuid"]
+                        filename = file_data.get("filename", "submission.pdf")
+                    except (json.JSONDecodeError, KeyError):
+                        raise HTTPException(
+                            status_code=400,
+                            detail="Invalid file data format"
+                        )
+                else:
+                    # Just UUID - use generic filename
+                    filename = "submission.pdf"
+
+                file_content = get_user_file_message_for_chat_history(file_uuid, filename)
+            elif request.response_type == ChatResponseType.AUDIO:
+                file_content = get_user_audio_message_for_chat_history(request.user_response)
+            else:
+                file_content = request.user_response
+
             new_user_message = [
                 {
                     "role": "user",
-                    "content": (
-                        get_user_audio_message_for_chat_history(request.user_response)
-                        if request.response_type == ChatResponseType.AUDIO
-                        else request.user_response
-                    ),
+                    "content": file_content,
                 }
             ]
 
@@ -507,6 +560,27 @@ async def ai_response_for_question(request: AIChatRequest):
                         message["content"] = get_user_audio_message_for_chat_history(
                             message["content"]
                         )
+                    elif message.get("response_type") == ChatResponseType.FILE:
+                        # Parse stored file content - could be JSON or just UUID
+                        try:
+                            content = message["content"].strip()
+
+                            # Check if it's JSON (has both uuid and filename)
+                            if content.startswith('{'):
+                                file_data = json.loads(content)
+                                file_uuid = file_data["file_uuid"]
+                                filename = file_data.get("filename", "submission.pdf")
+                            else:
+                                # Just UUID
+                                file_uuid = content
+                                filename = "submission.pdf"
+
+                            message["content"] = get_user_file_message_for_chat_history(
+                                file_uuid, filename
+                            )
+                        except (json.JSONDecodeError, KeyError, AttributeError):
+                            # If parsing fails, skip this message transformation
+                            pass
                 else:
                     if request.task_type == TaskType.LEARNING_MATERIAL:
                         message["content"] = json.dumps(
@@ -531,11 +605,19 @@ async def ai_response_for_question(request: AIChatRequest):
                         f"---\n\n**Scoring Criteria**\n\n{scorecard_as_prompt}\n\n"
                     )
 
+                # Add file evaluation context if input type is FILE
+                if question.get("input_type") == TaskInputType.FILE:
+                    question_details += "---\n\n**Note**: The student has submitted a PDF file for evaluation. Evaluate the file content against the task requirements and scoring criteria.\n\n"
+
             chat_history = chat_history + new_user_message
 
             # router
             if request.response_type == ChatResponseType.AUDIO:
                 model = openai_plan_to_model_name["audio"]
+                openai_api_mode = "chat_completions"
+            elif request.response_type == ChatResponseType.FILE:
+                # Use text model for PDF files (supports multimodal content)
+                model = openai_plan_to_model_name["text"]
                 openai_api_mode = "chat_completions"
             else:
                 model = await get_model_for_task(chat_history, question_details)
@@ -614,8 +696,8 @@ async def ai_response_for_question(request: AIChatRequest):
                         feedback: str = Field(
                             description="A single, comprehensive summary based on the scoring criteria; address the student by name if their name has been provided."
                         )
-                        scorecard: Optional[Scorecard] = Field(
-                            description="Score and feedback for each criterion from the scoring criteria; only include this in the response if the student's response is a valid response to the task"
+                        scorecard: Scorecard = Field(
+                            description="Score and feedback for each criterion from the scoring criteria. For invalid or incomplete submissions, assign minimum scores with feedback explaining what is missing."
                         )
 
             else:
