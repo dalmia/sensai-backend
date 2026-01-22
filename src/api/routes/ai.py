@@ -270,19 +270,22 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
     ]
 
 
-def get_user_file_message_for_chat_history(file_uuid: str, filename: str) -> list[dict]:
+def get_user_file_message_for_chat_history(file_uuid: str, filename: str, file_type: str = "pdf") -> list[dict]:
     try:
         if settings.s3_folder_name:
             file_data = download_file_from_s3_as_bytes(
-                get_media_upload_s3_key_from_uuid(file_uuid, "pdf")
+                get_media_upload_s3_key_from_uuid(file_uuid, file_type)
             )
         else:
-            with open(os.path.join(settings.local_upload_folder, f"{file_uuid}.pdf"), "rb") as f:
+            with open(os.path.join(settings.local_upload_folder, f"{file_uuid}.{file_type}"), "rb") as f:
                 file_data = f.read()
     except FileNotFoundError:
         raise HTTPException(status_code=404, detail=f"File not found: {file_uuid}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+        error_msg = str(e)
+        if "NoSuchKey" in error_msg or "404" in error_msg:
+            raise HTTPException(status_code=404, detail=f"File not found: {file_uuid}")
+        raise HTTPException(status_code=500, detail=f"Error reading file: {error_msg}")
 
     base64_data = base64.b64encode(file_data).decode("utf-8")
     data_url = f"data:application/pdf;base64,{base64_data}"
@@ -446,6 +449,11 @@ async def ai_response_for_question(request: AIChatRequest):
 
             # Parse content based on response type
             if request.response_type == ChatResponseType.FILE:
+                if not isinstance(request.user_response, dict) or "file_uuid" not in request.user_response or "filename" not in request.user_response:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="File response requires dict with file_uuid and filename"
+                    )
                 file_content = get_user_file_message_for_chat_history(
                     request.user_response["file_uuid"], request.user_response["filename"]
                 )
@@ -663,8 +671,8 @@ async def ai_response_for_question(request: AIChatRequest):
                         feedback: str = Field(
                             description="A single, comprehensive summary based on the scoring criteria; address the student by name if their name has been provided."
                         )
-                        scorecard: Scorecard = Field(
-                            description="Score and feedback for each criterion from the scoring criteria. For invalid or incomplete submissions, assign minimum scores with feedback explaining what is missing."
+                        scorecard: Optional[Scorecard] = Field(
+                            description="Score and feedback for each criterion from the scoring criteria; only include this in the response if the student's response is a valid response to the task"
                         )
 
             else:
