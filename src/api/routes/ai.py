@@ -271,24 +271,22 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
 
 
 def get_user_file_message_for_chat_history(file_uuid: str, filename: str) -> list[dict]:
-    """
-    Get file content formatted for OpenAI's chat completions API.
-    Returns file as base64-encoded data URL for PDFs.
-    """
-    # Download file from S3 or local storage
-    if settings.s3_folder_name:
-        file_data = download_file_from_s3_as_bytes(
-            get_media_upload_s3_key_from_uuid(file_uuid, "pdf")
-        )
-    else:
-        with open(os.path.join(settings.local_upload_folder, f"{file_uuid}.pdf"), "rb") as f:
-            file_data = f.read()
+    try:
+        if settings.s3_folder_name:
+            file_data = download_file_from_s3_as_bytes(
+                get_media_upload_s3_key_from_uuid(file_uuid, "pdf")
+            )
+        else:
+            with open(os.path.join(settings.local_upload_folder, f"{file_uuid}.pdf"), "rb") as f:
+                file_data = f.read()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"File not found: {file_uuid}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
 
-    # Encode as base64 and format as data URL
     base64_data = base64.b64encode(file_data).decode("utf-8")
     data_url = f"data:application/pdf;base64,{base64_data}"
 
-    # Return in OpenAI's multimodal format
     return [
         {
             "type": "file",
@@ -446,26 +444,11 @@ async def ai_response_for_question(request: AIChatRequest):
 
             metadata["task_title"] = task["title"]
 
-            # Parse file_uuid if FILE response type
+            # Parse content based on response type
             if request.response_type == ChatResponseType.FILE:
-                file_uuid = request.user_response.strip()
-
-                # Check if it's a JSON object (from chat history) or just UUID (new submission)
-                if file_uuid.startswith('{'):
-                    try:
-                        file_data = json.loads(file_uuid)
-                        file_uuid = file_data["file_uuid"]
-                        filename = file_data.get("filename", "submission.pdf")
-                    except (json.JSONDecodeError, KeyError):
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Invalid file data format"
-                        )
-                else:
-                    # Just UUID - use generic filename
-                    filename = "submission.pdf"
-
-                file_content = get_user_file_message_for_chat_history(file_uuid, filename)
+                file_content = get_user_file_message_for_chat_history(
+                    request.user_response["file_uuid"], request.user_response["filename"]
+                )
             elif request.response_type == ChatResponseType.AUDIO:
                 file_content = get_user_audio_message_for_chat_history(request.user_response)
             else:
@@ -561,26 +544,10 @@ async def ai_response_for_question(request: AIChatRequest):
                             message["content"]
                         )
                     elif message.get("response_type") == ChatResponseType.FILE:
-                        # Parse stored file content - could be JSON or just UUID
-                        try:
-                            content = message["content"].strip()
-
-                            # Check if it's JSON (has both uuid and filename)
-                            if content.startswith('{'):
-                                file_data = json.loads(content)
-                                file_uuid = file_data["file_uuid"]
-                                filename = file_data.get("filename", "submission.pdf")
-                            else:
-                                # Just UUID
-                                file_uuid = content
-                                filename = "submission.pdf"
-
-                            message["content"] = get_user_file_message_for_chat_history(
-                                file_uuid, filename
-                            )
-                        except (json.JSONDecodeError, KeyError, AttributeError):
-                            # If parsing fails, skip this message transformation
-                            pass
+                        file_data = json.loads(message["content"])
+                        message["content"] = get_user_file_message_for_chat_history(
+                            file_data["file_uuid"], file_data["filename"]
+                        )
                 else:
                     if request.task_type == TaskType.LEARNING_MATERIAL:
                         message["content"] = json.dumps(

@@ -709,7 +709,7 @@ class UserCohort(BaseModel):
 
 
 class AIChatRequest(BaseModel):
-    user_response: str
+    user_response: str | dict
     task_type: TaskType
     question: Optional[DraftQuestion] = None
     chat_history: Optional[List[Dict]] = None
