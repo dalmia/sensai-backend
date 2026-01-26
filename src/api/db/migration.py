@@ -1,3 +1,5 @@
+import json
+
 from api.models import TaskStatus, TaskType, QuestionType, TaskAIResponseType
 from api.utils.db import get_new_db_connection
 from api.config import (
@@ -193,8 +195,6 @@ async def cleanup_invalid_chat_history():
         messages = await cursor.fetchall()
         invalid_message_ids = []
 
-        import json
-
         for message_id, content in messages:
             try:
                 # Try to parse the content as JSON
@@ -205,12 +205,12 @@ async def cleanup_invalid_chat_history():
                     feedback = content_obj.get("feedback", "")
 
                     # Check if this is an invalid response
-                    # Invalid if: feedback is empty AND evaluation_status is "in_progress"
-                    # AND current_key_area is empty AND key_area_scores is empty
+                    # Invalid if: feedback is empty OR evaluation_status is "in_progress"
+                    # OR current_key_area is empty OR key_area_scores is empty
                     is_invalid = (
-                        (not feedback or not feedback.strip()) and
-                        content_obj.get("evaluation_status") == "in_progress" and
-                        (not content_obj.get("current_key_area") or not content_obj.get("current_key_area").strip()) and
+                        (not feedback or not feedback.strip()) or
+                        content_obj.get("evaluation_status") == "in_progress" or
+                        (not content_obj.get("current_key_area") or not content_obj.get("current_key_area").strip()) or
                         (not content_obj.get("key_area_scores") or content_obj.get("key_area_scores") == {})
                     )
 
