@@ -205,14 +205,8 @@ async def cleanup_invalid_chat_history():
                     feedback = content_obj.get("feedback", "")
 
                     # Check if this is an invalid response
-                    # Invalid if: feedback is empty OR evaluation_status is "in_progress"
-                    # OR current_key_area is empty OR key_area_scores is empty
-                    is_invalid = (
-                        (not feedback or not feedback.strip()) or
-                        content_obj.get("evaluation_status") == "in_progress" or
-                        (not content_obj.get("current_key_area") or not content_obj.get("current_key_area").strip()) or
-                        (not content_obj.get("key_area_scores") or content_obj.get("key_area_scores") == {})
-                    )
+                    # Invalid if feedback is empty
+                    is_invalid = not feedback or not feedback.strip()
 
                     if is_invalid:
                         invalid_message_ids.append(message_id)
