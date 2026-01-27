@@ -288,7 +288,7 @@ def get_user_file_message_for_chat_history(file_uuid: str, filename: str, file_t
         raise HTTPException(status_code=500, detail=f"Error reading file: {error_msg}")
 
     base64_data = base64.b64encode(file_data).decode("utf-8")
-    data_url = f"data:application/pdf;base64,{base64_data}"
+    data_url = f"data:application/{file_type};base64,{base64_data}"
 
     return [
         {
@@ -299,6 +299,22 @@ def get_user_file_message_for_chat_history(file_uuid: str, filename: str, file_t
             },
         },
     ]
+
+
+def get_processed_message_content(message: dict) -> any:
+    if message.get("role") != "user":
+        return message.get("content")
+
+    content = message.get("content")
+    response_type = message.get("response_type")
+
+    if response_type == ChatResponseType.FILE:
+        file_data = json.loads(content)
+        return get_user_file_message_for_chat_history(file_data["file_uuid"], file_data["filename"])
+    elif response_type == ChatResponseType.AUDIO:
+        return get_user_audio_message_for_chat_history(content)
+
+    return content
 
 
 def format_ai_scorecard_report(scorecard: list[dict]) -> str:
@@ -521,7 +537,10 @@ async def ai_response_for_question(request: AIChatRequest):
                     metadata["question_id"] = None
 
                 chat_history = [
-                    {"role": message["role"], "content": message["content"]}
+                    {
+                        "role": message["role"],
+                        "content": get_processed_message_content(message)
+                    }
                     for message in chat_history
                 ]
 
@@ -543,20 +562,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 metadata.update(task_metadata)
 
             for message in chat_history:
-                if message["role"] == "user":
-                    if (
-                        request.response_type == ChatResponseType.AUDIO
-                        and message.get("response_type") == ChatResponseType.AUDIO
-                    ):
-                        message["content"] = get_user_audio_message_for_chat_history(
-                            message["content"]
-                        )
-                    elif message.get("response_type") == ChatResponseType.FILE:
-                        file_data = json.loads(message["content"])
-                        message["content"] = get_user_file_message_for_chat_history(
-                            file_data["file_uuid"], file_data["filename"]
-                        )
-                else:
+                if message["role"] == "assistant":
                     if request.task_type == TaskType.LEARNING_MATERIAL:
                         message["content"] = json.dumps(
                             {"feedback": message["content"]}
