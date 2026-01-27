@@ -1,3 +1,5 @@
+import json
+
 from api.models import TaskStatus, TaskType, QuestionType, TaskAIResponseType
 from api.utils.db import get_new_db_connection
 from api.config import (
@@ -170,78 +172,64 @@ async def create_bq_sync_table_migration():
         await conn.commit()
 
 
-async def recreate_chat_history_table():
-    async with get_new_db_connection() as conn:
-        cursor = await conn.cursor()
-        await cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (chat_history_table_name,),
-        )
-        if not await cursor.fetchone():
-            from api.db import create_chat_history_table
-
-            await create_chat_history_table(cursor)
-            await conn.commit()
-            return
-
-        await cursor.execute(
-            f"SELECT id, user_id, question_id, role, content, response_type, created_at, updated_at, deleted_at FROM {chat_history_table_name}"
-        )
-        rows = await cursor.fetchall()
-
-        await cursor.execute(f"DROP TABLE IF EXISTS {chat_history_table_name}")
-        from api.db import create_chat_history_table
-
-        await create_chat_history_table(cursor)
-
-        if rows:
-            values = [
-                (r[0], r[1], r[2], None, r[3], r[4], r[5], r[6], r[7], r[8])
-                for r in rows
-            ]
-            await cursor.executemany(
-                f"INSERT INTO {chat_history_table_name} (id, user_id, question_id, task_id, role, content, response_type, created_at, updated_at, deleted_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                values,
-            )
-
-        await conn.commit()
-
-
-async def create_assignment_table_migration():
+async def cleanup_invalid_chat_history():
     """
-    Migration: Creates the assignment table if it doesn't exist.
+    Migration: Cleanup chat history records with empty or invalid AI responses for assignments.
+    Removes assistant messages where feedback is empty or contains only default values.
+    Only targets assignment chat history (where task_id IS NOT NULL).
     """
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        # Check if table exists
-        await cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
-            (assignment_table_name,),
-        )
-        if not await cursor.fetchone():
-            from api.db import create_assignment_table
-
-            await create_assignment_table(cursor)
-
-        # Ensure updated_at is maintained on updates
-        trigger_name = f"set_updated_at_{assignment_table_name}"
-        await cursor.execute(f"DROP TRIGGER IF EXISTS {trigger_name}")
+        # Get all assistant messages for assignments only (task_id IS NOT NULL)
         await cursor.execute(
             f"""
-            CREATE TRIGGER {trigger_name}
-            AFTER UPDATE ON {assignment_table_name}
-            FOR EACH ROW
-            BEGIN
-                UPDATE {assignment_table_name}
-                SET updated_at = CURRENT_TIMESTAMP
-                WHERE id = NEW.id;
-            END;
+            SELECT id, content
+            FROM {chat_history_table_name}
+            WHERE role = 'assistant'
+            AND task_id IS NOT NULL
+            AND deleted_at IS NULL
             """
         )
+
+        messages = await cursor.fetchall()
+        invalid_message_ids = []
+
+        for message_id, content in messages:
+            try:
+                # Try to parse the content as JSON
+                if content:
+                    content_obj = json.loads(content)
+
+                    # Check if feedback is empty or contains only whitespace
+                    feedback = content_obj.get("feedback", "")
+
+                    # Check if this is an invalid response
+                    # Invalid if feedback is empty
+                    is_invalid = not feedback or not feedback.strip()
+
+                    if is_invalid:
+                        invalid_message_ids.append(message_id)
+            except (json.JSONDecodeError, AttributeError, TypeError):
+                # Skip if content is not valid JSON
+                continue
+
+        # Soft delete invalid messages
+        if invalid_message_ids:
+            placeholders = ','.join('?' * len(invalid_message_ids))
+            await cursor.execute(
+                f"""
+                UPDATE {chat_history_table_name}
+                SET deleted_at = CURRENT_TIMESTAMP
+                WHERE id IN ({placeholders}) AND deleted_at IS NULL
+                """,
+                invalid_message_ids
+            )
+
+            print(f"Cleaned up {len(invalid_message_ids)} invalid chat history records")
 
         await conn.commit()
 
 
 async def run_migrations():
-    pass
+    await cleanup_invalid_chat_history()
