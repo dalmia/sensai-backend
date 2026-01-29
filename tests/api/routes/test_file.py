@@ -4,6 +4,7 @@ from unittest.mock import patch, MagicMock, mock_open, ANY
 import boto3
 from botocore.exceptions import ClientError
 import os
+import uuid
 
 
 @pytest.mark.asyncio
@@ -258,14 +259,18 @@ async def test_upload_file_locally_success(client, mock_db):
     """
     Test uploading a file locally successfully
     """
+    # Use a fixed UUID for testing
+    test_uuid = uuid.UUID("12345678-1234-5678-1234-567812345678")
+    test_uuid_str = str(test_uuid)
+    
     with patch("api.routes.file.os.makedirs") as mock_makedirs, patch(
         "api.routes.file.open", mock_open()
     ) as mock_file, patch("api.routes.file.uuid.uuid4") as mock_uuid, patch(
         "api.routes.file.settings.local_upload_folder", "/tmp/uploads"
     ):
 
-        # Setup mocks
-        mock_uuid.return_value = "test-uuid"
+        # Setup mocks - use a real UUID object
+        mock_uuid.return_value = test_uuid
 
         # Make request with multipart form data
         response = client.post(
@@ -277,14 +282,14 @@ async def test_upload_file_locally_success(client, mock_db):
         # Assert response
         assert response.status_code == status.HTTP_200_OK
         result = response.json()
-        assert result["file_key"] == "test-uuid.jpeg"
-        assert result["file_path"] == "/tmp/uploads/test-uuid.jpeg"
-        assert result["file_uuid"] == "test-uuid"
-        assert result["static_url"] == "/uploads/test-uuid.jpeg"
+        assert result["file_key"] == f"{test_uuid_str}.jpeg"
+        assert result["file_path"] == f"/tmp/uploads/{test_uuid_str}.jpeg"
+        assert result["file_uuid"] == test_uuid_str
+        assert result["static_url"] == f"/uploads/{test_uuid_str}.jpeg"
 
         # Assert mocks called correctly
         mock_makedirs.assert_called_with("/tmp/uploads", exist_ok=True)
-        mock_file.assert_called_with("/tmp/uploads/test-uuid.jpeg", "wb")
+        mock_file.assert_called_with(f"/tmp/uploads/{test_uuid_str}.jpeg", "wb")
         mock_file().write.assert_called_once()
 
 
