@@ -3830,7 +3830,6 @@ dependencies = [
     { name = "st-theme" },
     { name = "streamlit-ace" },
     { name = "streamlit-extras" },
-    { name = "streamlit-pdf-viewer" },
     { name = "unidecode" },
     { name = "uvicorn" },
     { name = "uvloop" },
@@ -3903,7 +3902,6 @@ requires-dist = [
     { name = "st-theme", specifier = "==1.2.3" },
     { name = "streamlit-ace", specifier = "==0.1.1" },
     { name = "streamlit-extras", specifier = "==0.5.0" },
-    { name = "streamlit-pdf-viewer", specifier = "==0.0.19" },
     { name = "unidecode", specifier = "==1.3.8" },
     { name = "uvicorn", specifier = "==0.30.6" },
     { name = "uvloop", specifier = "==0.21.0" },
@@ -4177,18 +4175,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/88/25/d153babd6d8dff72ee2e56976862ec7fdd7856ec7da2cb6ffd4b3b12f336/streamlit_keyup-0.3.0.tar.gz", hash = "sha256:8595a14892423243669e5d50e982853ffb7eb201b65952a48676133ab9bbc937", size = 7387, upload-time = "2025-01-02T14:48:40.245Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/ed/facce225c0d360b9bfa053c827029312e1b255e84d79320bda3539417b50/streamlit_keyup-0.3.0-py3-none-any.whl", hash = "sha256:ec7221617b1c832526db52859196c417578d6b4285942fbd10a0b2ff313899b3", size = 7493, upload-time = "2025-01-02T14:48:35.414Z" },
-]
-
-[[package]]
-name = "streamlit-pdf-viewer"
-version = "0.0.19"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "streamlit" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/14/3f/f975238531ae47431fc15282f8fe947c2f4d7793f08e8a35c4e3dba83a77/streamlit_pdf_viewer-0.0.19.tar.gz", hash = "sha256:d4ef57e5e3ff5bcf06c85f70ba7bc934c6bf22d7a64c607370657c431361885a", size = 2357868, upload-time = "2024-10-25T17:25:42.476Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6f/7d/4e898bbe670f04f4ebbb98331d51d4230ddab0ac8339f832458569207912/streamlit_pdf_viewer-0.0.19-py3-none-any.whl", hash = "sha256:c645311e245f01e350fd12f9093b87876d1b63b6214da9c04a349ca07f3f6dfc", size = 2391994, upload-time = "2024-10-25T17:25:41.208Z" },
 ]
 
 [[package]]
