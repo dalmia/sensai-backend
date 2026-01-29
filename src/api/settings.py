@@ -26,7 +26,6 @@ class Settings(BaseSettings):
     local_upload_folder: str = (
         UPLOAD_FOLDER_NAME  # hardcoded variable for local file storage
     )
-    bugsnag_api_key: str | None = None
     sentry_dsn: str | None = None
     sentry_environment: str | None = "development"
     env: str | None = None

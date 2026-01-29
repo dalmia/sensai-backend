@@ -11,6 +11,8 @@ jobs:
     env:
       IMAGE_NAME: adalmia/sensai-ai
       IMAGE_TAG: latest
+      CONTAINER_NAME: backend-prod
+      DEPLOY_DIR: /tmp/sensai-backend-prod
 
     steps:
       - name: Checkout code
@@ -35,6 +37,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Copy docker-compose.yml to server
+        if: contains(github.event.release.tag_name, '-deploy')
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "docker-compose.yml"
+          target: ${{ env.DEPLOY_DIR }}
+
       - name: Deploy to production server
         if: contains(github.event.release.tag_name, '-deploy')
         uses: appleboy/ssh-action@v1.0.3
@@ -47,12 +60,15 @@ jobs:
             set -e
 
             # Set environment variables for docker compose
+            export IMAGE_NAME="${{ env.IMAGE_NAME }}"
+            export IMAGE_TAG="${{ env.IMAGE_TAG }}"
+            export CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
+            export DATA_DIR="${{ secrets.DATA_DIR }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
             export S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}"
             export S3_FOLDER_NAME="${{ secrets.S3_FOLDER_NAME }}"
             export ENV="${{ secrets.ENV }}"
-            export BUGSNAG_API_KEY="${{ secrets.BUGSNAG_API_KEY }}"
             export SENTRY_DSN="${{ secrets.SENTRY_DSN }}"
             export SENTRY_ENVIRONMENT="${{ secrets.SENTRY_ENVIRONMENT }}"
             export SLACK_USER_SIGNUP_WEBHOOK_URL="${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}"
@@ -67,7 +83,10 @@ jobs:
             export BQ_PROJECT_NAME="${{ secrets.BQ_PROJECT_NAME }}"
             export BQ_DATASET_NAME="${{ secrets.BQ_DATASET_NAME }}"
 
-            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.prod.yml ../ && cd ../ && sudo -E docker compose -f docker-compose.prod.yml pull && sudo -E docker compose -f docker-compose.prod.yml up -d
+            cd ${{ env.DEPLOY_DIR }}
+            docker compose --profile production pull
+            docker compose --profile production up -d
+            docker image prune -f
 
       - name: Notify Slack on Success - Deployment
         if: contains(github.event.release.tag_name, '-deploy')

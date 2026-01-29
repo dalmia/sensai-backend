@@ -1,0 +1,105 @@
+services:
+  backend:
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: ${CONTAINER_NAME}
+    volumes:
+      - ${DATA_DIR}:/appdata
+    ports:
+      - "8001:8001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - sensai-network
+    environment:
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_FOLDER_NAME=${S3_FOLDER_NAME}
+      - ENV=${ENV}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - SLACK_USER_SIGNUP_WEBHOOK_URL=${SLACK_USER_SIGNUP_WEBHOOK_URL}
+      - SLACK_COURSE_CREATED_WEBHOOK_URL=${SLACK_COURSE_CREATED_WEBHOOK_URL}
+      - SLACK_USAGE_STATS_WEBHOOK_URL=${SLACK_USAGE_STATS_WEBHOOK_URL}
+      - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      - LANGFUSE_TRACING_ENVIRONMENT=${LANGFUSE_TRACING_ENVIRONMENT}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+      - BQ_PROJECT_NAME=${BQ_PROJECT_NAME}
+      - BQ_DATASET_NAME=${BQ_DATASET_NAME}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
+
+  public-api:
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: ${CONTAINER_NAME}-public-api
+    volumes:
+      - ${DATA_DIR}:/appdata
+    restart: unless-stopped
+    ports:
+      - "8004:8001"
+    networks:
+      - sensai-network
+    environment:
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_FOLDER_NAME=${S3_FOLDER_NAME}
+      - ENV=${ENV}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - SLACK_USER_SIGNUP_WEBHOOK_URL=${SLACK_USER_SIGNUP_WEBHOOK_URL}
+      - SLACK_COURSE_CREATED_WEBHOOK_URL=${SLACK_COURSE_CREATED_WEBHOOK_URL}
+      - SLACK_USAGE_STATS_WEBHOOK_URL=${SLACK_USAGE_STATS_WEBHOOK_URL}
+      - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      - LANGFUSE_TRACING_ENVIRONMENT=${LANGFUSE_TRACING_ENVIRONMENT}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+      - BQ_PROJECT_NAME=${BQ_PROJECT_NAME}
+      - BQ_DATASET_NAME=${BQ_DATASET_NAME}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
+
+  # Cron service - only for production (use: docker compose --profile production up -d)
+  cron:
+    image: ${IMAGE_NAME}:${IMAGE_TAG}
+    container_name: ${CONTAINER_NAME}-cron
+    profiles:
+      - production
+    working_dir: /app/src
+    command: sh -c "apt-get update && apt-get install -y cron && echo '55 23 * * 0 cd /app/src && /usr/local/bin/python -c \"from api.cron import send_usage_summary_stats; import asyncio; asyncio.run(send_usage_summary_stats())\" >> /appdata/logs/backend-cron.log 2>&1' >> /app/sensai-cron && echo '0 7 * * * cd /app/src && /usr/local/bin/python -c \"from api.bq.cron import run_all_syncs; import asyncio; asyncio.run(run_all_syncs())\" >> /appdata/logs/backend-cron.log 2>&1' >> /app/sensai-cron && crontab /app/sensai-cron && cron -f"
+    volumes:
+      - ${DATA_DIR}:/appdata
+    networks:
+      - sensai-network
+    environment:
+      - TZ=Asia/Kolkata
+      - PYTHONPATH=/app/src
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+      - S3_FOLDER_NAME=${S3_FOLDER_NAME}
+      - ENV=${ENV}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - SLACK_USER_SIGNUP_WEBHOOK_URL=${SLACK_USER_SIGNUP_WEBHOOK_URL}
+      - SLACK_COURSE_CREATED_WEBHOOK_URL=${SLACK_COURSE_CREATED_WEBHOOK_URL}
+      - SLACK_USAGE_STATS_WEBHOOK_URL=${SLACK_USAGE_STATS_WEBHOOK_URL}
+      - SLACK_ALERT_WEBHOOK_URL=${SLACK_ALERT_WEBHOOK_URL}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY}
+      - LANGFUSE_HOST=${LANGFUSE_HOST}
+      - LANGFUSE_TRACING_ENVIRONMENT=${LANGFUSE_TRACING_ENVIRONMENT}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS}
+      - BQ_PROJECT_NAME=${BQ_PROJECT_NAME}
+      - BQ_DATASET_NAME=${BQ_DATASET_NAME}
+      - SENTRY_DSN=${SENTRY_DSN}
+      - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
+    restart: unless-stopped
+
+networks:
+  sensai-network:
+    driver: bridge

@@ -601,7 +601,7 @@ async def ai_response_for_question(request: AIChatRequest):
 
                     Scorecard = make_scorecard_model(
                         [
-                            criterion["name"]
+                            criterion["name"].strip('"')
                             for criterion in question["scorecard"]["criteria"]
                         ]
                     )

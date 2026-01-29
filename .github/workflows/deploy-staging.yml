@@ -2,14 +2,6 @@ name: Deploy to Staging
 
 on:
   workflow_dispatch:
-    branches:
-      - main
-    inputs:
-      deploy:
-        description: "Whether to deploy to the instance"
-        required: false
-        default: "false"
-        type: boolean
 
 jobs:
   build-and-push:
@@ -18,6 +10,8 @@ jobs:
     env:
       IMAGE_NAME: adalmia/sensai-ai
       IMAGE_TAG: v2-dev
+      CONTAINER_NAME: sensai-backend-staging
+      DEPLOY_DIR: /tmp/sensai-backend-staging
 
     steps:
       - name: Checkout code
@@ -42,8 +36,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Copy docker-compose.yml to server
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          port: ${{ secrets.SSH_PORT }}
+          source: "docker-compose.yml"
+          target: ${{ env.DEPLOY_DIR }}
+
       - name: Deploy to staging server
-        if: ${{ inputs.deploy == true }}
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -54,12 +57,15 @@ jobs:
             set -e
 
             # Set environment variables for docker compose
+            export IMAGE_NAME="${{ env.IMAGE_NAME }}"
+            export IMAGE_TAG="${{ env.IMAGE_TAG }}"
+            export CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
+            export DATA_DIR="${{ secrets.DATA_DIR }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
             export S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}"
             export S3_FOLDER_NAME="${{ secrets.S3_FOLDER_NAME }}"
             export ENV="${{ secrets.ENV }}"
-            export BUGSNAG_API_KEY="${{ secrets.BUGSNAG_API_KEY }}"
             export SENTRY_DSN="${{ secrets.SENTRY_DSN }}"
             export SENTRY_ENVIRONMENT="${{ secrets.SENTRY_ENVIRONMENT }}"
             export SLACK_USER_SIGNUP_WEBHOOK_URL="${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}"
@@ -71,10 +77,12 @@ jobs:
             export BQ_PROJECT_NAME="${{ secrets.BQ_PROJECT_NAME }}"
             export BQ_DATASET_NAME="${{ secrets.BQ_DATASET_NAME }}"
 
-            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.dev.yml ../ && cd ../ && sudo -E docker compose -f docker-compose.dev.yml pull && sudo -E docker compose -f docker-compose.dev.yml up -d
+            cd ${{ env.DEPLOY_DIR }}
+            docker compose pull
+            docker compose up -d
+            docker image prune -f
 
       - name: Notify Slack on Success - Deployment
-        if: ${{ inputs.deploy == true }}
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
@@ -83,7 +91,6 @@ jobs:
             text: "🚀 *backend*: Staging deployment completed successfully!"
 
       - name: Notify Slack on Success - Build Only
-        if: ${{ inputs.deploy != true }}
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
