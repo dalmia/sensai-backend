@@ -13,6 +13,8 @@ jobs:
       IMAGE_TAG: latest
       CONTAINER_NAME: backend-prod
       DEPLOY_DIR: /tmp/sensai-backend-prod
+      BACKEND_PORT: 8001
+      PUBLIC_API_PORT: 8004
 
     steps:
       - name: Checkout code
@@ -44,7 +46,6 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
           source: "docker-compose.yml"
           target: ${{ env.DEPLOY_DIR }}
 
@@ -55,7 +56,6 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
           script: |
             set -e
 
@@ -64,6 +64,8 @@ jobs:
             export IMAGE_TAG="${{ env.IMAGE_TAG }}"
             export CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
             export DATA_DIR="${{ secrets.DATA_DIR }}"
+            export BACKEND_PORT="${{ env.BACKEND_PORT }}"
+            export PUBLIC_API_PORT="${{ env.PUBLIC_API_PORT }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
             export S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}"

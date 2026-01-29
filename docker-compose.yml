@@ -5,7 +5,7 @@ services:
     volumes:
       - ${DATA_DIR}:/appdata
     ports:
-      - "8001:8001"
+      - "${BACKEND_PORT}:8001"
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8001/health"]
       interval: 10s
@@ -42,7 +42,7 @@ services:
       - ${DATA_DIR}:/appdata
     restart: unless-stopped
     ports:
-      - "8004:8001"
+      - "${PUBLIC_API_PORT}:8001"
     networks:
       - sensai-network
     environment:

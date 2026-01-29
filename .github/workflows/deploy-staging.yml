@@ -10,8 +10,10 @@ jobs:
     env:
       IMAGE_NAME: adalmia/sensai-ai
       IMAGE_TAG: v2-dev
-      CONTAINER_NAME: sensai-backend-staging
+      CONTAINER_NAME: backend-dev
       DEPLOY_DIR: /tmp/sensai-backend-staging
+      BACKEND_PORT: 8002
+      PUBLIC_API_PORT: 8005
 
     steps:
       - name: Checkout code
@@ -61,6 +63,8 @@ jobs:
             export IMAGE_TAG="${{ env.IMAGE_TAG }}"
             export CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
             export DATA_DIR="${{ secrets.DATA_DIR }}"
+            export BACKEND_PORT="${{ env.BACKEND_PORT }}"
+            export PUBLIC_API_PORT="${{ env.PUBLIC_API_PORT }}"
             export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
             export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
             export S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}"
