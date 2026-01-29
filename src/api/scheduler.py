@@ -5,8 +5,8 @@ from api.cron import (
 )
 from api.settings import settings
 from datetime import timezone, timedelta
-import asyncio
-import bugsnag
+import logging
+import sentry_sdk
 from functools import wraps
 from typing import Callable, Any
 
@@ -17,7 +17,7 @@ scheduler = AsyncIOScheduler(timezone=ist_timezone)
 
 
 def with_error_reporting(context: str):
-    """Decorator to add Bugsnag error reporting to scheduled tasks"""
+    """Decorator to add Sentry error reporting to scheduled tasks"""
 
     def decorator(func: Callable) -> Callable:
         @wraps(func)
@@ -25,8 +25,9 @@ def with_error_reporting(context: str):
             try:
                 return await func(*args, **kwargs)
             except Exception as e:
-                if settings.bugsnag_api_key:
-                    bugsnag.notify(e, context=context)
+                logging.error(f"Error in scheduled task '{context}': {e}", exc_info=True)
+                if settings.sentry_dsn:
+                    sentry_sdk.capture_exception(e)
                 raise
 
         return wrapper
