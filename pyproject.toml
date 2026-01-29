@@ -44,17 +44,6 @@ dependencies = [
     "instructor==1.11.3",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "locust==2.32.4",
-    "gevent==24.11.1",
-    "pre-commit==4.0.1",
-    "pytest==8.3.5",
-    "pytest-cov==6.1.1",
-    "pytest-asyncio==0.26.0",
-    "codecov-cli==10.4.0",
-]
-
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -62,13 +51,12 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 packages = ["src/api"]
 
-[tool.uv]
-dev-dependencies = [
+[dependency-groups]
+dev = [
     "locust==2.32.4",
     "gevent==24.11.1",
     "pre-commit==4.0.1",
     "pytest==8.3.5",
     "pytest-cov==6.1.1",
     "pytest-asyncio==0.26.0",
-    "codecov-cli==10.4.0",
 ]
