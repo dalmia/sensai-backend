@@ -38,26 +38,30 @@ RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/w
 # Verify wkhtmltopdf installation
 RUN wkhtmltopdf --version
 
+# Set working directory
+WORKDIR /app
+
 # Copy dependency files to the container
 COPY pyproject.toml uv.lock ./
 
 # Install app dependencies using uv (faster than pip)
 RUN uv sync --frozen --no-dev
 
-COPY src /src
+# Copy source code
+COPY src ./src
 
 # Remove any local .env files that may have been copied
-RUN test -f /src/api/.env && rm -f /src/api/.env || true
-RUN test -f /src/api/.env.aws && rm -f /src/api/.env.aws || true
+RUN test -f ./src/api/.env && rm -f ./src/api/.env || true
+RUN test -f ./src/api/.env.aws && rm -f ./src/api/.env.aws || true
 
 # Clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /src
-
 # Expose the port on which your FastAPI app listens
 EXPOSE 8001
 
-# Run the application
-CMD ["bash", "-c", "uv run python /src/startup.py && uv run uvicorn api.main:app --host 0.0.0.0 --port 8001"]
+# Set Python path so 'api' module can be found
+ENV PYTHONPATH=/app/src
+
+# Run the application (uv run must be from /app where .venv is)
+CMD ["bash", "-c", "uv run python /app/src/startup.py && uv run uvicorn api.main:app --host 0.0.0.0 --port 8001"]
