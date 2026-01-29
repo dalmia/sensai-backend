@@ -98,15 +98,6 @@ jobs:
           payload: |
             text: "🚀 *backend*: Production deployment completed successfully!"
 
-      - name: Notify Slack on Success - Build Only
-        if: ${{ !contains(github.event.release.tag_name, '-deploy') }}
-        uses: slackapi/slack-github-action@v2.1.1
-        with:
-          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            text: "🔨 *backend*: Production image build completed and needs to be deployed!"
-
       - name: Notify Slack on Failure
         if: failure()
         uses: slackapi/slack-github-action@v2.1.1

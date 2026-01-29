@@ -91,14 +91,6 @@ jobs:
           payload: |
             text: "🚀 *backend*: Staging deployment completed successfully!"
 
-      - name: Notify Slack on Success - Build Only
-        uses: slackapi/slack-github-action@v2.1.1
-        with:
-          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            text: "🔨 *backend*: Staging build completed and needs to be deployed!"
-
       - name: Notify Slack on Failure
         if: failure()
         uses: slackapi/slack-github-action@v2.1.1
