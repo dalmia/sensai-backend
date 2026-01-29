@@ -22,6 +22,14 @@ The name of the S3 folder within the S3 bucket. We use the same bucket for dev a
 
 The API key for the Bugsnag (used for error tracking).
 
+### SENTRY_DSN (optional)
+
+The DSN for Sentry (used for error tracking and performance monitoring).
+
+### SENTRY_ENVIRONMENT (optional)
+
+The environment the app is running in (development/staging/production).
+
 ### ENV (optional)
 
 The environment the app is running in (staging/production).

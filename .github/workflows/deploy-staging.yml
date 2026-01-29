@@ -37,21 +37,6 @@ jobs:
           tags: adalmia/sensai-ai:v2-dev
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
-            S3_FOLDER_NAME=${{ secrets.S3_FOLDER_NAME }}
-            ENV=${{ secrets.ENV }}
-            BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
-            LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
-            LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
-            LANGFUSE_TRACING_ENVIRONMENT=${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}
-            SLACK_USER_SIGNUP_WEBHOOK_URL=${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}
-            GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
-            BQ_PROJECT_NAME=${{ secrets.BQ_PROJECT_NAME }}
-            BQ_DATASET_NAME=${{ secrets.BQ_DATASET_NAME }}
 
       - name: Deploy to staging server
         if: ${{ inputs.deploy == true }}
@@ -62,7 +47,27 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT }}
           script: |
-            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.dev.yml ../ && cd ../ && sudo docker compose -f docker-compose.dev.yml pull && sudo docker compose -f docker-compose.dev.yml up -d
+            set -e
+
+            # Set environment variables for docker compose
+            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
+            export S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}"
+            export S3_FOLDER_NAME="${{ secrets.S3_FOLDER_NAME }}"
+            export ENV="${{ secrets.ENV }}"
+            export BUGSNAG_API_KEY="${{ secrets.BUGSNAG_API_KEY }}"
+            export SENTRY_DSN="${{ secrets.SENTRY_DSN }}"
+            export SENTRY_ENVIRONMENT="${{ secrets.SENTRY_ENVIRONMENT }}"
+            export SLACK_USER_SIGNUP_WEBHOOK_URL="${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}"
+            export LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}"
+            export LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}"
+            export LANGFUSE_HOST="${{ secrets.LANGFUSE_HOST }}"
+            export LANGFUSE_TRACING_ENVIRONMENT="${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}"
+            export GOOGLE_APPLICATION_CREDENTIALS="${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}"
+            export BQ_PROJECT_NAME="${{ secrets.BQ_PROJECT_NAME }}"
+            export BQ_DATASET_NAME="${{ secrets.BQ_DATASET_NAME }}"
+
+            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.dev.yml ../ && cd ../ && sudo -E docker compose -f docker-compose.dev.yml pull && sudo -E docker compose -f docker-compose.dev.yml up -d
 
       - name: Notify Slack on Success - Deployment
         if: ${{ inputs.deploy == true }}

@@ -27,6 +27,8 @@ class Settings(BaseSettings):
         UPLOAD_FOLDER_NAME  # hardcoded variable for local file storage
     )
     bugsnag_api_key: str | None = None
+    sentry_dsn: str | None = None
+    sentry_environment: str | None = "development"
     env: str | None = None
     slack_user_signup_webhook_url: str | None = None
     slack_course_created_webhook_url: str | None = None

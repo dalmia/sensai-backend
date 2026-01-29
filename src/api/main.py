@@ -37,6 +37,7 @@ from api.scheduler import scheduler
 from api.settings import settings
 import bugsnag
 from bugsnag.asgi import BugsnagMiddleware
+import sentry_sdk
 
 
 @asynccontextmanager
@@ -66,6 +67,14 @@ if settings.bugsnag_api_key:
         release_stage=settings.env or "development",
         notify_release_stages=["development", "staging", "production"],
         auto_capture_sessions=True,
+    )
+
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
     )
 
 
@@ -209,3 +218,8 @@ async def health_check():
 @app.api_route("/bugsnag-debug", methods=["GET"])
 async def bugsnag_debug():
     bugsnag.notify(Exception("Test error"))
+
+
+@app.api_route("/sentry-debug", methods=["GET"])
+async def sentry_debug():
+    raise Exception("Sentry test error")
