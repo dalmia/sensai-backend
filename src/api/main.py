@@ -35,8 +35,7 @@ from api.routes import (
 from api.websockets import router as websocket_router
 from api.scheduler import scheduler
 from api.settings import settings
-import bugsnag
-from bugsnag.asgi import BugsnagMiddleware
+import sentry_sdk
 
 
 @asynccontextmanager
@@ -59,13 +58,12 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
 
 
-if settings.bugsnag_api_key:
-    bugsnag.configure(
-        api_key=settings.bugsnag_api_key,
-        project_root=os.path.dirname(os.path.abspath(__file__)),
-        release_stage=settings.env or "development",
-        notify_release_stages=["development", "staging", "production"],
-        auto_capture_sessions=True,
+if settings.sentry_dsn:
+    sentry_sdk.init(
+        dsn=settings.sentry_dsn,
+        environment=settings.sentry_environment,
+        traces_sample_rate=1.0,
+        profiles_sample_rate=1.0,
     )
 
 
@@ -101,32 +99,6 @@ async def log_requests(request: Request, call_next):
             exc_info=True,
         )
         raise
-
-
-# Add Bugsnag middleware if configured
-if settings.bugsnag_api_key:
-    app.add_middleware(BugsnagMiddleware)
-
-    @app.middleware("http")
-    async def bugsnag_request_middleware(request: Request, call_next):
-        # Add request metadata to Bugsnag context
-        bugsnag.configure_request(
-            context=f"{request.method} {request.url.path}",
-            request_data={
-                "url": str(request.url),
-                "method": request.method,
-                "headers": dict(request.headers),
-                "query_params": dict(request.query_params),
-                "path_params": request.path_params,
-                "client": {
-                    "host": request.client.host if request.client else None,
-                    "port": request.client.port if request.client else None,
-                },
-            },
-        )
-
-        response = await call_next(request)
-        return response
 
 
 # Add CORS middleware to allow cross-origin requests (for frontend to access backend)
@@ -206,6 +178,6 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.api_route("/bugsnag-debug", methods=["GET"])
-async def bugsnag_debug():
-    bugsnag.notify(Exception("Test error"))
+@app.api_route("/sentry-debug", methods=["GET"])
+async def sentry_debug():
+    raise Exception("Sentry test error")

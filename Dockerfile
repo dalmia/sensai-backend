@@ -1,5 +1,8 @@
 FROM python:3.13.7-slim-bookworm
 
+# Install uv package manager
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 RUN apt-get update && apt-get install -y \
     gcc \
     python3-dev \
@@ -35,59 +38,30 @@ RUN wget https://github.com/wkhtmltopdf/packaging/releases/download/0.12.6.1-2/w
 # Verify wkhtmltopdf installation
 RUN wkhtmltopdf --version
 
-# Copy requirements.txt to the container
-COPY requirements.txt ./
+# Set working directory
+WORKDIR /app
 
-# Install app dependencies
-RUN pip install -r requirements.txt
+# Copy dependency files to the container
+COPY pyproject.toml uv.lock ./
 
-COPY src /src
+# Install app dependencies using uv (faster than pip)
+RUN uv sync --frozen --no-dev
 
-RUN test -f /src/api/.env && rm -f /src/api/.env || true
-RUN test -f /src/api/.env.aws && rm -f /src/api/.env.aws || true
+# Copy source code
+COPY src ./src
 
-# Expose the port on which your FastAPI app listens
-# EXPOSE 8001
-EXPOSE 8002
-
-# Only expose one port where everything is hosted
-EXPOSE 8501
-
-ARG S3_BUCKET_NAME
-
-ARG S3_FOLDER_NAME
-
-ARG ENV
-
-ARG OPENAI_API_KEY
-
-ARG GOOGLE_CLIENT_ID
-
-ARG BUGSNAG_API_KEY
-
-ARG SLACK_USER_SIGNUP_WEBHOOK_URL
-
-ARG SLACK_COURSE_CREATED_WEBHOOK_URL
-
-ARG SLACK_USAGE_STATS_WEBHOOK_URL
-
-ARG SLACK_ALERT_WEBHOOK_URL
-
-ARG LANGFUSE_SECRET_KEY
-
-ARG LANGFUSE_PUBLIC_KEY
-
-ARG LANGFUSE_HOST
-
-ARG LANGFUSE_TRACING_ENVIRONMENT
-
-ARG GOOGLE_APPLICATION_CREDENTIALS
-
-ARG BQ_PROJECT_NAME
-
-ARG BQ_DATASET_NAME
-
-RUN printf "OPENAI_API_KEY=$OPENAI_API_KEY\nGOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID\nS3_BUCKET_NAME=$S3_BUCKET_NAME\nS3_FOLDER_NAME=$S3_FOLDER_NAME\nENV=$ENV\nBUGSNAG_API_KEY=$BUGSNAG_API_KEY\nSLACK_USER_SIGNUP_WEBHOOK_URL=$SLACK_USER_SIGNUP_WEBHOOK_URL\nSLACK_COURSE_CREATED_WEBHOOK_URL=$SLACK_COURSE_CREATED_WEBHOOK_URL\nSLACK_USAGE_STATS_WEBHOOK_URL=$SLACK_USAGE_STATS_WEBHOOK_URL\nSLACK_ALERT_WEBHOOK_URL=$SLACK_ALERT_WEBHOOK_URL\nLANGFUSE_SECRET_KEY=$LANGFUSE_SECRET_KEY\nLANGFUSE_PUBLIC_KEY=$LANGFUSE_PUBLIC_KEY\nLANGFUSE_HOST=$LANGFUSE_HOST\nLANGFUSE_TRACING_ENVIRONMENT=$LANGFUSE_TRACING_ENVIRONMENT\nGOOGLE_APPLICATION_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS\nBQ_PROJECT_NAME=$BQ_PROJECT_NAME\nBQ_DATASET_NAME=$BQ_DATASET_NAME" >> /src/api/.env
+# Remove any local .env files that may have been copied
+RUN test -f ./src/api/.env && rm -f ./src/api/.env || true
+RUN test -f ./src/api/.env.aws && rm -f ./src/api/.env.aws || true
 
 # Clean up
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Expose the port on which your FastAPI app listens
+EXPOSE 8001
+
+# Set Python path so 'api' module can be found
+ENV PYTHONPATH=/app/src
+
+# Run the application (uv run must be from /app where .venv is)
+CMD ["bash", "-c", "uv run python /app/src/startup.py && uv run uvicorn api.main:app --host 0.0.0.0 --port 8001"]

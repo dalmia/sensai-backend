@@ -1,12 +1,12 @@
-name: Deploy to Staging
+name: Deploy Only - Production
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-and-push:
+  deploy:
     runs-on: ubuntu-latest
-    environment: Preview
+    environment: Production
     env:
       IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
       IMAGE_TAG: ${{ secrets.IMAGE_TAG }}
@@ -18,25 +18,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
       - name: Copy docker-compose.yml to server
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -46,7 +27,7 @@ jobs:
           source: "docker-compose.yml"
           target: "~/"
 
-      - name: Deploy to staging server
+      - name: Deploy to production server
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -70,6 +51,9 @@ jobs:
             export SENTRY_DSN="${{ secrets.SENTRY_DSN }}"
             export SENTRY_ENVIRONMENT="${{ secrets.SENTRY_ENVIRONMENT }}"
             export SLACK_USER_SIGNUP_WEBHOOK_URL="${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}"
+            export SLACK_COURSE_CREATED_WEBHOOK_URL="${{ secrets.SLACK_COURSE_CREATED_WEBHOOK_URL }}"
+            export SLACK_USAGE_STATS_WEBHOOK_URL="${{ secrets.SLACK_USAGE_STATS_WEBHOOK_URL }}"
+            export SLACK_ALERT_WEBHOOK_URL="${{ secrets.SLACK_ALERT_WEBHOOK_URL }}"
             export LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}"
             export LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}"
             export LANGFUSE_HOST="${{ secrets.LANGFUSE_HOST }}"
@@ -79,17 +63,17 @@ jobs:
             export BQ_DATASET_NAME="${{ secrets.BQ_DATASET_NAME }}"
 
             cd ~/
-            docker compose pull
-            docker compose up -d
+            docker compose --profile production pull
+            docker compose --profile production up -d
             docker image prune -f
 
-      - name: Notify Slack on Success - Deployment
+      - name: Notify Slack on Success
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
-            text: "🚀 *backend*: Staging deployment completed successfully!"
+            text: "🚀 *backend*: Production deployment completed successfully!"
 
       - name: Notify Slack on Failure
         if: failure()
@@ -98,4 +82,4 @@ jobs:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
           webhook-type: incoming-webhook
           payload: |
-            text: "<!channel> ❌ *backend*: Staging deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            text: "<!channel> ❌ *backend*: Production deployment failed! Please check the GitHub Actions logs for details.\nRun: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

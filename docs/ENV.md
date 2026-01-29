@@ -18,9 +18,13 @@ The name of the S3 bucket used for storing files uploaded by users.
 
 The name of the S3 folder within the S3 bucket. We use the same bucket for dev and prod but with different folder names.
 
-### BUGSNAG_API_KEY (optional)
+### SENTRY_DSN (optional)
 
-The API key for the Bugsnag (used for error tracking).
+The DSN for Sentry (used for error tracking and performance monitoring).
+
+### SENTRY_ENVIRONMENT (optional)
+
+The environment the app is running in (development/staging/production).
 
 ### ENV (optional)
 

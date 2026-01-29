@@ -41,7 +41,6 @@ class TestAppConfiguration:
     def test_app_configuration_with_static_files(self, mock_exists, mock_settings):
         """Test app configuration when upload folder exists."""
         mock_settings.local_upload_folder = "/test/uploads"
-        mock_settings.bugsnag_api_key = None
         mock_exists.return_value = True
 
         # Import main to create app
@@ -55,7 +54,6 @@ class TestAppConfiguration:
     def test_app_configuration_without_static_files(self, mock_exists, mock_settings):
         """Test app configuration when upload folder doesn't exist."""
         mock_settings.local_upload_folder = "/test/uploads"
-        mock_settings.bugsnag_api_key = None
         mock_exists.return_value = False
 
         # Import main to create app

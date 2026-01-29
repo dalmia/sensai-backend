@@ -8,6 +8,13 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     environment: Production
+    env:
+      IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+      IMAGE_TAG: ${{ secrets.IMAGE_TAG }}
+      CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+      BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
+      PUBLIC_API_PORT: ${{ secrets.PUBLIC_API_PORT }}
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -27,27 +34,19 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: adalmia/sensai-ai:latest
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-          build-args: |
-            S3_BUCKET_NAME=${{ secrets.S3_BUCKET_NAME }}
-            S3_FOLDER_NAME=${{ secrets.S3_FOLDER_NAME }}
-            ENV=${{ secrets.ENV }}
-            BUGSNAG_API_KEY=${{ secrets.BUGSNAG_API_KEY }}
-            OPENAI_API_KEY=${{ secrets.OPENAI_API_KEY }}
-            GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
-            SLACK_USER_SIGNUP_WEBHOOK_URL=${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}
-            SLACK_COURSE_CREATED_WEBHOOK_URL=${{ secrets.SLACK_COURSE_CREATED_WEBHOOK_URL }}
-            SLACK_USAGE_STATS_WEBHOOK_URL=${{ secrets.SLACK_USAGE_STATS_WEBHOOK_URL }}
-            SLACK_ALERT_WEBHOOK_URL=${{ secrets.SLACK_ALERT_WEBHOOK_URL }}
-            LANGFUSE_SECRET_KEY=${{ secrets.LANGFUSE_SECRET_KEY }}
-            LANGFUSE_PUBLIC_KEY=${{ secrets.LANGFUSE_PUBLIC_KEY }}
-            LANGFUSE_HOST=${{ secrets.LANGFUSE_HOST }}
-            LANGFUSE_TRACING_ENVIRONMENT=${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}
-            GOOGLE_APPLICATION_CREDENTIALS=${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}
-            BQ_PROJECT_NAME=${{ secrets.BQ_PROJECT_NAME }}
-            BQ_DATASET_NAME=${{ secrets.BQ_DATASET_NAME }}
+
+      - name: Copy docker-compose.yml to server
+        if: contains(github.event.release.tag_name, '-deploy')
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USERNAME }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "docker-compose.yml"
+          target: "~/"
 
       - name: Deploy to production server
         if: contains(github.event.release.tag_name, '-deploy')
@@ -56,9 +55,39 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
           script: |
-            cd sensai-frontend && git checkout main && git pull origin main && cp docker-compose.prod.yml ../ && cd ../ && sudo docker compose -f docker-compose.prod.yml pull && sudo docker compose -f docker-compose.prod.yml up -d
+            set -e
+
+            # Set environment variables for docker compose
+            export IMAGE_NAME="${{ env.IMAGE_NAME }}"
+            export IMAGE_TAG="${{ env.IMAGE_TAG }}"
+            export CONTAINER_NAME="${{ env.CONTAINER_NAME }}"
+            export DATA_DIR="${{ secrets.DATA_DIR }}"
+            export BACKEND_PORT="${{ env.BACKEND_PORT }}"
+            export PUBLIC_API_PORT="${{ env.PUBLIC_API_PORT }}"
+            export OPENAI_API_KEY="${{ secrets.OPENAI_API_KEY }}"
+            export GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}"
+            export S3_BUCKET_NAME="${{ secrets.S3_BUCKET_NAME }}"
+            export S3_FOLDER_NAME="${{ secrets.S3_FOLDER_NAME }}"
+            export ENV="${{ secrets.ENV }}"
+            export SENTRY_DSN="${{ secrets.SENTRY_DSN }}"
+            export SENTRY_ENVIRONMENT="${{ secrets.SENTRY_ENVIRONMENT }}"
+            export SLACK_USER_SIGNUP_WEBHOOK_URL="${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}"
+            export SLACK_COURSE_CREATED_WEBHOOK_URL="${{ secrets.SLACK_COURSE_CREATED_WEBHOOK_URL }}"
+            export SLACK_USAGE_STATS_WEBHOOK_URL="${{ secrets.SLACK_USAGE_STATS_WEBHOOK_URL }}"
+            export SLACK_ALERT_WEBHOOK_URL="${{ secrets.SLACK_ALERT_WEBHOOK_URL }}"
+            export LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}"
+            export LANGFUSE_PUBLIC_KEY="${{ secrets.LANGFUSE_PUBLIC_KEY }}"
+            export LANGFUSE_HOST="${{ secrets.LANGFUSE_HOST }}"
+            export LANGFUSE_TRACING_ENVIRONMENT="${{ secrets.LANGFUSE_TRACING_ENVIRONMENT }}"
+            export GOOGLE_APPLICATION_CREDENTIALS="${{ secrets.GOOGLE_APPLICATION_CREDENTIALS }}"
+            export BQ_PROJECT_NAME="${{ secrets.BQ_PROJECT_NAME }}"
+            export BQ_DATASET_NAME="${{ secrets.BQ_DATASET_NAME }}"
+
+            cd ~/
+            docker compose --profile production pull
+            docker compose --profile production up -d
+            docker image prune -f
 
       - name: Notify Slack on Success - Deployment
         if: contains(github.event.release.tag_name, '-deploy')
@@ -68,15 +97,6 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             text: "🚀 *backend*: Production deployment completed successfully!"
-
-      - name: Notify Slack on Success - Build Only
-        if: ${{ !contains(github.event.release.tag_name, '-deploy') }}
-        uses: slackapi/slack-github-action@v2.1.1
-        with:
-          webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
-          webhook-type: incoming-webhook
-          payload: |
-            text: "🔨 *backend*: Production image build completed and needs to be deployed!"
 
       - name: Notify Slack on Failure
         if: failure()
