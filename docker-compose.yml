@@ -74,7 +74,14 @@ services:
     profiles:
       - production
     working_dir: /app/src
-    command: sh -c "apt-get update && apt-get install -y cron && echo '55 23 * * 0 cd /app/src && /usr/local/bin/python -c \"from api.cron import send_usage_summary_stats; import asyncio; asyncio.run(send_usage_summary_stats())\" >> /appdata/logs/backend-cron.log 2>&1' >> /app/sensai-cron && echo '0 7 * * * cd /app/src && /usr/local/bin/python -c \"from api.bq.cron import run_all_syncs; import asyncio; asyncio.run(run_all_syncs())\" >> /appdata/logs/backend-cron.log 2>&1' >> /app/sensai-cron && crontab /app/sensai-cron && cron -f"
+    command: >
+      sh -c "
+        apt-get update && apt-get install -y cron &&
+        printenv > /app/env.sh && sed -i 's/^/export /' /app/env.sh &&
+        echo '55 23 * * 0 . /app/env.sh; cd /app/src && /app/.venv/bin/python -c \"from api.cron import send_usage_summary_stats; import asyncio; asyncio.run(send_usage_summary_stats())\" >> /appdata/logs/backend-cron.log 2>&1' >> /app/sensai-cron &&
+        echo '0 7 * * * . /app/env.sh; cd /app/src && /app/.venv/bin/python -c \"from api.bq.cron import run_all_syncs; import asyncio; asyncio.run(run_all_syncs())\" >> /appdata/logs/backend-cron.log 2>&1' >> /app/sensai-cron &&
+        crontab /app/sensai-cron && cron -f
+      "
     volumes:
       - ${DATA_DIR}:/appdata
     networks:
