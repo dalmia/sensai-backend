@@ -8,8 +8,8 @@ jobs:
     runs-on: ubuntu-latest
     environment: Production
     env:
-      IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
-      IMAGE_TAG: ${{ secrets.IMAGE_TAG }}
+      IMAGE_NAME: ${{ vars.IMAGE_NAME }}
+      IMAGE_TAG: ${{ vars.IMAGE_TAG }}
       CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
       BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
       PUBLIC_API_PORT: ${{ secrets.PUBLIC_API_PORT }}
