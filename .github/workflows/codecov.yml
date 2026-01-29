@@ -32,7 +32,7 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/ --cov=src --cov-report=xml --cov-report=term  --cov-config=pytest.ini
+          uv run pytest tests/ --cov=src --cov-report=xml --cov-report=term --cov-config=pytest.ini
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
