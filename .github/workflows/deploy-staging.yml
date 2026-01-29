@@ -15,6 +15,10 @@ jobs:
   build-and-push:
     runs-on: ubuntu-latest
     environment: Preview
+    env:
+      IMAGE_NAME: adalmia/sensai-ai
+      IMAGE_TAG: v2-dev
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -34,7 +38,7 @@ jobs:
           context: .
           platforms: linux/amd64
           push: true
-          tags: adalmia/sensai-ai:v2-dev
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
