@@ -39,7 +39,6 @@ jobs:
           cache-to: type=gha,mode=max
 
       - name: Copy docker-compose.yml to server
-        if: contains(github.event.release.tag_name, '-deploy')
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -49,7 +48,6 @@ jobs:
           target: "~/"
 
       - name: Deploy to production server
-        if: contains(github.event.release.tag_name, '-deploy')
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SSH_HOST }}
@@ -89,8 +87,7 @@ jobs:
             docker compose --profile production up -d
             docker image prune -f
 
-      - name: Notify Slack on Success - Deployment
-        if: contains(github.event.release.tag_name, '-deploy')
+      - name: Notify Slack on Success
         uses: slackapi/slack-github-action@v2.1.1
         with:
           webhook: ${{ secrets.SLACK_DEPLOYMENT_WEBHOOK_URL }}
