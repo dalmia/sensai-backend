@@ -8,12 +8,11 @@ jobs:
     runs-on: ubuntu-latest
     environment: Preview
     env:
-      IMAGE_NAME: adalmia/sensai-ai
-      IMAGE_TAG: v2-dev
-      CONTAINER_NAME: backend-dev
-      DEPLOY_DIR: /tmp/sensai-backend-staging
-      BACKEND_PORT: 8002
-      PUBLIC_API_PORT: 8005
+      IMAGE_NAME: ${{ secrets.IMAGE_NAME }}
+      IMAGE_TAG: ${{ secrets.IMAGE_TAG }}
+      CONTAINER_NAME: ${{ secrets.CONTAINER_NAME }}
+      BACKEND_PORT: ${{ secrets.BACKEND_PORT }}
+      PUBLIC_API_PORT: ${{ secrets.PUBLIC_API_PORT }}
 
     steps:
       - name: Checkout code
@@ -44,9 +43,8 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
           source: "docker-compose.yml"
-          target: ${{ env.DEPLOY_DIR }}
+          target: "~/"
 
       - name: Deploy to staging server
         uses: appleboy/ssh-action@v1.0.3
@@ -54,7 +52,6 @@ jobs:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USERNAME }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          port: ${{ secrets.SSH_PORT }}
           script: |
             set -e
 
@@ -81,7 +78,7 @@ jobs:
             export BQ_PROJECT_NAME="${{ secrets.BQ_PROJECT_NAME }}"
             export BQ_DATASET_NAME="${{ secrets.BQ_DATASET_NAME }}"
 
-            cd ${{ env.DEPLOY_DIR }}
+            cd ~/
             docker compose pull
             docker compose up -d
             docker image prune -f
