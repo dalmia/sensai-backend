@@ -38,6 +38,8 @@ services:
   public-api:
     image: ${IMAGE_NAME}:${IMAGE_TAG}
     container_name: ${CONTAINER_NAME}-public-api
+    working_dir: /app/src
+    command: bash -c "uv run python /app/src/startup.py && uv run uvicorn api.public:app --host 0.0.0.0 --port 8001"
     volumes:
       - ${DATA_DIR}:/appdata
     restart: unless-stopped
