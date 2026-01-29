@@ -293,7 +293,7 @@ def convert_scorecard_to_prompt(scorecard: list[dict]) -> str:
     scoring_criteria_as_prompt = []
 
     for index, criterion in enumerate(scorecard["criteria"]):
-        criterion_name = criterion['name'].strip('"')
+        criterion_name = criterion["name"].replace('"', "")
         scoring_criteria_as_prompt.append(
             f"""Criterion {index + 1}:\n**Name**: **{criterion_name}** [min_score: {criterion['min_score']}, max_score: {criterion['max_score']}, pass_score: {criterion.get('pass_score', criterion['max_score'])}]\n\n{criterion['description']}"""
         )
@@ -602,7 +602,7 @@ async def ai_response_for_question(request: AIChatRequest):
 
                     Scorecard = make_scorecard_model(
                         [
-                            criterion["name"].strip('"')
+                            criterion["name"].replace('"', "")
                             for criterion in question["scorecard"]["criteria"]
                         ]
                     )
