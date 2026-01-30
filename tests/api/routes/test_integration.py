@@ -44,6 +44,36 @@ async def test_create_integration_endpoint_success(client, mock_db):
 
 
 @pytest.mark.asyncio
+async def test_create_integration_endpoint_creation_failed(client, mock_db):
+    """Test failed integration creation when get_integration returns None"""
+    # Setup mock
+    integration_id = 1
+
+    with patch("api.routes.integration.create_integration") as mock_create, patch(
+        "api.routes.integration.get_integration"
+    ) as mock_get:
+
+        mock_create.return_value = integration_id
+        mock_get.return_value = None  # Simulate failure to retrieve created integration
+
+        # Test data
+        request_data = {
+            "user_id": 1,
+            "integration_type": "slack",
+            "access_token": "test_access_token",
+            "refresh_token": "test_refresh_token",
+            "expires_at": "2024-01-01T12:00:00+00:00",
+        }
+
+        response = client.post("/integrations/", json=request_data)
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        assert response.json() == {"detail": "Failed to create integration"}
+        mock_create.assert_called_once()
+        mock_get.assert_called_once_with(integration_id)
+
+
+@pytest.mark.asyncio
 async def test_create_integration_endpoint_upsert_success(client, mock_db):
     """Test successful upsert of existing integration via API endpoint."""
     # Setup mock
