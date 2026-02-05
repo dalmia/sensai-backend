@@ -1,4 +1,5 @@
 import os
+import base64
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from typing import AsyncGenerator, Optional, Dict
@@ -10,6 +11,7 @@ from api.models import (
     AIChatRequest,
     ChatResponseType,
     TaskType,
+    TaskInputType,
     QuestionType,
 )
 from api.llm import (
@@ -268,6 +270,53 @@ def get_user_audio_message_for_chat_history(uuid: str) -> list[dict]:
     ]
 
 
+def get_user_file_message_for_chat_history(file_uuid: str, filename: str, file_type: str = "pdf") -> list[dict]:
+    try:
+        if settings.s3_folder_name:
+            file_data = download_file_from_s3_as_bytes(
+                get_media_upload_s3_key_from_uuid(file_uuid, file_type)
+            )
+        else:
+            with open(os.path.join(settings.local_upload_folder, f"{file_uuid}.{file_type}"), "rb") as f:
+                file_data = f.read()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"File not found: {file_uuid}")
+    except Exception as e:
+        error_msg = str(e)
+        if "NoSuchKey" in error_msg or "404" in error_msg:
+            raise HTTPException(status_code=404, detail=f"File not found: {file_uuid}")
+        raise HTTPException(status_code=500, detail=f"Error reading file: {error_msg}")
+
+    base64_data = base64.b64encode(file_data).decode("utf-8")
+    data_url = f"data:application/{file_type};base64,{base64_data}"
+
+    return [
+        {
+            "type": "file",
+            "file": {
+                "filename": filename,
+                "file_data": data_url,
+            },
+        },
+    ]
+
+
+def get_processed_message_content(message: dict) -> any:
+    if message.get("role") != "user":
+        return message.get("content")
+
+    content = message.get("content")
+    response_type = message.get("response_type")
+
+    if response_type == ChatResponseType.FILE:
+        file_data = json.loads(content)
+        return get_user_file_message_for_chat_history(file_data["file_uuid"], file_data["filename"])
+    elif response_type == ChatResponseType.AUDIO:
+        return get_user_audio_message_for_chat_history(content)
+
+    return content
+
+
 def format_ai_scorecard_report(scorecard: list[dict]) -> str:
     scorecard_as_prompt = []
     for criterion in scorecard:
@@ -414,14 +463,25 @@ async def ai_response_for_question(request: AIChatRequest):
 
             metadata["task_title"] = task["title"]
 
+            # Parse content based on response type
+            if request.response_type == ChatResponseType.FILE:
+                if not isinstance(request.user_response, dict) or "file_uuid" not in request.user_response or "filename" not in request.user_response:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="File response requires dict with file_uuid and filename"
+                    )
+                file_content = get_user_file_message_for_chat_history(
+                    request.user_response["file_uuid"], request.user_response["filename"]
+                )
+            elif request.response_type == ChatResponseType.AUDIO:
+                file_content = get_user_audio_message_for_chat_history(request.user_response)
+            else:
+                file_content = request.user_response
+
             new_user_message = [
                 {
                     "role": "user",
-                    "content": (
-                        get_user_audio_message_for_chat_history(request.user_response)
-                        if request.response_type == ChatResponseType.AUDIO
-                        else request.user_response
-                    ),
+                    "content": file_content,
                 }
             ]
 
@@ -477,7 +537,10 @@ async def ai_response_for_question(request: AIChatRequest):
                     metadata["question_id"] = None
 
                 chat_history = [
-                    {"role": message["role"], "content": message["content"]}
+                    {
+                        "role": message["role"],
+                        "content": get_processed_message_content(message)
+                    }
                     for message in chat_history
                 ]
 
@@ -499,15 +562,7 @@ async def ai_response_for_question(request: AIChatRequest):
                 metadata.update(task_metadata)
 
             for message in chat_history:
-                if message["role"] == "user":
-                    if (
-                        request.response_type == ChatResponseType.AUDIO
-                        and message.get("response_type") == ChatResponseType.AUDIO
-                    ):
-                        message["content"] = get_user_audio_message_for_chat_history(
-                            message["content"]
-                        )
-                else:
+                if message["role"] == "assistant":
                     if request.task_type == TaskType.LEARNING_MATERIAL:
                         message["content"] = json.dumps(
                             {"feedback": message["content"]}
@@ -531,11 +586,19 @@ async def ai_response_for_question(request: AIChatRequest):
                         f"---\n\n**Scoring Criteria**\n\n{scorecard_as_prompt}\n\n"
                     )
 
+                # Add file evaluation context if input type is FILE
+                if question.get("input_type") == TaskInputType.FILE:
+                    question_details += "---\n\n**Note**: The student has submitted a PDF file for evaluation. Evaluate the file content against the task requirements and scoring criteria.\n\n"
+
             chat_history = chat_history + new_user_message
 
             # router
             if request.response_type == ChatResponseType.AUDIO:
                 model = openai_plan_to_model_name["audio"]
+                openai_api_mode = "chat_completions"
+            elif request.response_type == ChatResponseType.FILE:
+                # Use text model for PDF files (supports multimodal content)
+                model = openai_plan_to_model_name["text"]
                 openai_api_mode = "chat_completions"
             else:
                 model = await get_model_for_task(chat_history, question_details)

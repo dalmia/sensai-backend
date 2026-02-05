@@ -794,6 +794,16 @@ class TestCourseTransfer:
         mock_update_learning.assert_called_once()
         mock_update_quiz.assert_called_once()
 
+    @patch("src.api.db.course.get_course")
+    async def test_duplicate_course_to_org_course_not_found(self, mock_get_course):
+        """Test duplicating course to organization when course doesn't exist"""
+        # Mock course not found
+        mock_get_course.return_value = None
+
+        # Should raise ValueError when course doesn't exist
+        with pytest.raises(ValueError, match="Course does not exist"):
+            await duplicate_course_to_org(999, 123)
+
     @patch("src.api.db.course.create_assignment")
     @patch("src.api.db.course.create_draft_task_for_course")
     @patch("src.api.db.course.add_milestone_to_course")
