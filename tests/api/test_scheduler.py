@@ -33,56 +33,55 @@ class TestSchedulerConfiguration:
 class TestErrorReportingDecorator:
     """Test the with_error_reporting decorator."""
 
-    @patch("src.api.scheduler.bugsnag")
+    @patch("src.api.scheduler.sentry_sdk")
     @patch("src.api.scheduler.settings")
-    async def test_with_error_reporting_with_bugsnag_enabled(
-        self, mock_settings, mock_bugsnag
+    async def test_with_error_reporting_with_sentry_enabled(
+        self, mock_settings, mock_sentry
     ):
-        """Test decorator reports to Bugsnag when API key is set - covers lines 27-30."""
+        """Test decorator reports to Sentry when DSN is set - covers lines 27-30."""
         # Setup mock settings
-        mock_settings.bugsnag_api_key = "test_api_key"
+        mock_settings.sentry_dsn = "test_dsn"
 
         # Create a test function that raises an exception
         @with_error_reporting("test_context")
         async def failing_function():
             raise ValueError("Test error")
 
-        # Verify the exception is raised and Bugsnag is notified
+        # Verify the exception is raised and Sentry is notified
         with pytest.raises(ValueError, match="Test error"):
             await failing_function()
 
-        # Verify bugsnag.notify was called with the exception and context
-        mock_bugsnag.notify.assert_called_once()
-        call_args = mock_bugsnag.notify.call_args
+        # Verify sentry_sdk.capture_exception was called with the exception
+        mock_sentry.capture_exception.assert_called_once()
+        call_args = mock_sentry.capture_exception.call_args
         assert isinstance(call_args[0][0], ValueError)
         assert str(call_args[0][0]) == "Test error"
-        assert call_args[1]["context"] == "test_context"
 
-    @patch("src.api.scheduler.bugsnag")
+    @patch("src.api.scheduler.sentry_sdk")
     @patch("src.api.scheduler.settings")
-    async def test_with_error_reporting_without_bugsnag_key(
-        self, mock_settings, mock_bugsnag
+    async def test_with_error_reporting_without_sentry_dsn(
+        self, mock_settings, mock_sentry
     ):
-        """Test decorator doesn't report when Bugsnag API key is not set - covers lines 27-30."""
-        # Setup mock settings without bugsnag_api_key
-        mock_settings.bugsnag_api_key = None
+        """Test decorator doesn't report when Sentry DSN is not set - covers lines 27-30."""
+        # Setup mock settings without sentry_dsn
+        mock_settings.sentry_dsn = None
 
         # Create a test function that raises an exception
         @with_error_reporting("test_context")
         async def failing_function():
             raise ValueError("Test error")
 
-        # Verify the exception is raised but Bugsnag is NOT notified
+        # Verify the exception is raised but Sentry is NOT notified
         with pytest.raises(ValueError, match="Test error"):
             await failing_function()
 
-        # Verify bugsnag.notify was NOT called
-        mock_bugsnag.notify.assert_not_called()
+        # Verify sentry_sdk.capture_exception was NOT called
+        mock_sentry.capture_exception.assert_not_called()
 
     @patch("src.api.scheduler.settings")
     async def test_with_error_reporting_successful_execution(self, mock_settings):
         """Test decorator doesn't interfere with successful execution."""
-        mock_settings.bugsnag_api_key = "test_api_key"
+        mock_settings.sentry_dsn = "test_dsn"
 
         # Create a test function that succeeds
         @with_error_reporting("test_context")
