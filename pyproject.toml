@@ -41,6 +41,7 @@ dependencies = [
     "langfuse==3.5.1",
     "jiter==0.8.2",
     "instructor==1.11.3",
+    "PyJWT==2.9.0",
 ]
 
 [build-system]
