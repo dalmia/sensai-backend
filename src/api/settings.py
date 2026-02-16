@@ -14,6 +14,7 @@ if os.path.exists(env_path):
 
 
 class Settings(BaseSettings):
+    jwt_secret: str | None = None
     google_client_id: str | None = None
 
     google_application_credentials: str | None = None

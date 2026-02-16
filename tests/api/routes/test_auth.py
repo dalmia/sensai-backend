@@ -2,11 +2,20 @@ import pytest
 from fastapi import status
 from unittest.mock import patch, MagicMock, AsyncMock
 
+TEST_JWT_SECRET = "test-secret-for-auth-route-tests"
+
+
+@pytest.fixture(autouse=True)
+def mock_jwt_secret_for_auth():
+    with patch("api.auth.jwt.get_settings") as mock_settings:
+        mock_settings.return_value.jwt_secret = TEST_JWT_SECRET
+        yield
+
 
 @pytest.mark.asyncio
 async def test_login_or_signup_user_success(client, mock_db):
     """
-    Test successful login or signup
+    Test successful login or signup — now returns JWT fields.
     """
     # Mock Google token verification
     with patch("api.routes.auth.id_token.verify_oauth2_token") as mock_verify, patch(
@@ -51,7 +60,17 @@ async def test_login_or_signup_user_success(client, mock_db):
 
         # Verify response
         assert response.status_code == status.HTTP_200_OK
-        assert response.json() == expected_user
+        data = response.json()
+
+        # User fields still present
+        assert data["id"] == 1
+        assert data["email"] == "test@example.com"
+        assert data["first_name"] == "Test"
+
+        # JWT fields now included
+        assert "access_token" in data
+        assert data["token_type"] == "bearer"
+        assert data["expires_in"] > 0
 
         # Verify mocks called correctly
         mock_verify.assert_called_once()
