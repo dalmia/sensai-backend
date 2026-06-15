@@ -70,6 +70,6 @@ openai_plan_to_model_name = {
     "reasoning": "o3-mini-2025-01-31",
     "text": "gpt-4.1-2025-04-14",
     "text-mini": "gpt-4.1-mini-2025-04-14",
-    "audio": "gpt-4o-audio-preview-2025-06-03",
+    "audio": "gpt-audio-1.5",
     "router": "gpt-4.1-mini-2025-04-14",
 }
