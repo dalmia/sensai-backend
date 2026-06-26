@@ -583,7 +583,7 @@ async def update_published_quiz(
                 if existing_mapping:
                     # Update existing mapping
                     await cursor.execute(
-                        f"UPDATE {question_scorecards_table_name} SET scorecard_id = ? WHERE question_id = ?",
+                        f"UPDATE {question_scorecards_table_name} SET scorecard_id = ? WHERE question_id = ? AND deleted_at IS NULL",
                         (question["scorecard_id"], question["id"]),
                     )
                 else:
