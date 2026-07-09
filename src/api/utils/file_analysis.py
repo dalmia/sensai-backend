@@ -65,6 +65,48 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
         '.txt', '.md',                  # Text files
         '.sh', '.bat', '.ps1',          # Shell scripts
     }
+
+    # Files to always exclude (lock files, generated files, etc.)
+    EXCLUDED_FILENAMES = {
+        'package-lock.json',
+        'yarn.lock',
+        'pnpm-lock.yaml',
+        'composer.lock',
+        'Gemfile.lock',
+        'poetry.lock',
+        'Pipfile.lock',
+        'uv.lock',
+        '.DS_Store',
+        'thumbs.db',
+    }
+
+    # Directory names to skip entirely
+    EXCLUDED_DIRS = {
+        'node_modules',
+        '.git',
+        '__pycache__',
+        '.next',
+        '.nuxt',
+        'dist',
+        'build',
+        '.venv',
+        'venv',
+        'env',
+        '.env',
+        '.idea',
+        '.vscode',
+        'coverage',
+        '.cache',
+    }
+
+    # File patterns to exclude (minified/bundled files)
+    EXCLUDED_SUFFIXES = {
+        '.min.js',
+        '.min.css',
+        '.bundle.js',
+        '.chunk.js',
+        '.map',
+    }
     
     # Download the file
     if settings.s3_folder_name:
@@ -91,8 +133,22 @@ def extract_submission_file(file_uuid: str) -> Dict[str, any]:
         file_contents = {}
 
         for file_path in extracted_files:
-            # Get file extension
+            filename = os.path.basename(file_path).lower()
             file_ext = os.path.splitext(file_path)[1].lower()
+            relative_path = os.path.relpath(file_path, temp_extract_dir).replace(os.sep, '/')
+
+            # Skip files in excluded directories
+            path_parts = Path(relative_path).parts
+            if any(part.lower() in EXCLUDED_DIRS for part in path_parts):
+                continue
+
+            # Skip excluded filenames
+            if filename in EXCLUDED_FILENAMES:
+                continue
+
+            # Skip minified/bundled files
+            if any(relative_path.lower().endswith(suffix) for suffix in EXCLUDED_SUFFIXES):
+                continue
 
             # Only include files with allowed extensions
             if file_ext in ALLOWED_EXTENSIONS:
