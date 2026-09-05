@@ -124,6 +124,12 @@ async def upload_file_locally(
         # Generate a unique filename
         file_uuid = str(uuid.uuid4())
         file_extension = content_type.split("/")[1]
+
+        # Enforce the same shape the download route validates, so the two ends
+        # cannot drift apart and leave an unreadable (or unsafe) filename.
+        if not _EXTENSION_RE.match(file_extension):
+            raise HTTPException(status_code=400, detail="Invalid content type")
+
         filename = f"{file_uuid}.{file_extension}"
         file_path = os.path.join(settings.local_upload_folder, filename)
 
@@ -155,9 +161,11 @@ async def download_file_locally(
 ):
     try:
         if not _UUID_RE.match(uuid):
+            logger.warning(f"Rejected download, bad file identifier: {uuid!r}")
             raise HTTPException(status_code=400, detail="Invalid file identifier")
 
         if not _EXTENSION_RE.match(file_extension):
+            logger.warning(f"Rejected download, bad extension: {file_extension!r}")
             raise HTTPException(status_code=400, detail="Invalid file extension")
 
         upload_root = os.path.realpath(settings.local_upload_folder)
@@ -165,9 +173,11 @@ async def download_file_locally(
             os.path.join(upload_root, f"{uuid}.{file_extension}")
         )
 
+        # Defence in depth. Unreachable while the regexes above exclude "/", "\\"
+        # and "." - kept so a symlink or a loosened regex cannot escape silently.
         if os.path.commonpath([upload_root, file_path]) != upload_root:
-            logger.warning(
-                f"Blocked path traversal attempt: uuid={uuid!r} ext={file_extension!r}"
+            logger.error(
+                f"Path escaped upload folder: uuid={uuid!r} ext={file_extension!r}"
             )
             raise HTTPException(status_code=400, detail="Invalid file path")
 

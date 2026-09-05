@@ -8,7 +8,6 @@ pytestmark = pytest.mark.skip(
     reason="/integrations router unmounted - see note in api/main.py"
 )
 
-import pytest
 from fastapi import status
 from datetime import datetime, timezone
 from unittest.mock import patch, AsyncMock

@@ -79,3 +79,18 @@ class TestChatRoutes:
         assert body[0]["task_id"] is None
         mock_get_task_chat_history.assert_called_once_with(user_id=123, task_id=456)
 
+
+
+class TestRemovedChatRoutes:
+    """The two endpoints removed 2026-09-05 must stay removed.
+
+    DELETE /chat/ is the endpoint an external actor used on 2026-08-29 to
+    soft-delete 1,124,618 rows across 2,397 learners. These are three-line
+    tests, and they are the only thing stopping someone re-adding the routes.
+    """
+
+    def test_delete_all_chat_history_route_is_gone(self):
+        assert client.delete("/chat/").status_code in (404, 405)
+
+    def test_get_all_chat_history_route_is_gone(self):
+        assert client.get("/chat/?org_id=1").status_code in (404, 405)

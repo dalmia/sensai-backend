@@ -96,8 +96,6 @@ async def store_messages(
     ]
 
 
-
-
 def convert_chat_message_to_dict(message: Tuple) -> ChatMessage:
     return {
         "id": message[0],
@@ -183,5 +181,3 @@ async def delete_user_chat_history_for_task(question_id: int, user_id: int):
         f"UPDATE {chat_history_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
         (question_id, user_id),
     )
-
-

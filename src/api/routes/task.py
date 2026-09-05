@@ -132,11 +132,6 @@ async def delete_task(task_id: int):
     return {"success": True}
 
 
-@router.delete("/")
-async def delete_tasks(task_ids: List[int] = Query(...)):
-    await delete_tasks_in_db(task_ids)
-    return {"success": True}
-
 
 @router.get("/cohort/{cohort_id}/user/{user_id}/completed", response_model=List[int])
 async def get_tasks_completed_for_user(
