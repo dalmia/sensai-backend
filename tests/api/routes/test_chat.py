@@ -82,12 +82,6 @@ class TestChatRoutes:
 
 
 class TestRemovedChatRoutes:
-    """The two endpoints removed 2026-09-05 must stay removed.
-
-    DELETE /chat/ is the endpoint an external actor used on 2026-08-29 to
-    soft-delete 1,124,618 rows across 2,397 learners. These are three-line
-    tests, and they are the only thing stopping someone re-adding the routes.
-    """
 
     def test_delete_all_chat_history_route_is_gone(self):
         assert client.delete("/chat/").status_code in (404, 405)

@@ -407,8 +407,6 @@ async def test_download_file_locally_unexpected_error(client, mock_db):
 @pytest.mark.parametrize(
     "bad_uuid,bad_extension",
     [
-        # The exact string from the 2026-08-29 incident write-up: this resolved to
-        # /appdata/db.sqlite, the bind-mounted production database.
         ("../../../../appdata/db", "sqlite"),
         ("..", ".."),
         ("12345678-1234-5678-1234-567812345678", "../../etc/passwd"),
@@ -421,18 +419,24 @@ async def test_download_file_locally_unexpected_error(client, mock_db):
 async def test_download_file_locally_rejects_traversal(
     client, mock_db, bad_uuid, bad_extension
 ):
-    """GET /file/download-local/ must never serve a path outside the upload folder.
-
-    Guards the fix for the path traversal reported 2026-09-05. Without this,
-    a refactor of download_file_locally reopens the hole silently.
-    """
     with patch("api.routes.file.settings.local_upload_folder", "/tmp/uploads"):
         response = client.get(
             f"/file/download-local/?uuid={bad_uuid}&file_extension={bad_extension}"
         )
 
-    # 400 from validation, or 404 if the router does not match at all. The one
-    # thing that must never happen is a 200 with file contents.
     assert response.status_code in (400, 404), (
         f"{bad_uuid!r}/{bad_extension!r} returned {response.status_code}"
     )
+
+
+@pytest.mark.asyncio
+async def test_upload_file_locally_rejects_bad_content_type(client, mock_db):
+    with patch("api.routes.file.settings.local_upload_folder", "/tmp/uploads"):
+        response = client.post(
+            "/file/upload-local",
+            files={"file": ("a.bin", b"x")},
+            data={"content_type": "image/svg+xml"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid content type"}

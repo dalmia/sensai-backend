@@ -1,17 +1,5 @@
 """Convert cached Notion blocks into native SensAI (BlockNote) blocks.
 
-One-off migration for the Notion integration removal (2026-09-05). Committed
-here rather than left in an ops folder because sensai-frontend#54 is only safe
-if this has run: it removes the `notion` render path, so any surviving `notion`
-block would otherwise reach an editor whose schema has no spec for it.
-
-Applied to production 2026-09-05: 462 tasks + 360 questions, 0 leftover notion
-blocks. Backup taken first with VACUUM INTO ->
-  /appdata_prod/db.backup-pre-notion-convert.sqlite
-Rollback: stop the containers, restore that file over /appdata_prod/db.sqlite.
-
-Run without --apply first; it prints exactly what it would change.
-
 Reads the `notion` wrapper blocks stored in tasks.blocks / questions.blocks and
 rewrites them as normal editor blocks, using the content already cached in the
 database. No Notion API access and no OAuth token required.

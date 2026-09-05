@@ -1,9 +1,5 @@
 import pytest
 
-# The /integrations router is unmounted in main.py (2026-09-05, security) - it
-# returned every stored OAuth token to any unauthenticated caller. The router and
-# db layer are kept for a future integration, so these route tests are kept too
-# and skipped until it is re-mounted behind authentication.
 pytestmark = pytest.mark.skip(
     reason="/integrations router unmounted - see note in api/main.py"
 )

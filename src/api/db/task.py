@@ -706,16 +706,6 @@ async def delete_task(task_id: int):
     )
 
 
-async def delete_tasks(task_ids: List[int]):
-    task_ids_as_str = serialise_list_to_str(map(str, task_ids))
-
-    await execute_db_operation(
-        f"""
-        UPDATE {tasks_table_name} SET deleted_at = CURRENT_TIMESTAMP WHERE id IN ({task_ids_as_str}) AND deleted_at IS NULL
-        """,
-    )
-
-
 async def get_solved_tasks_for_user(
     user_id: int,
     cohort_id: int,

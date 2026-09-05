@@ -797,10 +797,5 @@ async def test_update_assignment_not_found(client, mock_db):
 
 @pytest.mark.asyncio
 async def test_bulk_delete_tasks_route_is_gone(client, mock_db):
-    """DELETE /tasks/ was removed 2026-09-05 (security).
-
-    It bulk soft-deleted by a caller-supplied id list with no auth, and ids are
-    sequential integers. Single-task deletion via DELETE /tasks/{id} remains.
-    """
     response = client.request("DELETE", "/tasks/", params={"task_ids": [1, 2, 3]})
     assert response.status_code in (404, 405)

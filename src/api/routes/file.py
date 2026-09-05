@@ -125,8 +125,6 @@ async def upload_file_locally(
         file_uuid = str(uuid.uuid4())
         file_extension = content_type.split("/")[1]
 
-        # Enforce the same shape the download route validates, so the two ends
-        # cannot drift apart and leave an unreadable (or unsafe) filename.
         if not _EXTENSION_RE.match(file_extension):
             raise HTTPException(status_code=400, detail="Invalid content type")
 
@@ -148,6 +146,8 @@ async def upload_file_locally(
             "static_url": static_url,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error uploading file locally: {str(e)}")
         traceback.print_exc()
@@ -173,9 +173,7 @@ async def download_file_locally(
             os.path.join(upload_root, f"{uuid}.{file_extension}")
         )
 
-        # Defence in depth. Unreachable while the regexes above exclude "/", "\\"
-        # and "." - kept so a symlink or a loosened regex cannot escape silently.
-        if os.path.commonpath([upload_root, file_path]) != upload_root:
+        if os.path.commonpath([upload_root, file_path]) != upload_root:  # pragma: no cover
             logger.error(
                 f"Path escaped upload folder: uuid={uuid!r} ext={file_extension!r}"
             )
