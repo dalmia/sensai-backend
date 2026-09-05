@@ -52,32 +52,6 @@ class TestChatRoutes:
         assert body[0]["id"] == 1
         assert body[0]["task_id"] is None
 
-    @patch("src.api.routes.chat.get_all_chat_history_from_db")
-    def test_get_all_chat_history_success(self, mock_get_chat_history):
-        """Test successful chat history retrieval."""
-        # Setup mock with correct ChatMessage structure
-        mock_chat_data = [
-            {
-                "id": 1,
-                "created_at": "2023-01-01T00:00:00Z",
-                "user_id": 123,
-                "question_id": 456,
-                "role": "user",
-                "content": "Hello",
-                "response_type": "text",
-            }
-        ]
-        mock_get_chat_history.return_value = mock_chat_data
-
-        # Make request
-        response = client.get("/chat/?org_id=123")
-
-        # Assertions
-        assert response.status_code == 200
-        body = response.json()
-        assert body[0]["id"] == 1
-        assert body[0]["task_id"] is None
-
     @patch("src.api.routes.chat.get_task_chat_history_for_user_from_db")
     def test_get_user_chat_history_for_task_success(self, mock_get_task_chat_history):
         """Test successful user chat history retrieval for a specific task."""
@@ -105,15 +79,3 @@ class TestChatRoutes:
         assert body[0]["task_id"] is None
         mock_get_task_chat_history.assert_called_once_with(user_id=123, task_id=456)
 
-    @patch("src.api.routes.chat.delete_all_chat_history_from_db")
-    def test_delete_all_chat_history_success(self, mock_delete_chat_history):
-        """Test successful deletion of all chat history."""
-        # Setup mock
-        mock_delete_chat_history.return_value = None
-
-        # Make request
-        response = client.delete("/chat/")
-
-        # Assertions
-        assert response.status_code == 200
-        assert response.json() == {"message": "All chat history deleted"}

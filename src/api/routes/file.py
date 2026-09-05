@@ -1,4 +1,5 @@
 import os
+import re
 import traceback
 import uuid
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form
@@ -19,6 +20,10 @@ from api.models import (
 )
 
 router = APIRouter()
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_EXTENSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,19}$")
 
 
 @router.put("/presigned-url/create", response_model=PresignedUrlResponse)
@@ -149,9 +154,22 @@ async def download_file_locally(
     file_extension: str,
 ):
     try:
-        file_path = os.path.join(
-            settings.local_upload_folder, f"{uuid}.{file_extension}"
+        if not _UUID_RE.match(uuid):
+            raise HTTPException(status_code=400, detail="Invalid file identifier")
+
+        if not _EXTENSION_RE.match(file_extension):
+            raise HTTPException(status_code=400, detail="Invalid file extension")
+
+        upload_root = os.path.realpath(settings.local_upload_folder)
+        file_path = os.path.realpath(
+            os.path.join(upload_root, f"{uuid}.{file_extension}")
         )
+
+        if os.path.commonpath([upload_root, file_path]) != upload_root:
+            logger.warning(
+                f"Blocked path traversal attempt: uuid={uuid!r} ext={file_extension!r}"
+            )
+            raise HTTPException(status_code=400, detail="Invalid file path")
 
         # Check if file exists
         if not os.path.exists(file_path):

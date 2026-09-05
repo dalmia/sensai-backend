@@ -25,7 +25,7 @@ from api.routes import (
     file,
     ai,
     scorecard,
-    integration,
+    # integration,  # router unmounted below - see note at include_router
 )
 
 # from api.routes.ai import (
@@ -133,7 +133,15 @@ app.include_router(scorecard.router, prefix="/scorecards", tags=["scorecards"])
 app.include_router(code.router, prefix="/code", tags=["code"])
 app.include_router(hva.router, prefix="/hva", tags=["hva"])
 app.include_router(websocket_router, prefix="/ws", tags=["websockets"])
-app.include_router(integration.router, prefix="/integrations", tags=["integrations"])
+# Unmounted 2026-09-05 (security). GET /integrations/ returned every stored OAuth
+# token to any unauthenticated caller - this is how the Notion tokens leaked.
+#
+# The router, db layer and integrations table are intentionally KEPT so a future
+# integration (Google etc) can reuse them. Before re-mounting:
+#   1. put the API behind authentication
+#   2. make user_id required on the list route (optional = dumps the whole table)
+#   3. stop returning access_token / refresh_token in any response
+# app.include_router(integration.router, prefix="/integrations", tags=["integrations"])
 
 
 @app.exception_handler(Exception)
