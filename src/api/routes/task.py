@@ -1,10 +1,9 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException
 from typing import List, Dict
 from api.db.task import (
     get_solved_tasks_for_user as get_solved_tasks_for_user_from_db,
     get_task as get_task_from_db,
     delete_task as delete_task_in_db,
-    delete_tasks as delete_tasks_in_db,
     create_draft_task_for_course as create_draft_task_for_course_in_db,
     update_learning_material_task as update_learning_material_task_in_db,
     update_draft_quiz as update_draft_quiz_in_db,
@@ -129,12 +128,6 @@ async def duplicate_task(
 @router.delete("/{task_id}")
 async def delete_task(task_id: int):
     await delete_task_in_db(task_id)
-    return {"success": True}
-
-
-@router.delete("/")
-async def delete_tasks(task_ids: List[int] = Query(...)):
-    await delete_tasks_in_db(task_ids)
     return {"success": True}
 
 

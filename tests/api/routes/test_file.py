@@ -332,7 +332,7 @@ async def test_download_file_locally_success(client, mock_db):
         mock_exists.return_value = True
         mock_file_response.return_value = "file_response"  # Simplified for testing
 
-        uuid = "test-uuid"
+        uuid = "12345678-1234-5678-1234-567812345678"
         file_extension = "jpeg"
 
         # Make request
@@ -341,13 +341,13 @@ async def test_download_file_locally_success(client, mock_db):
         )
 
         # Assert mocks called correctly - check that our specific path was called
-        expected_path = f"/tmp/uploads/{uuid}.{file_extension}"
+        expected_path = os.path.realpath(f"/tmp/uploads/{uuid}.{file_extension}")
         assert any(
             call[0][0] == expected_path for call in mock_exists.call_args_list
         ), f"Expected exists() to be called with {expected_path}"
         
         mock_file_response.assert_called_with(
-            path=f"/tmp/uploads/{uuid}.{file_extension}",
+            path=expected_path,
             filename=f"{uuid}.{file_extension}",
             media_type="application/octet-stream",
         )
@@ -365,7 +365,7 @@ async def test_download_file_locally_file_not_found(client, mock_db):
         # Setup mocks
         mock_exists.return_value = False
 
-        uuid = "test-uuid"
+        uuid = "12345678-1234-5678-1234-567812345678"
         file_extension = "jpeg"
 
         # Make request
@@ -390,7 +390,7 @@ async def test_download_file_locally_unexpected_error(client, mock_db):
         # Setup mocks to raise unexpected error
         mock_exists.side_effect = RuntimeError("Unexpected file system error")
 
-        uuid = "test-uuid"
+        uuid = "12345678-1234-5678-1234-567812345678"
         file_extension = "jpeg"
 
         # Make request
@@ -402,3 +402,41 @@ async def test_download_file_locally_unexpected_error(client, mock_db):
         assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert response.json() == {"detail": "Failed to download file locally"}
         mock_traceback.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "bad_uuid,bad_extension",
+    [
+        ("../../../../appdata/db", "sqlite"),
+        ("..", ".."),
+        ("12345678-1234-5678-1234-567812345678", "../../etc/passwd"),
+        ("/etc/passwd", "txt"),
+        ("not-a-uuid", "jpeg"),
+        ("%2e%2e%2fetc", "passwd"),
+    ],
+)
+@pytest.mark.asyncio
+async def test_download_file_locally_rejects_traversal(
+    client, mock_db, bad_uuid, bad_extension
+):
+    with patch("api.routes.file.settings.local_upload_folder", "/tmp/uploads"):
+        response = client.get(
+            f"/file/download-local/?uuid={bad_uuid}&file_extension={bad_extension}"
+        )
+
+    assert response.status_code in (400, 404), (
+        f"{bad_uuid!r}/{bad_extension!r} returned {response.status_code}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_upload_file_locally_rejects_bad_content_type(client, mock_db):
+    with patch("api.routes.file.settings.local_upload_folder", "/tmp/uploads"):
+        response = client.post(
+            "/file/upload-local",
+            files={"file": ("a.bin", b"x")},
+            data={"content_type": "image/svg+xml"},
+        )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Invalid content type"}

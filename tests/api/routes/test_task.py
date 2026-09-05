@@ -434,22 +434,6 @@ async def test_delete_task(client, mock_db):
 
 
 @pytest.mark.asyncio
-async def test_delete_tasks(client, mock_db):
-    """
-    Test deleting multiple tasks
-    """
-    with patch("api.routes.task.delete_tasks_in_db") as mock_delete:
-        task_ids = [1, 2, 3]
-
-        # Pass task_ids as a query parameter
-        response = client.delete("/tasks/", params={"task_ids": task_ids})
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json() == {"success": True}
-        mock_delete.assert_called_with(task_ids)
-
-
-@pytest.mark.asyncio
 async def test_get_tasks_completed_for_user(client, mock_db):
     """
     Test getting completed tasks for a user
@@ -809,3 +793,9 @@ async def test_update_assignment_not_found(client, mock_db):
 
         assert response.status_code == status.HTTP_404_NOT_FOUND
         assert response.json() == {"detail": "Task not found or assignment does not exist"}
+
+
+@pytest.mark.asyncio
+async def test_bulk_delete_tasks_route_is_gone(client, mock_db):
+    response = client.request("DELETE", "/tasks/", params={"task_ids": [1, 2, 3]})
+    assert response.status_code in (404, 405)

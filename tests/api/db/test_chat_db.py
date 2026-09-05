@@ -3,14 +3,12 @@ from datetime import datetime
 from unittest.mock import patch, AsyncMock, MagicMock, ANY
 from src.api.db.chat import (
     store_messages,
-    get_all_chat_history,
     convert_chat_message_to_dict,
     get_question_chat_history_for_user,
     get_task_chat_history_for_user,
     delete_message,
     update_message_timestamp,
     delete_user_chat_history_for_task,
-    delete_all_chat_history,
 )
 from src.api.models import StoreMessageRequest, TaskType
 
@@ -177,48 +175,6 @@ class TestGetChatHistory:
     """Test chat history retrieval functions."""
 
     @patch("src.api.db.chat.execute_db_operation")
-    async def test_get_all_chat_history_success(self, mock_execute):
-        """Test successful retrieval of all chat history for an organization."""
-        mock_execute.return_value = [
-            (
-                1,
-                "2024-01-01 12:00:00",
-                1,
-                "user@example.com",
-                1,
-                1,
-                "user",
-                "Hello",
-                "text",
-                1,
-            ),
-            (
-                2,
-                "2024-01-01 12:01:00",
-                1,
-                "user@example.com",
-                1,
-                1,
-                "assistant",
-                "Hi",
-                "text",
-                2,
-            ),
-        ]
-
-        result = await get_all_chat_history(1)
-
-        assert len(result) == 2
-        assert result[0]["id"] == 1
-        assert result[0]["user_email"] == "user@example.com"
-        assert result[0]["content"] == "Hello"
-        assert result[1]["content"] == "Hi"
-        assert result[0]["course_id"] == 1
-        assert result[1]["course_id"] == 2
-
-        mock_execute.assert_called_once()
-
-    @patch("src.api.db.chat.execute_db_operation")
     async def test_get_question_chat_history_for_user_success(self, mock_execute):
         """Test successful retrieval of question chat history for user."""
         mock_execute.return_value = [
@@ -368,13 +324,4 @@ class TestChatMessageOperations:
         mock_execute.assert_called_once_with(
             "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE question_id = ? AND user_id = ? AND deleted_at IS NULL",
             (1, 1),
-        )
-
-    @patch("src.api.db.chat.execute_db_operation")
-    async def test_delete_all_chat_history_success(self, mock_execute):
-        """Test successful deletion of all chat history."""
-        await delete_all_chat_history()
-
-        mock_execute.assert_called_once_with(
-            "UPDATE chat_history SET deleted_at = CURRENT_TIMESTAMP WHERE deleted_at IS NULL",
         )

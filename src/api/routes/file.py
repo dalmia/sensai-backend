@@ -1,4 +1,5 @@
 import os
+import re
 import traceback
 import uuid
 from fastapi import APIRouter, HTTPException, File, UploadFile, Form
@@ -19,6 +20,10 @@ from api.models import (
 )
 
 router = APIRouter()
+_UUID_RE = re.compile(
+    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+)
+_EXTENSION_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9-]{0,19}$")
 
 
 @router.put("/presigned-url/create", response_model=PresignedUrlResponse)
@@ -119,6 +124,10 @@ async def upload_file_locally(
         # Generate a unique filename
         file_uuid = str(uuid.uuid4())
         file_extension = content_type.split("/")[1]
+
+        if not _EXTENSION_RE.match(file_extension):
+            raise HTTPException(status_code=400, detail="Invalid content type")
+
         filename = f"{file_uuid}.{file_extension}"
         file_path = os.path.join(settings.local_upload_folder, filename)
 
@@ -137,6 +146,8 @@ async def upload_file_locally(
             "static_url": static_url,
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error uploading file locally: {str(e)}")
         traceback.print_exc()
@@ -149,9 +160,24 @@ async def download_file_locally(
     file_extension: str,
 ):
     try:
-        file_path = os.path.join(
-            settings.local_upload_folder, f"{uuid}.{file_extension}"
+        if not _UUID_RE.match(uuid):
+            logger.warning(f"Rejected download, bad file identifier: {uuid!r}")
+            raise HTTPException(status_code=400, detail="Invalid file identifier")
+
+        if not _EXTENSION_RE.match(file_extension):
+            logger.warning(f"Rejected download, bad extension: {file_extension!r}")
+            raise HTTPException(status_code=400, detail="Invalid file extension")
+
+        upload_root = os.path.realpath(settings.local_upload_folder)
+        file_path = os.path.realpath(
+            os.path.join(upload_root, f"{uuid}.{file_extension}")
         )
+
+        if os.path.commonpath([upload_root, file_path]) != upload_root:  # pragma: no cover
+            logger.error(
+                f"Path escaped upload folder: uuid={uuid!r} ext={file_extension!r}"
+            )
+            raise HTTPException(status_code=400, detail="Invalid file path")
 
         # Check if file exists
         if not os.path.exists(file_path):
