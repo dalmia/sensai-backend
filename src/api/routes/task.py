@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict
 from api.db.task import (
     get_solved_tasks_for_user as get_solved_tasks_for_user_from_db,
@@ -33,10 +33,14 @@ from api.models import (
     AssignmentRequest,
 )
 
+from api.middleware.permissions import require_cohort_access, require_course_access, require_task_access
+
+from api.middleware import permissions
+
 router = APIRouter()
 
 
-@router.get("/course/{course_id}/learning_material")
+@router.get("/course/{course_id}/learning_material", dependencies=[Depends(require_course_access)])
 async def get_learning_material_tasks_for_course(
     course_id: int,
 ) -> List[Task]:
@@ -44,9 +48,10 @@ async def get_learning_material_tasks_for_course(
 
 
 @router.post("/", response_model=CreateDraftTaskResponse)
-async def create_draft_task_for_course(
+async def create_draft_task_for_course(http_request: Request, 
     request: CreateDraftTaskRequest,
 ) -> CreateDraftTaskResponse:
+    await permissions.require_course_access(http_request, request.course_id)
     id, _ = await create_draft_task_for_course_in_db(
         request.title,
         str(request.type),
@@ -56,7 +61,7 @@ async def create_draft_task_for_course(
     return {"id": id}
 
 
-@router.post("/{task_id}/learning_material", response_model=LearningMaterialTask)
+@router.post("/{task_id}/learning_material", dependencies=[Depends(require_task_access)], response_model=LearningMaterialTask)
 async def publish_learning_material_task(
     task_id: int, request: PublishLearningMaterialTaskRequest
 ) -> LearningMaterialTask:
@@ -71,7 +76,7 @@ async def publish_learning_material_task(
     return result
 
 
-@router.put("/{task_id}/learning_material", response_model=LearningMaterialTask)
+@router.put("/{task_id}/learning_material", dependencies=[Depends(require_task_access)], response_model=LearningMaterialTask)
 async def update_learning_material_task(
     task_id: int, request: UpdateLearningMaterialTaskRequest
 ) -> LearningMaterialTask:
@@ -87,7 +92,7 @@ async def update_learning_material_task(
     return result
 
 
-@router.post("/{task_id}/quiz", response_model=QuizTask)
+@router.post("/{task_id}/quiz", dependencies=[Depends(require_task_access)], response_model=QuizTask)
 async def update_draft_quiz(task_id: int, request: UpdateDraftQuizRequest) -> QuizTask:
     result = await update_draft_quiz_in_db(
         task_id=task_id,
@@ -101,7 +106,7 @@ async def update_draft_quiz(task_id: int, request: UpdateDraftQuizRequest) -> Qu
     return result
 
 
-@router.put("/{task_id}/quiz", response_model=QuizTask)
+@router.put("/{task_id}/quiz", dependencies=[Depends(require_task_access)], response_model=QuizTask)
 async def update_published_quiz(
     task_id: int, request: UpdatePublishedQuizRequest
 ) -> QuizTask:
@@ -117,21 +122,23 @@ async def update_published_quiz(
 
 
 @router.post("/duplicate", response_model=DuplicateTaskResponse)
-async def duplicate_task(
+async def duplicate_task(http_request: Request, 
     request: DuplicateTaskRequest,
 ) -> DuplicateTaskResponse:
+    await permissions.require_task_access(http_request, request.task_id)
+    await permissions.require_course_access(http_request, request.course_id)
     return await duplicate_task_in_db(
         request.task_id, request.course_id, request.milestone_id
     )
 
 
-@router.delete("/{task_id}")
+@router.delete("/{task_id}", dependencies=[Depends(require_task_access)])
 async def delete_task(task_id: int):
     await delete_task_in_db(task_id)
     return {"success": True}
 
 
-@router.get("/cohort/{cohort_id}/user/{user_id}/completed", response_model=List[int])
+@router.get("/cohort/{cohort_id}/user/{user_id}/completed", dependencies=[Depends(require_cohort_access)], response_model=List[int])
 async def get_tasks_completed_for_user(
     user_id: int,
     cohort_id: int,
@@ -140,7 +147,7 @@ async def get_tasks_completed_for_user(
     return await get_solved_tasks_for_user_from_db(user_id, cohort_id, view)
 
 
-@router.get("/{task_id}")
+@router.get("/{task_id}", dependencies=[Depends(require_task_access)])
 async def get_task(task_id: int) -> LearningMaterialTask | QuizTask | AssignmentTask:
     task = await get_task_from_db(task_id)
     if not task:
@@ -148,13 +155,13 @@ async def get_task(task_id: int) -> LearningMaterialTask | QuizTask | Assignment
     return task
 
 
-@router.post("/{task_id}/complete")
+@router.post("/{task_id}/complete", dependencies=[Depends(require_task_access)])
 async def mark_task_completed(task_id: int, request: MarkTaskCompletedRequest):
     await mark_task_completed_in_db(task_id, request.user_id)
     return {"success": True}
 
 
-@router.post("/{task_id}/assignment", response_model=AssignmentTask)
+@router.post("/{task_id}/assignment", dependencies=[Depends(require_task_access)], response_model=AssignmentTask)
 async def create_assignment(
     task_id: int, request: AssignmentRequest
 ) -> AssignmentTask:
@@ -170,7 +177,7 @@ async def create_assignment(
     return result
 
 
-@router.put("/{task_id}/assignment", response_model=AssignmentTask)
+@router.put("/{task_id}/assignment", dependencies=[Depends(require_task_access)], response_model=AssignmentTask)
 async def update_assignment(
     task_id: int, request: AssignmentRequest
 ) -> AssignmentTask:

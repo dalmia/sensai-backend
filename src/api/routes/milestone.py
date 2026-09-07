@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict
 from api.db.milestone import (
     get_all_milestones_for_org as get_all_milestones_for_org_from_db,
@@ -9,33 +9,35 @@ from api.db.milestone import (
 from api.db.course import get_milestones_for_course as get_milestones_for_course_from_db
 from api.models import UpdateMilestoneRequest
 
+from api.middleware.permissions import require_course_access, require_milestone_access, require_org_staff, require_user_scope
+
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(require_org_staff)])
 async def get_all_milestones_for_org(org_id: int) -> List[Dict]:
     return await get_all_milestones_for_org_from_db(org_id)
 
 
-@router.put("/{milestone_id}")
+@router.put("/{milestone_id}", dependencies=[Depends(require_milestone_access)])
 async def update_milestone(milestone_id: int, request: UpdateMilestoneRequest):
     await update_milestone_in_db(milestone_id, request.name)
     return {"message": "Milestone updated"}
 
 
-@router.delete("/{milestone_id}")
+@router.delete("/{milestone_id}", dependencies=[Depends(require_milestone_access)])
 async def delete_milestone(milestone_id: int):
     await delete_milestone_from_db(milestone_id)
     return {"message": "Milestone deleted"}
 
 
-@router.get("/metrics/user/{user_id}/course/{course_id}")
+@router.get("/metrics/user/{user_id}/course/{course_id}", dependencies=[Depends(require_user_scope)])
 async def get_user_metrics_for_all_milestones(
     user_id: int, course_id: int
 ) -> List[Dict]:
     return await get_user_metrics_for_all_milestones_from_db(user_id, course_id)
 
 
-@router.get("/course/{course_id}")
+@router.get("/course/{course_id}", dependencies=[Depends(require_course_access)])
 async def get_milestones_for_course(course_id: int) -> List[Dict]:
     return await get_milestones_for_course_from_db(course_id)

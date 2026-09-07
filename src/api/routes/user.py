@@ -1,5 +1,5 @@
 # --- START OF FILE sensai-api/sensai_backend/routes/user_routes.py ---
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from typing import List, Dict
 from datetime import datetime
 from api.db.user import (
@@ -17,10 +17,12 @@ from api.db.cohort import is_user_in_cohort as is_user_in_cohort_from_db
 from api.utils.db import get_new_db_connection
 from api.models import UserCourse, UserCohort, GetUserStreakResponse
 
+from api.middleware.permissions import require_user_scope
+
 router = APIRouter()
 
 
-@router.get("/{user_id}")
+@router.get("/{user_id}", dependencies=[Depends(require_user_scope)])
 async def get_user_by_id(user_id: int) -> Dict:
     user = await get_user_by_id_from_db(user_id)
     if not user:
@@ -28,7 +30,7 @@ async def get_user_by_id(user_id: int) -> Dict:
     return user
 
 
-@router.put("/{user_id}")
+@router.put("/{user_id}", dependencies=[Depends(require_user_scope)])
 async def update_user(
     user_id: int,
     first_name: str,
@@ -49,22 +51,22 @@ async def update_user(
     return user
 
 
-@router.get("/{user_id}/cohorts")
+@router.get("/{user_id}/cohorts", dependencies=[Depends(require_user_scope)])
 async def get_user_cohorts(user_id: int) -> List[Dict]:
     return await get_user_cohorts_from_db(user_id)
 
 
-@router.get("/{user_id}/activity/{year}")
+@router.get("/{user_id}/activity/{year}", dependencies=[Depends(require_user_scope)])
 async def get_user_activity_for_year(user_id: int, year: int) -> List[int]:
     return await get_user_activity_for_year_from_db(user_id, year)
 
 
-@router.get("/{user_id}/active_days")
+@router.get("/{user_id}/active_days", dependencies=[Depends(require_user_scope)])
 async def get_user_active_days(user_id: int, days: int, cohort_id: int) -> List[str]:
     return await get_user_active_in_last_n_days_from_db(user_id, days, cohort_id)
 
 
-@router.get("/{user_id}/streak")
+@router.get("/{user_id}/streak", dependencies=[Depends(require_user_scope)])
 async def get_user_streak(user_id: int, cohort_id: int) -> GetUserStreakResponse:
     streak_days = await get_user_streak_from_db(user_id, cohort_id)
 
@@ -80,21 +82,21 @@ async def get_user_streak(user_id: int, cohort_id: int) -> GetUserStreakResponse
     }
 
 
-@router.get("/{user_id}/cohort/{cohort_id}/present")
+@router.get("/{user_id}/cohort/{cohort_id}/present", dependencies=[Depends(require_user_scope)])
 async def is_user_present_in_cohort(user_id: int, cohort_id: int) -> bool:
     return await is_user_in_cohort_from_db(user_id, cohort_id)
 
 
-@router.get("/{user_id}/courses", response_model=List[UserCourse])
+@router.get("/{user_id}/courses", dependencies=[Depends(require_user_scope)], response_model=List[UserCourse])
 async def get_user_courses(user_id: int) -> List[UserCourse]:
     return await get_user_courses_from_db(user_id)
 
 
-@router.get("/{user_id}/org/{org_id}/cohorts", response_model=List[UserCohort])
+@router.get("/{user_id}/org/{org_id}/cohorts", dependencies=[Depends(require_user_scope)], response_model=List[UserCohort])
 async def get_user_org_cohorts(user_id: int, org_id: int) -> List[UserCohort]:
     return await get_user_org_cohorts_from_db(user_id, org_id)
 
 
-@router.get("/{user_id}/orgs")
+@router.get("/{user_id}/orgs", dependencies=[Depends(require_user_scope)])
 async def get_user_orgs(user_id: int) -> List[Dict]:
     return await get_user_organizations(user_id)

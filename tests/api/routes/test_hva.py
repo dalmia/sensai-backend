@@ -1,13 +1,14 @@
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
+from tests.utils import bypass_permissions
 from src.api.routes.hva import router
 from fastapi import FastAPI
 
 # Create a test app with the hva router
 app = FastAPI()
 app.include_router(router, prefix="/hva")
-client = TestClient(app)
+client = TestClient(bypass_permissions(app))
 
 
 class TestHvaRoutes:

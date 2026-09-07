@@ -34,6 +34,7 @@ from api.routes import (
 from api.websockets import router as websocket_router
 from api.scheduler import scheduler
 from api.settings import settings
+from api.middleware.auth import auth_middleware
 import sentry_sdk
 
 
@@ -66,7 +67,14 @@ if settings.sentry_dsn:
     )
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+app.middleware("http")(auth_middleware)
 
 
 # Add request logging middleware
