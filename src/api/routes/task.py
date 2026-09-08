@@ -156,7 +156,10 @@ async def get_task(task_id: int) -> LearningMaterialTask | QuizTask | Assignment
 
 
 @router.post("/{task_id}/complete", dependencies=[Depends(require_task_access)])
-async def mark_task_completed(task_id: int, request: MarkTaskCompletedRequest):
+async def mark_task_completed(
+    http_request: Request, task_id: int, request: MarkTaskCompletedRequest
+):
+    request.user_id = permissions.caller_id(http_request)
     await mark_task_completed_in_db(task_id, request.user_id)
     return {"success": True}
 

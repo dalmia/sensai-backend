@@ -192,3 +192,20 @@ async def org_id_for_slug(slug: str):
         fetch_one=True,
     )
     return row[0] if row else None
+
+
+async def is_mentor_over_user(caller_id: int, user_id: int) -> bool:
+    """A cohort mentor may see the learners in their own cohorts."""
+    row = await execute_db_operation(
+        f"""SELECT 1
+            FROM {user_cohorts_table_name} mentor
+            JOIN {user_cohorts_table_name} target
+              ON target.cohort_id = mentor.cohort_id
+            WHERE mentor.user_id = ?
+              AND mentor.role = 'mentor'
+              AND target.user_id = ?
+            LIMIT 1""",
+        (caller_id, user_id),
+        fetch_one=True,
+    )
+    return row is not None

@@ -17,6 +17,7 @@ INTENTIONALLY_OPEN = {
     ("HEAD", "/health"),
     ("GET", "/hva/org_id"),
     ("GET", "/organizations/slug/{slug}"),
+    ("GET", "/organizations/{org_id}"),
     ("PUT", "/file/presigned-url/create"),
     ("GET", "/file/presigned-url/get"),
     ("POST", "/file/upload-local"),
@@ -79,7 +80,9 @@ def test_mutations_never_use_a_read_predicate():
     """
     READ_ONLY = {"require_course_access", "require_cohort_access", "require_task_access",
                  "require_batch_access"}
-    # Learner-facing mutations that legitimately use the read predicate.
+    # A learner completing a task they can see is the intended flow, so the read
+    # predicate is right here. Who gets marked complete comes from the token,
+    # not the body - see mark_task_completed.
     ALLOWED = {("POST", "/tasks/{task_id}/complete")}
 
     offenders = []
@@ -91,3 +94,33 @@ def test_mutations_never_use_a_read_predicate():
             offenders.append(f"{method} {path} -> {sorted(names & READ_ONLY)}")
 
     assert not offenders, "Mutations guarded by a learner-passing predicate:\n  " + "\n  ".join(offenders)
+
+
+def test_self_scoped_writes_take_identity_from_the_token():
+    """
+    A route that writes on behalf of a user must not read user_id from the body.
+    /tasks/{id}/complete shipped that way and let a learner mark someone else's
+    task complete, which feeds streaks, leaderboards and the BigQuery sync.
+    """
+    import inspect
+
+    SELF_SCOPED_WRITES = [
+        ("POST", "/tasks/{task_id}/complete"),
+        ("POST", "/chat/"),
+        ("POST", "/code/"),
+        ("POST", "/ai/chat"),
+        ("POST", "/ai/assignment"),
+        ("POST", "/organizations/"),
+    ]
+
+    offenders = []
+    for method, path, route in _api_routes():
+        if (method, path) not in SELF_SCOPED_WRITES:
+            continue
+        source = inspect.getsource(route.endpoint)
+        if "permissions.caller_id(http_request)" not in source:
+            offenders.append(f"{method} {path}")
+
+    assert not offenders, (
+        "These writes still trust a client-supplied user_id:\n  " + "\n  ".join(offenders)
+    )

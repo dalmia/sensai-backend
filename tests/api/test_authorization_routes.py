@@ -107,3 +107,87 @@ class TestCohortSelfJoin:
             )
 
         assert response.status_code == 403
+
+
+MENTOR_ID = 200
+
+
+def mentor_client():
+    token = create_access_token(MENTOR_ID, "mentor@example.com")
+    return TestClient(app, headers={"Authorization": f"Bearer {token}"})
+
+
+class TestMentorAccess:
+    """
+    Every other route test uses an admin or a learner, which is how two mentor
+    breakages got through: the school header and the learner-view page.
+    """
+
+    def test_mentor_can_read_a_learner_in_their_cohort(self):
+        with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)), \
+             patch.object(permissions, "is_mentor_over_user", AsyncMock(return_value=True)), \
+             patch("api.routes.user.get_user_by_id", AsyncMock(return_value={"id": 100})):
+            response = mentor_client().get("/users/100")
+
+        assert response.status_code != 403
+
+    def test_a_stranger_still_cannot_read_that_learner(self):
+        with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)), \
+             patch.object(permissions, "is_mentor_over_user", AsyncMock(return_value=False)):
+            response = mentor_client().get("/users/100")
+
+        assert response.status_code == 403
+
+    def test_mentor_can_read_the_org_header(self):
+        # get_org_by_id exposes only id/slug/name/logo_color, the same fields the
+        # already-open slug route returns, so org-staff-only broke mentors for nothing.
+        with patch("api.routes.org.get_org_by_id_from_db",
+                   AsyncMock(return_value={"id": ORG_ID, "slug": "acme", "name": "Acme"})):
+            response = mentor_client().get(f"/organizations/{ORG_ID}")
+
+        assert response.status_code != 403
+
+
+class TestSelfJoinRequiresAnInvite:
+    def test_omitting_org_slug_is_rejected(self):
+        """
+        H5: org_slug was optional, so omitting it skipped the only check binding
+        the caller to the cohort and fell through to allow.
+        """
+        with patch.object(permissions, "org_for_cohort", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "is_org_staff", AsyncMock(return_value=False)):
+            response = learner_client().post(
+                f"/cohorts/{COHORT_ID}/members",
+                json={"emails": ["learner@example.com"], "roles": ["learner"]},
+            )
+
+        assert response.status_code == 403
+
+    def test_duplicated_roles_do_not_slip_through(self):
+        with patch.object(permissions, "org_for_cohort", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "is_org_staff", AsyncMock(return_value=False)):
+            response = learner_client().post(
+                f"/cohorts/{COHORT_ID}/members",
+                json={
+                    "emails": ["learner@example.com"],
+                    "roles": ["learner", "learner"],
+                    "org_slug": "acme",
+                },
+            )
+
+        assert response.status_code == 403
+
+    def test_whitespace_around_the_email_still_joins(self):
+        with patch.object(permissions, "org_for_cohort", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "org_id_for_slug", AsyncMock(return_value=ORG_ID)), \
+             patch("api.routes.cohort.add_members_to_cohort_in_db", AsyncMock(return_value=None)):
+            response = learner_client().post(
+                f"/cohorts/{COHORT_ID}/members",
+                json={
+                    "emails": ["  Learner@Example.com "],
+                    "roles": ["learner"],
+                    "org_slug": "acme",
+                },
+            )
+
+        assert response.status_code == 200

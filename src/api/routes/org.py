@@ -45,7 +45,7 @@ async def create_organization(http_request: Request,
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.get("/{org_id}", dependencies=[Depends(require_org_staff)])
+@router.get("/{org_id}")
 async def get_org_by_id(org_id: int) -> Dict:
     org_details = await get_org_by_id_from_db(org_id)
 

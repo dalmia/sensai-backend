@@ -30,7 +30,8 @@ class TestUserScope:
 
     @pytest.mark.asyncio
     async def test_user_may_not_act_on_another_user(self):
-        with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)):
+        with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)), \
+             patch.object(permissions, "is_mentor_over_user", AsyncMock(return_value=False)):
             with pytest.raises(HTTPException) as exc:
                 await REAL["require_user_scope"](make_request(7), 8)
         assert exc.value.status_code == 403
@@ -103,6 +104,7 @@ class TestViolationIsLogged:
     @pytest.mark.asyncio
     async def test_block_is_logged(self):
         with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)), \
+             patch.object(permissions, "is_mentor_over_user", AsyncMock(return_value=False)), \
              patch.object(permissions.logger, "warning") as mock_warning:
             with pytest.raises(HTTPException):
                 await REAL["require_user_scope"](make_request(7), 8)
