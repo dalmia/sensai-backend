@@ -53,6 +53,13 @@ Two deliberate exceptions, both learner-facing:
 2. **Removal revokes.** Every membership lookup filters `deleted_at IS NULL`.
    Without it, removing a member changes the UI and nothing else.
 
+   Scoped to *membership* deliberately. The resource-existence lookups
+   (`_org_of`, `cohort_for_batch`, `org_id_for_slug`) do **not** filter, and
+   should not: a soft-deleted course still resolves an org, the write path
+   still requires staff, and the learner read path is already closed because
+   `delete_course` cascades the soft-delete to `course_cohorts`. Adding the
+   filter there would change deletion semantics, not tighten access.
+
 ## Enforced by tests, not by memory
 
 | Test | Property |

@@ -1,6 +1,8 @@
 from fastapi import HTTPException, Request
 
+from api.config import course_milestones_table_name, course_tasks_table_name
 from api.utils.authorization import (
+    existing_row_ids,
     org_id_for_slug,
     org_for_course,
     org_for_cohort,
@@ -157,34 +159,52 @@ async def require_courses_write(request: Request, course_ids) -> None:
         await require_course_write(request, course_id)
 
 
-async def _require_rows_write(request: Request, row_ids, resolver, label: str) -> None:
+async def _require_rows_write(request: Request, row_ids, resolver, table: str, label: str) -> None:
     try:
         wanted = {int(row_id) for row_id in row_ids}
     except (TypeError, ValueError):
         await _decide(request, False, f"malformed {label} id")
         return
+
     if not wanted:
         return
 
     resolved = await resolver(wanted)
-
-    # An id that does not resolve must deny, not silently drop out of the loop.
     missing = wanted - set(resolved)
+
     if missing:
+        # A row deleted while the client held it is stale, not forbidden.
+        # Saying "Forbidden" sends the admin to ask for access on a course they
+        # own, when the fix is to refresh.
+        stale = await existing_row_ids(table, missing)
+        if stale:
+            raise HTTPException(
+                status_code=409,
+                detail="Some of these items no longer exist. Refresh and try again.",
+            )
         await _decide(request, False, f"unknown {label}: {sorted(missing)}")
 
     await require_courses_write(request, set(resolved.values()))
 
 
+
 async def require_course_task_rows_write(request: Request, row_ids) -> None:
     await _require_rows_write(
-        request, row_ids, courses_for_course_task_rows, "course_task row"
+        request,
+        row_ids,
+        courses_for_course_task_rows,
+        course_tasks_table_name,
+        "course_task row",
     )
 
 
 async def require_course_milestone_rows_write(request: Request, row_ids) -> None:
     await _require_rows_write(
-        request, row_ids, courses_for_course_milestone_rows, "course_milestone row"
+        request,
+        row_ids,
+        courses_for_course_milestone_rows,
+        course_milestones_table_name,
+        "course_milestone row",
     )
 
 

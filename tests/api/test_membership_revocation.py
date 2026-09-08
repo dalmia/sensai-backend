@@ -17,6 +17,7 @@ TARGET = 100
 ORG_ID = 7
 COHORT_ID = 12
 COURSE_ID = 5
+TASK_ID = 3
 
 
 def _capture_sql():
@@ -52,15 +53,36 @@ async def test_membership_predicates_exclude_removed_rows(coroutine):
 
 @pytest.mark.asyncio
 async def test_course_access_excludes_removed_enrolment():
+    """
+    can_access_course short-circuits when the org lookup returns nothing, so
+    org_for_course must be stubbed or the enrolment join is never reached and
+    this test asserts nothing at all.
+    """
     calls, fake = _capture_sql()
     with patch.object(authorization, "execute_db_operation", fake), \
+         patch.object(authorization, "org_for_course", AsyncMock(return_value=ORG_ID)), \
          patch.object(authorization, "is_org_staff", AsyncMock(return_value=False)):
-        # org lookup returns None -> denies before the join, so drive the join directly
         await authorization.can_access_course(CALLER, COURSE_ID)
 
     joins = [sql for sql in calls if "user_cohorts" in sql]
+    assert joins, "enrolment join was never reached - the test would pass vacuously"
     for sql in joins:
         assert "deleted_at IS NULL" in sql
+
+
+@pytest.mark.asyncio
+async def test_task_access_excludes_removed_enrolment():
+    calls, fake = _capture_sql()
+    with patch.object(authorization, "execute_db_operation", fake), \
+         patch.object(authorization, "org_for_task", AsyncMock(return_value=ORG_ID)), \
+         patch.object(authorization, "is_org_staff", AsyncMock(return_value=False)):
+        await authorization.can_access_task(CALLER, TASK_ID)
+
+    joins = [sql for sql in calls if "user_cohorts" in sql]
+    assert joins, "enrolment join was never reached - the test would pass vacuously"
+    for sql in joins:
+        assert "deleted_at IS NULL" in sql
+        assert "course_cohorts" in sql
 
 
 @pytest.mark.asyncio

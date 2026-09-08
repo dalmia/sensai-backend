@@ -220,3 +220,26 @@ async def is_mentor_over_user(caller_id: int, user_id: int) -> bool:
         fetch_one=True,
     )
     return row is not None
+
+
+async def existing_row_ids(table: str, row_ids) -> set:
+    """
+    Row ids present in the table regardless of deleted_at.
+
+    Used only on the failure path, to tell a stale row (soft-deleted while the
+    client held it) apart from an id that never existed.
+    """
+    ids = list({int(row_id) for row_id in row_ids})
+    found = set()
+
+    for start in range(0, len(ids), _SQLITE_MAX_PARAMS):
+        chunk = ids[start : start + _SQLITE_MAX_PARAMS]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await execute_db_operation(
+            f"SELECT id FROM {table} WHERE id IN ({placeholders})",
+            tuple(chunk),
+            fetch_all=True,
+        )
+        found.update(row[0] for row in rows or [])
+
+    return found
