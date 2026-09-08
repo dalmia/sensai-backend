@@ -17,7 +17,7 @@ from api.models import (
     UpdateBatchRequest,
 )
 
-from api.middleware.permissions import require_batch_access, require_cohort_access, require_user_scope
+from api.middleware.permissions import require_batch_access, require_batch_write, require_cohort_access, require_user_scope
 
 from api.middleware import permissions
 
@@ -32,7 +32,7 @@ async def get_all_batches_for_cohort(cohort_id: int) -> List[Dict]:
 
 @router.post("/", response_model=CreateBatchResponse)
 async def create_batch(http_request: Request, request: CreateBatchRequest) -> CreateBatchResponse:
-    await permissions.require_cohort_access(http_request, request.cohort_id)
+    await permissions.require_cohort_write(http_request, request.cohort_id)
     """Create a new batch by name, optionally with initial members"""
     try:
         batch_id = await create_batch_with_members_in_db(
@@ -57,14 +57,14 @@ async def get_batch_by_id(batch_id: int) -> Dict:
     return batch_data
 
 
-@router.delete("/{batch_id}", dependencies=[Depends(require_batch_access)])
+@router.delete("/{batch_id}", dependencies=[Depends(require_batch_write)])
 async def delete_batch(batch_id: int):
     """Delete a batch"""
     await delete_batch_from_db(batch_id)
     return {"success": True}
 
 
-@router.put("/{batch_id}", dependencies=[Depends(require_batch_access)])
+@router.put("/{batch_id}", dependencies=[Depends(require_batch_write)])
 async def update_batch(batch_id: int, request: UpdateBatchRequest):
     """Update batch name and members"""
     return await update_batch_name_and_members(

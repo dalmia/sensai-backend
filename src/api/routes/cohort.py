@@ -46,7 +46,7 @@ from api.models import (
 )
 from api.utils.db import get_new_db_connection
 
-from api.middleware.permissions import require_cohort_access, require_org_staff
+from api.middleware.permissions import require_cohort_access, require_cohort_write, require_org_staff
 
 from api.middleware import permissions
 
@@ -73,8 +73,13 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int | None = None) -> Dict:
     return cohort_data
 
 
-@router.post("/{cohort_id}/members", dependencies=[Depends(require_cohort_access)])
-async def add_members_to_cohort(cohort_id: int, request: AddMembersToCohortRequest):
+@router.post("/{cohort_id}/members")
+async def add_members_to_cohort(
+    http_request: Request, cohort_id: int, request: AddMembersToCohortRequest
+):
+    await permissions.require_cohort_join_or_write(
+        http_request, cohort_id, request.emails, request.roles, request.org_slug
+    )
     try:
         await add_members_to_cohort_in_db(
             cohort_id, request.org_slug, request.org_id, request.emails, request.roles
@@ -88,7 +93,7 @@ async def add_members_to_cohort(cohort_id: int, request: AddMembersToCohortReque
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{cohort_id}/members", dependencies=[Depends(require_cohort_access)])
+@router.delete("/{cohort_id}/members", dependencies=[Depends(require_cohort_write)])
 async def remove_members_from_cohort(
     cohort_id: int, request: RemoveMembersFromCohortRequest
 ):
@@ -99,19 +104,19 @@ async def remove_members_from_cohort(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/{cohort_id}", dependencies=[Depends(require_cohort_access)])
+@router.delete("/{cohort_id}", dependencies=[Depends(require_cohort_write)])
 async def delete_cohort(cohort_id: int):
     await delete_cohort_from_db(cohort_id)
     return {"success": True}
 
 
-@router.put("/{cohort_id}", dependencies=[Depends(require_cohort_access)])
+@router.put("/{cohort_id}", dependencies=[Depends(require_cohort_write)])
 async def update_cohort_name(cohort_id: int, request: UpdateCohortRequest):
     await update_cohort_name_in_db(cohort_id, request.name)
     return {"success": True}
 
 
-@router.post("/{cohort_id}/courses", dependencies=[Depends(require_cohort_access)])
+@router.post("/{cohort_id}/courses", dependencies=[Depends(require_cohort_write)])
 async def add_courses_to_cohort(cohort_id: int, request: AddCoursesToCohortRequest):
     await add_courses_to_cohort_in_db(
         cohort_id,
@@ -124,7 +129,7 @@ async def add_courses_to_cohort(cohort_id: int, request: AddCoursesToCohortReque
     return {"success": True}
 
 
-@router.delete("/{cohort_id}/courses", dependencies=[Depends(require_cohort_access)])
+@router.delete("/{cohort_id}/courses", dependencies=[Depends(require_cohort_write)])
 async def remove_courses_from_cohort(
     cohort_id: int, request: RemoveCoursesFromCohortRequest
 ):
@@ -135,6 +140,7 @@ async def remove_courses_from_cohort(
 @router.get(
     "/{cohort_id}/courses",
     response_model=List[CourseWithMilestonesAndTasks | CohortCourse],
+    dependencies=[Depends(require_cohort_access)],
 )
 async def get_courses_for_cohort(
     cohort_id: int, include_tree: bool = False, joined_at: datetime | None = None
@@ -145,6 +151,7 @@ async def get_courses_for_cohort(
 @router.get(
     "/{cohort_id}/completion",
     response_model=Dict,
+    dependencies=[Depends(require_cohort_access)],
 )
 async def get_cohort_completion(cohort_id: int, user_id: int) -> Dict:
     results = await get_cohort_completion_from_db(cohort_id, [user_id])

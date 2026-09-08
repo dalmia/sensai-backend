@@ -1,6 +1,7 @@
 from typing import Optional
 
 from api.config import (
+    organizations_table_name,
     course_milestones_table_name,
     course_tasks_table_name,
     batches_table_name,
@@ -153,26 +154,41 @@ async def is_staff_over_user(caller_id: int, user_id: int) -> bool:
     return row is not None
 
 
-async def courses_for_course_task_rows(row_ids) -> set:
-    """course_tasks.id -> course_id (the bulk ordering endpoints send row ids)."""
-    if not row_ids:
-        return set()
-    placeholders = ",".join("?" for _ in row_ids)
-    rows = await execute_db_operation(
-        f"SELECT DISTINCT course_id FROM {course_tasks_table_name} WHERE id IN ({placeholders})",
-        tuple(row_ids),
-        fetch_all=True,
-    )
-    return {row[0] for row in rows or []}
+
+_SQLITE_MAX_PARAMS = 900
 
 
-async def courses_for_course_milestone_rows(row_ids) -> set:
-    if not row_ids:
-        return set()
-    placeholders = ",".join("?" for _ in row_ids)
-    rows = await execute_db_operation(
-        f"SELECT DISTINCT course_id FROM {course_milestones_table_name} WHERE id IN ({placeholders})",
-        tuple(row_ids),
-        fetch_all=True,
+async def _rows_to_courses(table: str, row_ids) -> dict:
+    """Map join-table row ids to their course_id. Missing rows are simply absent."""
+    ids = list({int(row_id) for row_id in row_ids})
+    mapping = {}
+
+    for start in range(0, len(ids), _SQLITE_MAX_PARAMS):
+        chunk = ids[start : start + _SQLITE_MAX_PARAMS]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await execute_db_operation(
+            f"SELECT id, course_id FROM {table} WHERE id IN ({placeholders})",
+            tuple(chunk),
+            fetch_all=True,
+        )
+        for row_id, course_id in rows or []:
+            mapping[row_id] = course_id
+
+    return mapping
+
+
+async def courses_for_course_task_rows(row_ids) -> dict:
+    return await _rows_to_courses(course_tasks_table_name, row_ids)
+
+
+async def courses_for_course_milestone_rows(row_ids) -> dict:
+    return await _rows_to_courses(course_milestones_table_name, row_ids)
+
+
+async def org_id_for_slug(slug: str):
+    row = await execute_db_operation(
+        f"SELECT id FROM {organizations_table_name} WHERE slug = ?",
+        (slug,),
+        fetch_one=True,
     )
-    return {row[0] for row in rows or []}
+    return row[0] if row else None

@@ -11,7 +11,7 @@ from starlette.websockets import WebSocketDisconnect
 from api.main import app
 from api.settings import settings
 
-SECRET = "test-ws-secret"
+SECRET = "test-ws-secret-at-least-32-chars-long"
 
 
 def _b64(raw: bytes) -> str:

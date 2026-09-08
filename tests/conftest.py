@@ -72,7 +72,7 @@ def mock_database_operations():
         }
 
 
-TEST_SECRET = "test-secret-key"
+TEST_SECRET = "test-secret-key-at-least-32-chars-long"
 TEST_USER_ID = 1
 
 settings.auth_secret_key = TEST_SECRET
@@ -97,11 +97,18 @@ def _test_token():
 
 
 @pytest.fixture(autouse=True)
-def authenticated_caller():
+def authenticated_caller(request):
     from api.middleware import permissions
+
+    # Tests marked real_permissions exercise the authorization rules themselves.
+    if "real_permissions" in request.keywords:
+        yield
+        return
 
     names = [n for n in dir(permissions) if n.startswith("require_")]
     patchers = [patch.object(permissions, n, AsyncMock(return_value=None)) for n in names]
+    # Routes read identity through this; test apps have no auth middleware.
+    patchers.append(patch.object(permissions, "caller_id", lambda request: TEST_USER_ID))
     for p in patchers:
         p.start()
 

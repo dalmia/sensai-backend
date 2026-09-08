@@ -42,7 +42,7 @@ from api.models import (
     DuplicateCourseRequest,
 )
 
-from api.middleware.permissions import require_course_access, require_course_milestone_rows_access, require_course_task_rows_access, require_courses_access, require_org_staff
+from api.middleware.permissions import require_course_access, require_course_write, require_org_staff
 
 from api.middleware import permissions
 
@@ -69,26 +69,26 @@ async def get_course(
 
 @router.post("/tasks")
 async def add_tasks_to_courses(http_request: Request, request: AddTasksToCoursesRequest):
-    await permissions.require_courses_access(http_request, [t[1] for t in request.course_tasks])
+    await permissions.require_courses_write(http_request, [t[1] for t in request.course_tasks])
     await add_tasks_to_courses_in_db(request.course_tasks)
     return {"success": True}
 
 
 @router.delete("/tasks")
 async def remove_tasks_from_courses(http_request: Request, request: RemoveTasksFromCoursesRequest):
-    await permissions.require_courses_access(http_request, [t[1] for t in request.course_tasks])
+    await permissions.require_courses_write(http_request, [t[1] for t in request.course_tasks])
     await remove_tasks_from_courses_in_db(request.course_tasks)
     return {"success": True}
 
 
 @router.put("/tasks/order")
 async def update_task_orders(http_request: Request, request: UpdateTaskOrdersRequest):
-    await permissions.require_course_task_rows_access(http_request, [t[1] for t in request.task_orders])
+    await permissions.require_course_task_rows_write(http_request, [t[1] for t in request.task_orders])
     await update_task_orders_in_db(request.task_orders)
     return {"success": True}
 
 
-@router.post("/{course_id}/milestones", dependencies=[Depends(require_course_access)])
+@router.post("/{course_id}/milestones", dependencies=[Depends(require_course_write)])
 async def add_milestone_to_course(
     course_id: int, request: AddMilestoneToCourseRequest
 ) -> AddMilestoneToCourseResponse:
@@ -102,18 +102,18 @@ async def add_milestone_to_course(
 
 @router.put("/milestones/order")
 async def update_milestone_orders(http_request: Request, request: UpdateMilestoneOrdersRequest):
-    await permissions.require_course_milestone_rows_access(http_request, [t[1] for t in request.milestone_orders])
+    await permissions.require_course_milestone_rows_write(http_request, [t[1] for t in request.milestone_orders])
     await update_milestone_orders_in_db(request.milestone_orders)
     return {"success": True}
 
 
-@router.delete("/{course_id}", dependencies=[Depends(require_course_access)])
+@router.delete("/{course_id}", dependencies=[Depends(require_course_write)])
 async def delete_course(course_id: int):
     await delete_course_in_db(course_id)
     return {"success": True}
 
 
-@router.post("/{course_id}/cohorts", dependencies=[Depends(require_course_access)])
+@router.post("/{course_id}/cohorts", dependencies=[Depends(require_course_write)])
 async def add_course_to_cohorts(course_id: int, request: AddCourseToCohortsRequest):
     await add_course_to_cohorts_in_db(
         course_id,
@@ -126,7 +126,7 @@ async def add_course_to_cohorts(course_id: int, request: AddCourseToCohortsReque
     return {"success": True}
 
 
-@router.delete("/{course_id}/cohorts", dependencies=[Depends(require_course_access)])
+@router.delete("/{course_id}/cohorts", dependencies=[Depends(require_course_write)])
 async def remove_course_from_cohorts(
     course_id: int, request: RemoveCourseFromCohortsRequest
 ):
@@ -144,13 +144,13 @@ async def get_tasks_for_course(course_id: int) -> List[Dict]:
     return await get_tasks_for_course_from_db(course_id)
 
 
-@router.put("/{course_id}", dependencies=[Depends(require_course_access)])
+@router.put("/{course_id}", dependencies=[Depends(require_course_write)])
 async def update_course_name(course_id: int, request: UpdateCourseNameRequest):
     await update_course_name_in_db(course_id, request.name)
     return {"success": True}
 
 
-@router.put("/{course_id}/milestones/swap", dependencies=[Depends(require_course_access)])
+@router.put("/{course_id}/milestones/swap", dependencies=[Depends(require_course_write)])
 async def swap_milestone_ordering(
     course_id: int, request: SwapMilestoneOrderingRequest
 ):
@@ -160,7 +160,7 @@ async def swap_milestone_ordering(
     return {"success": True}
 
 
-@router.put("/{course_id}/tasks/swap", dependencies=[Depends(require_course_access)])
+@router.put("/{course_id}/tasks/swap", dependencies=[Depends(require_course_write)])
 async def swap_task_ordering(course_id: int, request: SwapTaskOrderingRequest):
     await swap_task_ordering_for_course_in_db(
         course_id, request.task_1_id, request.task_2_id
@@ -168,6 +168,10 @@ async def swap_task_ordering(course_id: int, request: SwapTaskOrderingRequest):
     return {"success": True}
 
 
-@router.post("/{course_id}/duplicate", dependencies=[Depends(require_course_access)], response_model=CourseWithMilestonesAndTasks)
-async def duplicate_course(course_id: int, request: DuplicateCourseRequest):
+@router.post("/{course_id}/duplicate", dependencies=[Depends(require_course_write)], response_model=CourseWithMilestonesAndTasks)
+async def duplicate_course(
+    http_request: Request, course_id: int, request: DuplicateCourseRequest
+):
+    # The dependency covers the source course; the destination org is separate.
+    await permissions.require_org_staff(http_request, request.org_id)
     return await duplicate_course_to_org(course_id, request.org_id)

@@ -111,8 +111,8 @@ async def log_requests(request: Request, call_next):
 # Add CORS middleware to allow cross-origin requests (for frontend to access backend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your frontend URL in production
-    allow_credentials=True,
+    allow_origins=[],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -184,6 +184,3 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.api_route("/sentry-debug", methods=["GET"])
-async def sentry_debug():
-    raise Exception("Sentry test error")

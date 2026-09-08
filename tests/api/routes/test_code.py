@@ -32,7 +32,7 @@ class TestCodeRoutes:
         assert response.status_code == 200
         assert response.json() == {"success": True}
         mock_upsert_code_draft.assert_called_once_with(
-            user_id=123,
+            user_id=1,  # from the token, not the request body
             question_id=456,
             code=[{"language": "python", "value": "print('hello world')"}],
         )

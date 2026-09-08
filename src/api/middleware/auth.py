@@ -39,8 +39,8 @@ async def auth_middleware(request, call_next):
     if request.method == "OPTIONS" or is_public(request.url.path):
         return await call_next(request)
 
-    if not settings.auth_secret_key:
-        logger.error("AUTH_SECRET_KEY is not set - rejecting request")
+    if not settings.auth_secret_key or len(settings.auth_secret_key) < 32:
+        logger.error("AUTH_SECRET_KEY is missing or shorter than 32 chars - rejecting request")
         return JSONResponse(
             status_code=500, content={"detail": "Server authentication misconfigured"}
         )

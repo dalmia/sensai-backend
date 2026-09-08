@@ -1,6 +1,10 @@
 from fastapi import HTTPException, Request
 
 from api.utils.authorization import (
+    org_id_for_slug,
+    org_for_course,
+    org_for_cohort,
+    org_for_task,
     courses_for_course_milestone_rows,
     courses_for_course_task_rows,
     can_access_cohort,
@@ -13,6 +17,11 @@ from api.utils.authorization import (
     org_for_scorecard,
 )
 from api.utils.logging import logger
+
+
+def caller_id(request: Request) -> int:
+    """The authenticated caller, from the verified token."""
+    return _caller_id(request)
 
 
 def _caller_id(request: Request) -> int:
@@ -95,19 +104,108 @@ async def require_milestone_access(request: Request, milestone_id: int) -> None:
     await _decide(request, allowed, f"no access to milestone {milestone_id}")
 
 
-async def require_courses_access(request: Request, course_ids) -> None:
-    """Every course in a bulk request must be reachable by the caller."""
+async def require_org_staff_for(request: Request, org_id, detail: str) -> None:
     caller = _caller_id(request)
+    allowed = org_id is not None and await is_org_staff(caller, org_id)
+    await _decide(request, allowed, detail)
 
+
+async def require_course_write(request: Request, course_id: int) -> None:
+    await require_org_staff_for(
+        request, await org_for_course(course_id), f"no write access to course {course_id}"
+    )
+
+
+async def require_cohort_write(request: Request, cohort_id: int) -> None:
+    await require_org_staff_for(
+        request, await org_for_cohort(cohort_id), f"no write access to cohort {cohort_id}"
+    )
+
+
+async def require_task_write(request: Request, task_id: int) -> None:
+    await require_org_staff_for(
+        request, await org_for_task(task_id), f"no write access to task {task_id}"
+    )
+
+
+async def require_batch_write(request: Request, batch_id: int) -> None:
+    cohort_id = await cohort_for_batch(batch_id)
+    org_id = await org_for_cohort(cohort_id) if cohort_id is not None else None
+    await require_org_staff_for(request, org_id, f"no write access to batch {batch_id}")
+
+
+async def require_courses_write(request: Request, course_ids) -> None:
+    """Every course in a bulk request must be writable by the caller."""
     for course_id in set(course_ids):
-        if not await can_access_course(caller, course_id):
-            await _decide(request, False, f"no access to course {course_id}")
+        await require_course_write(request, course_id)
+
+
+async def _require_rows_write(request: Request, row_ids, resolver, label: str) -> None:
+    wanted = {int(row_id) for row_id in row_ids}
+    if not wanted:
+        return
+
+    resolved = await resolver(wanted)
+
+    # An id that does not resolve must deny, not silently drop out of the loop.
+    missing = wanted - set(resolved)
+    if missing:
+        await _decide(request, False, f"unknown {label}: {sorted(missing)}")
+
+    await require_courses_write(request, set(resolved.values()))
+
+
+
+async def require_course_task_rows_write(request: Request, row_ids) -> None:
+    await _require_rows_write(
+        request, row_ids, courses_for_course_task_rows, "course_task row"
+    )
+
+
+async def require_course_milestone_rows_write(request: Request, row_ids) -> None:
+    await _require_rows_write(
+        request, row_ids, courses_for_course_milestone_rows, "course_milestone row"
+    )
+
+
+
+async def require_cohort_join_or_write(
+    request: Request, cohort_id: int, emails, roles, org_slug
+) -> None:
+    """
+    Adding members to a cohort is org-staff work, with one exception: a learner
+    following an invite link enrols themselves, and is by definition not yet a
+    member and not staff.
+
+    The self-join path is deliberately narrow - only the caller's own email,
+    only as a learner, and only into a cohort belonging to the invite's org.
+    """
+    caller = _caller_id(request)
+    caller_email = (getattr(request.state, "user_email", None) or "").lower()
+
+    is_self_join = (
+        len(emails) == 1
+        and caller_email
+        and emails[0].lower() == caller_email
+        and {role.lower() for role in roles} == {"learner"}
+    )
+
+    if not is_self_join:
+        await require_cohort_write(request, cohort_id)
+        return
+
+    org_id = await org_for_cohort(cohort_id)
+    if org_id is None:
+        await _decide(request, False, f"unknown cohort {cohort_id}")
+        return
+
+    if org_slug is not None:
+        slug_org_id = await org_id_for_slug(org_slug)
+        if slug_org_id != org_id:
+            await _decide(
+                request, False, f"org_slug {org_slug} does not own cohort {cohort_id}"
+            )
             return
 
-
-async def require_course_task_rows_access(request: Request, row_ids) -> None:
-    await require_courses_access(request, await courses_for_course_task_rows(row_ids))
-
-
-async def require_course_milestone_rows_access(request: Request, row_ids) -> None:
-    await require_courses_access(request, await courses_for_course_milestone_rows(row_ids))
+    # A valid self-join: the caller is enrolling only themselves as a learner.
+    logger.info(f"Cohort self-join: user={caller} cohort={cohort_id}")

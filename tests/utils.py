@@ -2,6 +2,8 @@ from fastapi import FastAPI
 
 from api.middleware import permissions
 
+TEST_USER_ID = 1
+
 _PERMISSION_DEPENDENCIES = [
     getattr(permissions, name)
     for name in dir(permissions)

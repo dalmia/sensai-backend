@@ -40,7 +40,13 @@ def _sign(signing_input: bytes) -> str:
 def create_access_token(user_id: int, email: str = "", ttl_seconds: int = None) -> str:
     now = int(time.time())
     ttl = ACCESS_TOKEN_TTL_SECONDS if ttl_seconds is None else ttl_seconds
-    payload = {"sub": str(user_id), "email": email, "iat": now, "exp": now + ttl}
+    payload = {
+        "sub": str(user_id),
+        "email": email,
+        "aud": "api",
+        "iat": now,
+        "exp": now + ttl,
+    }
     segments = [
         _b64url_encode(json.dumps({"alg": "HS256", "typ": "JWT"}, separators=(",", ":")).encode()),
         _b64url_encode(json.dumps(payload, separators=(",", ":")).encode()),
@@ -63,6 +69,9 @@ def decode_access_token(token: str) -> Dict:
         payload = json.loads(_b64url_decode(payload_b64))
     except Exception:
         raise TokenError("Malformed token payload")
+
+    if payload.get("aud") != "api":
+        raise TokenError("Token is not valid for the API")
 
     now = int(time.time())
 

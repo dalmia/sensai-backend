@@ -139,7 +139,9 @@ class TestCorsMiddleware:
 
         # Should not return 405 Method Not Allowed due to CORS middleware
         # The exact status code may vary based on FastAPI version
+        # CORS is closed now that all browser traffic goes through the proxy.
         assert response.status_code in [
+            400,
             200,
             404,
         ]  # 404 is OK if no OPTIONS handler defined

@@ -37,7 +37,6 @@ from api.utils.file_analysis import extract_submission_file
 from api.db.user import get_user_first_name
 from langfuse import get_client, observe
 
-from api.middleware.permissions import require_task_access, require_user_scope
 
 from api.middleware import permissions
 
@@ -363,7 +362,7 @@ async def get_user_details_for_prompt(user_id: str) -> str:
 
 @router.post("/chat")
 async def ai_response_for_question(http_request: Request, request: AIChatRequest):
-    await permissions.require_user_scope(http_request, request.user_id)
+    request.user_id = permissions.caller_id(http_request)
     await permissions.require_task_access(http_request, request.task_id)
     # Define an async generator for streaming
     async def stream_response() -> AsyncGenerator[str, None]:
@@ -716,7 +715,7 @@ async def ai_response_for_question(http_request: Request, request: AIChatRequest
 
 @router.post("/assignment")
 async def ai_response_for_assignment(http_request: Request, request: AIChatRequest):
-    await permissions.require_user_scope(http_request, request.user_id)
+    request.user_id = permissions.caller_id(http_request)
     await permissions.require_task_access(http_request, request.task_id)
     # Define an async generator for streaming
     async def stream_response() -> AsyncGenerator[str, None]:

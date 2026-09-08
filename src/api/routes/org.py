@@ -21,7 +21,7 @@ from api.models import (
     UpdateOrgOpenaiApiKeyRequest,
 )
 
-from api.middleware.permissions import require_org_staff, require_user_scope
+from api.middleware.permissions import require_org_staff
 
 from api.middleware import permissions
 
@@ -32,7 +32,7 @@ router = APIRouter()
 async def create_organization(http_request: Request, 
     request: CreateOrganizationRequest,
 ) -> CreateOrganizationResponse:
-    await permissions.require_user_scope(http_request, request.user_id)
+    request.user_id = permissions.caller_id(http_request)
     try:
         org_id = await create_organization_with_user(
             request.name,

@@ -18,7 +18,9 @@ router = APIRouter()
 
 @router.post("/", response_model=List[ChatMessage])
 async def store_messages(http_request: Request, request: StoreMessagesRequest) -> List[ChatMessage]:
-    await permissions.require_user_scope(http_request, request.user_id)
+    # Identity comes from the verified token, never the body: staff may read a
+    # user's data but must not be able to write as them.
+    request.user_id = permissions.caller_id(http_request)
     return await store_messages_in_db(
         messages=request.messages,
         user_id=request.user_id,

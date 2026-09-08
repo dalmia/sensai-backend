@@ -12,7 +12,7 @@ from api.utils.tokens import (
     decode_access_token,
 )
 
-SECRET = "test-secret-key-for-auth-middleware"
+SECRET = "test-secret-key-for-auth-middleware-32+"
 
 
 @pytest.fixture
@@ -55,7 +55,7 @@ class TestUnauthenticatedIsRejected:
 
     def test_token_signed_with_wrong_secret(self, anon):
         token = create_access_token(1, "a@b.com")
-        settings.auth_secret_key = "a-different-secret"
+        settings.auth_secret_key = "a-different-secret-32-chars-long!!"
         try:
             assert anon.get("/users/1", headers=bearer(token)).status_code == 401
         finally:

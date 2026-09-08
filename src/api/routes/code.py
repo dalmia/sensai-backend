@@ -17,7 +17,7 @@ router = APIRouter()
 
 @router.post("/")
 async def save_code_draft(http_request: Request, request: SaveCodeDraftRequest):
-    await permissions.require_user_scope(http_request, request.user_id)
+    request.user_id = permissions.caller_id(http_request)
     await upsert_code_draft_in_db(
         user_id=request.user_id,
         question_id=request.question_id,
@@ -27,7 +27,9 @@ async def save_code_draft(http_request: Request, request: SaveCodeDraftRequest):
 
 
 @router.get(
-    "/user/{user_id}/question/{question_id}", response_model=Optional[CodeDraft]
+    "/user/{user_id}/question/{question_id}",
+    response_model=Optional[CodeDraft],
+    dependencies=[Depends(require_user_scope)],
 )
 async def get_code_draft(user_id: int, question_id: int):
     return await get_code_draft_from_db(user_id, question_id)

@@ -33,7 +33,7 @@ from api.models import (
     AssignmentRequest,
 )
 
-from api.middleware.permissions import require_cohort_access, require_course_access, require_task_access
+from api.middleware.permissions import require_cohort_access, require_course_access, require_task_access, require_task_write
 
 from api.middleware import permissions
 
@@ -51,7 +51,7 @@ async def get_learning_material_tasks_for_course(
 async def create_draft_task_for_course(http_request: Request, 
     request: CreateDraftTaskRequest,
 ) -> CreateDraftTaskResponse:
-    await permissions.require_course_access(http_request, request.course_id)
+    await permissions.require_course_write(http_request, request.course_id)
     id, _ = await create_draft_task_for_course_in_db(
         request.title,
         str(request.type),
@@ -61,7 +61,7 @@ async def create_draft_task_for_course(http_request: Request,
     return {"id": id}
 
 
-@router.post("/{task_id}/learning_material", dependencies=[Depends(require_task_access)], response_model=LearningMaterialTask)
+@router.post("/{task_id}/learning_material", dependencies=[Depends(require_task_write)], response_model=LearningMaterialTask)
 async def publish_learning_material_task(
     task_id: int, request: PublishLearningMaterialTaskRequest
 ) -> LearningMaterialTask:
@@ -76,7 +76,7 @@ async def publish_learning_material_task(
     return result
 
 
-@router.put("/{task_id}/learning_material", dependencies=[Depends(require_task_access)], response_model=LearningMaterialTask)
+@router.put("/{task_id}/learning_material", dependencies=[Depends(require_task_write)], response_model=LearningMaterialTask)
 async def update_learning_material_task(
     task_id: int, request: UpdateLearningMaterialTaskRequest
 ) -> LearningMaterialTask:
@@ -92,7 +92,7 @@ async def update_learning_material_task(
     return result
 
 
-@router.post("/{task_id}/quiz", dependencies=[Depends(require_task_access)], response_model=QuizTask)
+@router.post("/{task_id}/quiz", dependencies=[Depends(require_task_write)], response_model=QuizTask)
 async def update_draft_quiz(task_id: int, request: UpdateDraftQuizRequest) -> QuizTask:
     result = await update_draft_quiz_in_db(
         task_id=task_id,
@@ -106,7 +106,7 @@ async def update_draft_quiz(task_id: int, request: UpdateDraftQuizRequest) -> Qu
     return result
 
 
-@router.put("/{task_id}/quiz", dependencies=[Depends(require_task_access)], response_model=QuizTask)
+@router.put("/{task_id}/quiz", dependencies=[Depends(require_task_write)], response_model=QuizTask)
 async def update_published_quiz(
     task_id: int, request: UpdatePublishedQuizRequest
 ) -> QuizTask:
@@ -125,14 +125,14 @@ async def update_published_quiz(
 async def duplicate_task(http_request: Request, 
     request: DuplicateTaskRequest,
 ) -> DuplicateTaskResponse:
-    await permissions.require_task_access(http_request, request.task_id)
-    await permissions.require_course_access(http_request, request.course_id)
+    await permissions.require_task_write(http_request, request.task_id)
+    await permissions.require_course_write(http_request, request.course_id)
     return await duplicate_task_in_db(
         request.task_id, request.course_id, request.milestone_id
     )
 
 
-@router.delete("/{task_id}", dependencies=[Depends(require_task_access)])
+@router.delete("/{task_id}", dependencies=[Depends(require_task_write)])
 async def delete_task(task_id: int):
     await delete_task_in_db(task_id)
     return {"success": True}
@@ -161,7 +161,7 @@ async def mark_task_completed(task_id: int, request: MarkTaskCompletedRequest):
     return {"success": True}
 
 
-@router.post("/{task_id}/assignment", dependencies=[Depends(require_task_access)], response_model=AssignmentTask)
+@router.post("/{task_id}/assignment", dependencies=[Depends(require_task_write)], response_model=AssignmentTask)
 async def create_assignment(
     task_id: int, request: AssignmentRequest
 ) -> AssignmentTask:
@@ -177,7 +177,7 @@ async def create_assignment(
     return result
 
 
-@router.put("/{task_id}/assignment", dependencies=[Depends(require_task_access)], response_model=AssignmentTask)
+@router.put("/{task_id}/assignment", dependencies=[Depends(require_task_write)], response_model=AssignmentTask)
 async def update_assignment(
     task_id: int, request: AssignmentRequest
 ) -> AssignmentTask:
