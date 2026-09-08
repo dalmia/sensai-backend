@@ -191,3 +191,35 @@ class TestSelfJoinRequiresAnInvite:
             )
 
         assert response.status_code == 200
+
+
+class TestMentorCannotWrite:
+    """
+    M13: the mentor arm added for H6b is a read grant. require_user_scope guards
+    two mutations as well as ten reads, so a mentor could rename a learner or
+    delete their saved code draft.
+    """
+
+    def test_mentor_cannot_rename_a_learner(self):
+        with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)), \
+             patch.object(permissions, "is_mentor_over_user", AsyncMock(return_value=True)):
+            response = mentor_client().put(
+                "/users/100", json={"first_name": "X", "last_name": "Y"}
+            )
+
+        assert response.status_code == 403
+
+    def test_mentor_cannot_delete_a_learners_code_draft(self):
+        with patch.object(permissions, "is_staff_over_user", AsyncMock(return_value=False)), \
+             patch.object(permissions, "is_mentor_over_user", AsyncMock(return_value=True)):
+            response = mentor_client().delete("/code/user/100/question/7")
+
+        assert response.status_code == 403
+
+    def test_a_learner_can_still_edit_themselves(self):
+        with patch("api.routes.user.update_user_in_db", AsyncMock(return_value=None)):
+            response = learner_client().put(
+                f"/users/{LEARNER_ID}", json={"first_name": "X", "last_name": "Y"}
+            )
+
+        assert response.status_code != 403

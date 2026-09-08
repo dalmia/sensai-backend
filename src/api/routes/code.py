@@ -8,7 +8,7 @@ from api.db.code_draft import (
 )
 from api.models import SaveCodeDraftRequest, CodeDraft
 
-from api.middleware.permissions import require_user_scope
+from api.middleware.permissions import require_user_scope, require_user_write
 
 from api.middleware import permissions
 
@@ -35,7 +35,7 @@ async def get_code_draft(user_id: int, question_id: int):
     return await get_code_draft_from_db(user_id, question_id)
 
 
-@router.delete("/user/{user_id}/question/{question_id}", dependencies=[Depends(require_user_scope)])
+@router.delete("/user/{user_id}/question/{question_id}", dependencies=[Depends(require_user_write)])
 async def delete_code_draft(user_id: int, question_id: int):
     await delete_code_draft_in_db(user_id, question_id)
     return {"success": True}

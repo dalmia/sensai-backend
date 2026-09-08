@@ -21,7 +21,8 @@ ORG_STAFF_ROLES = ("owner", "admin")
 
 async def get_org_role(user_id: int, org_id: int) -> Optional[str]:
     row = await execute_db_operation(
-        f"SELECT role FROM {user_organizations_table_name} WHERE user_id = ? AND org_id = ?",
+        f"""SELECT role FROM {user_organizations_table_name}
+            WHERE user_id = ? AND org_id = ? AND deleted_at IS NULL""",
         (user_id, org_id),
         fetch_one=True,
     )
@@ -34,7 +35,8 @@ async def is_org_staff(user_id: int, org_id: int) -> bool:
 
 async def is_cohort_member(user_id: int, cohort_id: int) -> bool:
     row = await execute_db_operation(
-        f"SELECT 1 FROM {user_cohorts_table_name} WHERE user_id = ? AND cohort_id = ?",
+        f"""SELECT 1 FROM {user_cohorts_table_name}
+            WHERE user_id = ? AND cohort_id = ? AND deleted_at IS NULL""",
         (user_id, cohort_id),
         fetch_one=True,
     )
@@ -99,8 +101,9 @@ async def can_access_course(user_id: int, course_id: int) -> bool:
     row = await execute_db_operation(
         f"""SELECT 1
             FROM {course_cohorts_table_name} cc
-            JOIN {user_cohorts_table_name} uc ON uc.cohort_id = cc.cohort_id
-            WHERE cc.course_id = ? AND uc.user_id = ?
+            JOIN {user_cohorts_table_name} uc
+              ON uc.cohort_id = cc.cohort_id AND uc.deleted_at IS NULL
+            WHERE cc.course_id = ? AND uc.user_id = ? AND cc.deleted_at IS NULL
             LIMIT 1""",
         (course_id, user_id),
         fetch_one=True,
@@ -118,9 +121,11 @@ async def can_access_task(user_id: int, task_id: int) -> bool:
     row = await execute_db_operation(
         f"""SELECT 1
             FROM course_tasks ct
-            JOIN {course_cohorts_table_name} cc ON cc.course_id = ct.course_id
-            JOIN {user_cohorts_table_name} uc ON uc.cohort_id = cc.cohort_id
-            WHERE ct.task_id = ? AND uc.user_id = ?
+            JOIN {course_cohorts_table_name} cc
+              ON cc.course_id = ct.course_id AND cc.deleted_at IS NULL
+            JOIN {user_cohorts_table_name} uc
+              ON uc.cohort_id = cc.cohort_id AND uc.deleted_at IS NULL
+            WHERE ct.task_id = ? AND uc.user_id = ? AND ct.deleted_at IS NULL
             LIMIT 1""",
         (task_id, user_id),
         fetch_one=True,
@@ -135,16 +140,19 @@ async def is_staff_over_user(caller_id: int, user_id: int) -> bool:
             FROM {user_organizations_table_name} caller
             WHERE caller.user_id = ?
               AND caller.role IN ('owner', 'admin')
+              AND caller.deleted_at IS NULL
               AND (
                 EXISTS (
                     SELECT 1 FROM {user_organizations_table_name} target
                     WHERE target.user_id = ? AND target.org_id = caller.org_id
+                      AND target.deleted_at IS NULL
                 )
                 OR EXISTS (
                     SELECT 1
                     FROM {user_cohorts_table_name} uc
                     JOIN {cohorts_table_name} c ON c.id = uc.cohort_id
                     WHERE uc.user_id = ? AND c.org_id = caller.org_id
+                      AND uc.deleted_at IS NULL
                 )
               )
             LIMIT 1""",
@@ -167,7 +175,8 @@ async def _rows_to_courses(table: str, row_ids) -> dict:
         chunk = ids[start : start + _SQLITE_MAX_PARAMS]
         placeholders = ",".join("?" for _ in chunk)
         rows = await execute_db_operation(
-            f"SELECT id, course_id FROM {table} WHERE id IN ({placeholders})",
+            f"""SELECT id, course_id FROM {table}
+               WHERE id IN ({placeholders}) AND deleted_at IS NULL""",
             tuple(chunk),
             fetch_all=True,
         )
@@ -204,6 +213,8 @@ async def is_mentor_over_user(caller_id: int, user_id: int) -> bool:
             WHERE mentor.user_id = ?
               AND mentor.role = 'mentor'
               AND target.user_id = ?
+              AND mentor.deleted_at IS NULL
+              AND target.deleted_at IS NULL
             LIMIT 1""",
         (caller_id, user_id),
         fetch_one=True,

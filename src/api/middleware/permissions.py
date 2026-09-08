@@ -60,6 +60,18 @@ async def require_user_scope(request: Request, user_id: int) -> None:
     await _decide(request, allowed, f"caller {caller} cannot act for user {user_id}")
 
 
+async def require_user_write(request: Request, user_id: int) -> None:
+    """
+    Writing to a user's record is self-or-org-staff only.
+
+    Deliberately excludes the mentor arm in require_user_scope: a mentor may
+    read the learners in their cohorts, not rename them or delete their work.
+    """
+    caller = _caller_id(request)
+    allowed = caller == user_id or await is_staff_over_user(caller, user_id)
+    await _decide(request, allowed, f"caller {caller} cannot write to user {user_id}")
+
+
 async def require_org_staff(request: Request, org_id: int) -> None:
     caller = _caller_id(request)
     await _decide(

@@ -79,7 +79,7 @@ def test_mutations_never_use_a_read_predicate():
     learner because it reused can_access_course.
     """
     READ_ONLY = {"require_course_access", "require_cohort_access", "require_task_access",
-                 "require_batch_access"}
+                 "require_batch_access", "require_user_scope"}
     # A learner completing a task they can see is the intended flow, so the read
     # predicate is right here. Who gets marked complete comes from the token,
     # not the body - see mark_task_completed.

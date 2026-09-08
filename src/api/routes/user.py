@@ -17,7 +17,7 @@ from api.db.cohort import is_user_in_cohort as is_user_in_cohort_from_db
 from api.utils.db import get_new_db_connection
 from api.models import UserCourse, UserCohort, GetUserStreakResponse
 
-from api.middleware.permissions import require_user_scope
+from api.middleware.permissions import require_user_scope, require_user_write
 
 router = APIRouter()
 
@@ -30,7 +30,7 @@ async def get_user_by_id(user_id: int) -> Dict:
     return user
 
 
-@router.put("/{user_id}", dependencies=[Depends(require_user_scope)])
+@router.put("/{user_id}", dependencies=[Depends(require_user_write)])
 async def update_user(
     user_id: int,
     first_name: str,
