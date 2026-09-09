@@ -69,7 +69,10 @@ async def get_course(
 
 @router.post("/tasks")
 async def add_tasks_to_courses(http_request: Request, request: AddTasksToCoursesRequest):
+    # Tuple is (task_id, course_id, milestone_id) - both ids need authorizing,
+    # or you can graft another org's task into a course you own.
     await permissions.require_courses_write(http_request, [t[1] for t in request.course_tasks])
+    await permissions.require_tasks_write(http_request, [t[0] for t in request.course_tasks])
     await add_tasks_to_courses_in_db(request.course_tasks)
     return {"success": True}
 
@@ -77,6 +80,7 @@ async def add_tasks_to_courses(http_request: Request, request: AddTasksToCourses
 @router.delete("/tasks")
 async def remove_tasks_from_courses(http_request: Request, request: RemoveTasksFromCoursesRequest):
     await permissions.require_courses_write(http_request, [t[1] for t in request.course_tasks])
+    await permissions.require_tasks_write(http_request, [t[0] for t in request.course_tasks])
     await remove_tasks_from_courses_in_db(request.course_tasks)
     return {"success": True}
 
@@ -113,8 +117,13 @@ async def delete_course(course_id: int):
     return {"success": True}
 
 
-@router.post("/{course_id}/cohorts", dependencies=[Depends(require_course_write)])
-async def add_course_to_cohorts(course_id: int, request: AddCourseToCohortsRequest):
+@router.post("/{course_id}/cohorts")
+async def add_course_to_cohorts(
+    http_request: Request, course_id: int, request: AddCourseToCohortsRequest
+):
+    await permissions.require_same_org_for_course(
+        http_request, course_id, request.cohort_ids
+    )
     await add_course_to_cohorts_in_db(
         course_id,
         request.cohort_ids,

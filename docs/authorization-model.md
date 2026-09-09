@@ -73,6 +73,18 @@ Two deliberate exceptions, both learner-facing:
 The mentor client is the structural piece: H6 happened because no test had ever
 authenticated as one.
 
+## Removed rather than protected
+
+- **`GET /organizations/`** returned **every organisation** to any authenticated
+  caller. Nothing in the frontend called it (the only `organizations/` hit is the
+  POST that creates one). Deleted, with its test.
+- **`src/api/routes/integration.py`** — the router that leaked the Notion OAuth
+  tokens. Already unregistered from `main.py`; deleted along with its test so it
+  cannot be re-registered by accident.
+- **`/docs`, `/redoc`, `/openapi.json`** — the attacker's first request in the
+  2026-08-29 incident.
+- **`/sentry-debug`** — any authenticated user could spam Sentry with it.
+
 ## Coverage
 
 **84 of 93 endpoints guarded, 9 intentionally open** — `/auth/login`, `/health`

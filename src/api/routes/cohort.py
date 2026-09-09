@@ -116,8 +116,11 @@ async def update_cohort_name(cohort_id: int, request: UpdateCohortRequest):
     return {"success": True}
 
 
-@router.post("/{cohort_id}/courses", dependencies=[Depends(require_cohort_write)])
-async def add_courses_to_cohort(cohort_id: int, request: AddCoursesToCohortRequest):
+@router.post("/{cohort_id}/courses")
+async def add_courses_to_cohort(
+    http_request: Request, cohort_id: int, request: AddCoursesToCohortRequest
+):
+    await permissions.require_same_org(http_request, cohort_id, request.course_ids)
     await add_courses_to_cohort_in_db(
         cohort_id,
         request.course_ids,

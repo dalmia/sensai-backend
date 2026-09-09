@@ -255,3 +255,48 @@ async def require_cohort_join_or_write(
 
     # A valid self-join: the caller is enrolling only themselves as a learner.
     logger.info(f"Cohort self-join: user={caller} cohort={cohort_id}")
+
+
+async def require_tasks_write(request: Request, task_ids) -> None:
+    """Every task in a bulk request must be writable by the caller."""
+    for task_id in set(task_ids):
+        await require_task_write(request, task_id)
+
+
+async def require_same_org(request: Request, cohort_id: int, course_ids) -> None:
+    """
+    A cohort and the courses attached to it must belong to the same org.
+
+    Guarding only the path id let a caller attach another org's course to a
+    cohort they own, after which the ordinary read predicates authorize it.
+    """
+    caller = _caller_id(request)
+    cohort_org = await org_for_cohort(cohort_id)
+
+    if cohort_org is None or not await is_org_staff(caller, cohort_org):
+        await _decide(request, False, f"no write access to cohort {cohort_id}")
+        return
+
+    for course_id in set(course_ids):
+        if await org_for_course(course_id) != cohort_org:
+            await _decide(
+                request, False, f"course {course_id} is not in org {cohort_org}"
+            )
+            return
+
+
+async def require_same_org_for_course(request: Request, course_id: int, cohort_ids) -> None:
+    """Mirror of require_same_org, for attaching cohorts to a course."""
+    caller = _caller_id(request)
+    course_org = await org_for_course(course_id)
+
+    if course_org is None or not await is_org_staff(caller, course_org):
+        await _decide(request, False, f"no write access to course {course_id}")
+        return
+
+    for cohort_id in set(cohort_ids):
+        if await org_for_cohort(cohort_id) != course_org:
+            await _decide(
+                request, False, f"cohort {cohort_id} is not in org {course_org}"
+            )
+            return

@@ -223,3 +223,60 @@ class TestMentorCannotWrite:
             )
 
         assert response.status_code != 403
+
+
+class TestBulkIdsAreAuthorized:
+    """
+    A3/A4: these routes authorized the id in the path or one half of a tuple and
+    ignored the rest, so another org's resource could be grafted into a tenant
+    the caller controls — after which the ordinary read predicates allow it.
+    """
+
+    def test_cannot_graft_another_orgs_task_into_my_course(self):
+        # course 5 is mine, task 999 is not
+        async def org_for_task(task_id):
+            return 3 if task_id == 999 else ORG_ID
+
+        with patch.object(permissions, "org_for_course", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "org_for_task", AsyncMock(side_effect=org_for_task)), \
+             patch.object(permissions, "is_org_staff",
+                          AsyncMock(side_effect=lambda uid, org: org == ORG_ID)):
+            response = learner_client().post(
+                "/courses/tasks", json={"course_tasks": [[999, COURSE_ID, None]]}
+            )
+
+        assert response.status_code == 403
+
+    def test_cannot_attach_another_orgs_course_to_my_cohort(self):
+        with patch.object(permissions, "org_for_cohort", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "org_for_course", AsyncMock(return_value=3)), \
+             patch.object(permissions, "is_org_staff", AsyncMock(return_value=True)):
+            response = learner_client().post(
+                f"/cohorts/{COHORT_ID}/courses",
+                json={"course_ids": [999], "drip_config": {"is_drip_enabled": False}},
+            )
+
+        assert response.status_code == 403
+
+    def test_cannot_push_my_course_into_another_orgs_cohort(self):
+        with patch.object(permissions, "org_for_course", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "org_for_cohort", AsyncMock(return_value=3)), \
+             patch.object(permissions, "is_org_staff", AsyncMock(return_value=True)):
+            response = learner_client().post(
+                f"/courses/{COURSE_ID}/cohorts",
+                json={"cohort_ids": [999], "drip_config": {"is_drip_enabled": False}},
+            )
+
+        assert response.status_code == 403
+
+    def test_same_org_attachment_still_works(self):
+        with patch.object(permissions, "org_for_cohort", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "org_for_course", AsyncMock(return_value=ORG_ID)), \
+             patch.object(permissions, "is_org_staff", AsyncMock(return_value=True)), \
+             patch("api.routes.cohort.add_courses_to_cohort_in_db", AsyncMock(return_value=None)):
+            response = learner_client().post(
+                f"/cohorts/{COHORT_ID}/courses",
+                json={"course_ids": [COURSE_ID], "drip_config": {"is_drip_enabled": False}},
+            )
+
+        assert response.status_code != 403
