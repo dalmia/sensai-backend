@@ -1,5 +1,5 @@
 import os
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from typing import AsyncGenerator, Optional, Dict
 import json
@@ -36,6 +36,9 @@ from api.utils.audio import prepare_audio_input_for_ai
 from api.utils.file_analysis import extract_submission_file
 from api.db.user import get_user_first_name
 from langfuse import get_client, observe
+
+
+from api.middleware import permissions
 
 router = APIRouter()
 
@@ -358,7 +361,9 @@ async def get_user_details_for_prompt(user_id: str) -> str:
 
 
 @router.post("/chat")
-async def ai_response_for_question(request: AIChatRequest):
+async def ai_response_for_question(http_request: Request, request: AIChatRequest):
+    request.user_id = permissions.caller_id(http_request)
+    await permissions.require_task_access(http_request, request.task_id)
     # Define an async generator for streaming
     async def stream_response() -> AsyncGenerator[str, None]:
         with langfuse.start_as_current_span(
@@ -709,7 +714,9 @@ async def ai_response_for_question(request: AIChatRequest):
 
 
 @router.post("/assignment")
-async def ai_response_for_assignment(request: AIChatRequest):
+async def ai_response_for_assignment(http_request: Request, request: AIChatRequest):
+    request.user_id = permissions.caller_id(http_request)
+    await permissions.require_task_access(http_request, request.task_id)
     # Define an async generator for streaming
     async def stream_response() -> AsyncGenerator[str, None]:
         with langfuse.start_as_current_span(

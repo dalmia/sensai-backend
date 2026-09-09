@@ -1,13 +1,14 @@
 import pytest
 from unittest.mock import patch
 from fastapi.testclient import TestClient
+from tests.utils import bypass_permissions
 from src.api.routes.code import router
 from fastapi import FastAPI
 
 # Create a test app with the code router
 app = FastAPI()
 app.include_router(router, prefix="/code")
-client = TestClient(app)
+client = TestClient(bypass_permissions(app))
 
 
 class TestCodeRoutes:
@@ -31,7 +32,7 @@ class TestCodeRoutes:
         assert response.status_code == 200
         assert response.json() == {"success": True}
         mock_upsert_code_draft.assert_called_once_with(
-            user_id=123,
+            user_id=1,  # from the token, not the request body
             question_id=456,
             code=[{"language": "python", "value": "print('hello world')"}],
         )

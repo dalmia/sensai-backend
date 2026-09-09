@@ -1,4 +1,6 @@
 import pytest
+
+TEST_USER_ID = 1
 from fastapi import status
 from unittest.mock import patch, ANY
 from datetime import datetime
@@ -524,7 +526,9 @@ async def test_mark_task_completed(client, mock_db):
 
         assert response.status_code == status.HTTP_200_OK
         assert response.json() == {"success": True}
-        mock_mark_completed.assert_called_with(task_id, request_body["user_id"])
+        # The completed user comes from the token, never the body - posting
+        # another user's id must not mark their task complete.
+        mock_mark_completed.assert_called_with(task_id, TEST_USER_ID)
 
 
 @pytest.mark.asyncio

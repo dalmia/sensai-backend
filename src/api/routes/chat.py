@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from typing import List, Dict
 from api.db.chat import (
     store_messages as store_messages_in_db,
@@ -9,11 +9,18 @@ from api.models import (
     StoreMessagesRequest,
 )
 
+from api.middleware.permissions import require_user_scope
+
+from api.middleware import permissions
+
 router = APIRouter()
 
 
 @router.post("/", response_model=List[ChatMessage])
-async def store_messages(request: StoreMessagesRequest) -> List[ChatMessage]:
+async def store_messages(http_request: Request, request: StoreMessagesRequest) -> List[ChatMessage]:
+    # Identity comes from the verified token, never the body: staff may read a
+    # user's data but must not be able to write as them.
+    request.user_id = permissions.caller_id(http_request)
     return await store_messages_in_db(
         messages=request.messages,
         user_id=request.user_id,
@@ -23,7 +30,7 @@ async def store_messages(request: StoreMessagesRequest) -> List[ChatMessage]:
     )
 
 
-@router.get("/user/{user_id}/task/{task_id}", response_model=List[ChatMessage])
+@router.get("/user/{user_id}/task/{task_id}", dependencies=[Depends(require_user_scope)], response_model=List[ChatMessage])
 async def get_user_chat_history_for_task(
     user_id: int, task_id: int
 ) -> List[ChatMessage]:

@@ -16,6 +16,8 @@ if os.path.exists(env_path):
 class Settings(BaseSettings):
     google_client_id: str | None = None
 
+    auth_secret_key: str | None = None
+
     google_application_credentials: str | None = None
     bq_project_name: str | None = None
     bq_dataset_name: str | None = None

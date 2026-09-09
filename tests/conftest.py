@@ -11,6 +11,12 @@ if root_dir not in sys.path:
     sys.path.insert(0, root_dir)
 
 from api.main import app
+from api.settings import settings
+from api.middleware import permissions as _permissions
+
+_ORIGINAL_PERMISSIONS = {
+    n: getattr(_permissions, n) for n in dir(_permissions) if n.startswith("require_")
+}
 
 
 @pytest.fixture(autouse=True)
@@ -66,12 +72,58 @@ def mock_database_operations():
         }
 
 
+TEST_SECRET = "test-secret-key-at-least-32-chars-long"
+TEST_USER_ID = 1
+
+settings.auth_secret_key = TEST_SECRET
+
+
 @pytest.fixture
-def client():
+def client(authenticated_caller):
     """
-    Create a test client for the FastAPI app.
+    Test client for route behaviour.
+
+    Carries a valid token so it clears the auth middleware, and the authorization
+    checks are stubbed out - the boundaries themselves are covered by
+    tests/api/test_auth_middleware.py and tests/api/test_authorization.py.
     """
-    return TestClient(app)
+    return TestClient(app, headers={"Authorization": f"Bearer {_test_token()}"})
+
+
+def _test_token():
+    from api.utils.tokens import create_access_token
+
+    return create_access_token(TEST_USER_ID, "test@example.com")
+
+
+@pytest.fixture(autouse=True)
+def authenticated_caller(request):
+    from api.middleware import permissions
+
+    # Tests marked real_permissions exercise the authorization rules themselves.
+    if "real_permissions" in request.keywords:
+        yield
+        return
+
+    names = [n for n in dir(permissions) if n.startswith("require_")]
+    patchers = [patch.object(permissions, n, AsyncMock(return_value=None)) for n in names]
+    # Routes read identity through this; test apps have no auth middleware.
+    patchers.append(patch.object(permissions, "caller_id", lambda request: TEST_USER_ID))
+    for p in patchers:
+        p.start()
+
+    for name in names:
+        app.dependency_overrides[getattr(permissions, name)] = lambda: None
+
+    # Routes declare Depends on the ORIGINAL functions, so override those too.
+    for name, original in _ORIGINAL_PERMISSIONS.items():
+        app.dependency_overrides[original] = lambda: None
+
+    yield
+
+    for p in patchers:
+        p.stop()
+    app.dependency_overrides.clear()
 
 
 @pytest.fixture

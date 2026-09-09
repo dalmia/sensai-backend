@@ -59,3 +59,6 @@ dev = [
     "pytest-cov==6.1.1",
     "pytest-asyncio==0.26.0",
 ]
+
+[tool.pytest.ini_options]
+markers = ["real_permissions: run with the authorization stubs disabled"]

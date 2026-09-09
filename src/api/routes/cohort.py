@@ -1,6 +1,6 @@
 from collections import defaultdict
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Depends, Request
 from typing import List, Dict
 
 import numpy as np
@@ -46,20 +46,25 @@ from api.models import (
 )
 from api.utils.db import get_new_db_connection
 
+from api.middleware.permissions import require_cohort_access, require_cohort_write, require_org_staff
+
+from api.middleware import permissions
+
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(require_org_staff)])
 async def get_all_cohorts_for_org(org_id: int) -> List[Dict]:
     return await get_all_cohorts_for_org_from_db(org_id)
 
 
 @router.post("/", response_model=CreateCohortResponse)
-async def create_cohort(request: CreateCohortRequest) -> CreateCohortResponse:
+async def create_cohort(http_request: Request, request: CreateCohortRequest) -> CreateCohortResponse:
+    await permissions.require_org_staff(http_request, request.org_id)
     return {"id": await create_cohort_in_db(request.name, request.org_id)}
 
 
-@router.get("/{cohort_id}")
+@router.get("/{cohort_id}", dependencies=[Depends(require_cohort_access)])
 async def get_cohort_by_id(cohort_id: int, batch_id: int | None = None) -> Dict:
     cohort_data = await get_cohort_by_id_from_db(cohort_id, batch_id)
     if not cohort_data:
@@ -69,7 +74,12 @@ async def get_cohort_by_id(cohort_id: int, batch_id: int | None = None) -> Dict:
 
 
 @router.post("/{cohort_id}/members")
-async def add_members_to_cohort(cohort_id: int, request: AddMembersToCohortRequest):
+async def add_members_to_cohort(
+    http_request: Request, cohort_id: int, request: AddMembersToCohortRequest
+):
+    await permissions.require_cohort_join_or_write(
+        http_request, cohort_id, request.emails, request.roles, request.org_slug
+    )
     try:
         await add_members_to_cohort_in_db(
             cohort_id, request.org_slug, request.org_id, request.emails, request.roles
@@ -83,7 +93,7 @@ async def add_members_to_cohort(cohort_id: int, request: AddMembersToCohortReque
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.delete("/{cohort_id}/members")
+@router.delete("/{cohort_id}/members", dependencies=[Depends(require_cohort_write)])
 async def remove_members_from_cohort(
     cohort_id: int, request: RemoveMembersFromCohortRequest
 ):
@@ -94,20 +104,23 @@ async def remove_members_from_cohort(
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/{cohort_id}")
+@router.delete("/{cohort_id}", dependencies=[Depends(require_cohort_write)])
 async def delete_cohort(cohort_id: int):
     await delete_cohort_from_db(cohort_id)
     return {"success": True}
 
 
-@router.put("/{cohort_id}")
+@router.put("/{cohort_id}", dependencies=[Depends(require_cohort_write)])
 async def update_cohort_name(cohort_id: int, request: UpdateCohortRequest):
     await update_cohort_name_in_db(cohort_id, request.name)
     return {"success": True}
 
 
 @router.post("/{cohort_id}/courses")
-async def add_courses_to_cohort(cohort_id: int, request: AddCoursesToCohortRequest):
+async def add_courses_to_cohort(
+    http_request: Request, cohort_id: int, request: AddCoursesToCohortRequest
+):
+    await permissions.require_same_org(http_request, cohort_id, request.course_ids)
     await add_courses_to_cohort_in_db(
         cohort_id,
         request.course_ids,
@@ -119,7 +132,7 @@ async def add_courses_to_cohort(cohort_id: int, request: AddCoursesToCohortReque
     return {"success": True}
 
 
-@router.delete("/{cohort_id}/courses")
+@router.delete("/{cohort_id}/courses", dependencies=[Depends(require_cohort_write)])
 async def remove_courses_from_cohort(
     cohort_id: int, request: RemoveCoursesFromCohortRequest
 ):
@@ -130,6 +143,7 @@ async def remove_courses_from_cohort(
 @router.get(
     "/{cohort_id}/courses",
     response_model=List[CourseWithMilestonesAndTasks | CohortCourse],
+    dependencies=[Depends(require_cohort_access)],
 )
 async def get_courses_for_cohort(
     cohort_id: int, include_tree: bool = False, joined_at: datetime | None = None
@@ -140,13 +154,14 @@ async def get_courses_for_cohort(
 @router.get(
     "/{cohort_id}/completion",
     response_model=Dict,
+    dependencies=[Depends(require_cohort_access)],
 )
 async def get_cohort_completion(cohort_id: int, user_id: int) -> Dict:
     results = await get_cohort_completion_from_db(cohort_id, [user_id])
     return results[user_id]
 
 
-@router.get("/{cohort_id}/leaderboard")
+@router.get("/{cohort_id}/leaderboard", dependencies=[Depends(require_cohort_access)])
 async def get_leaderboard_data(cohort_id: int, batch_id: int | None = None) -> Dict:
     leaderboard_data = await get_cohort_streaks_from_db(
         cohort_id=cohort_id, batch_id=batch_id
@@ -185,7 +200,7 @@ async def get_leaderboard_data(cohort_id: int, batch_id: int | None = None) -> D
     }
 
 
-@router.get("/{cohort_id}/courses/{course_id}/metrics")
+@router.get("/{cohort_id}/courses/{course_id}/metrics", dependencies=[Depends(require_cohort_access)])
 async def get_cohort_metrics_for_course(
     cohort_id: int, course_id: int, batch_id: int | None = None
 ):
@@ -300,14 +315,14 @@ async def get_cohort_metrics_for_course(
     }
 
 
-@router.get("/{cohort_id}/streaks", response_model=Streaks)
+@router.get("/{cohort_id}/streaks", dependencies=[Depends(require_cohort_access)], response_model=Streaks)
 async def get_all_streaks_for_cohort(
     cohort_id: int = None, view: LeaderboardViewType = str(LeaderboardViewType.ALL_TIME)
 ) -> Streaks:
     return await get_cohort_streaks_from_db(view=view, cohort_id=cohort_id)
 
 
-@router.get("/{cohort_id}/task_metrics")
+@router.get("/{cohort_id}/task_metrics", dependencies=[Depends(require_cohort_access)])
 async def get_cohort_analytics_metrics_for_tasks(
     cohort_id: int, task_ids: List[int] = Query(...), batch_id: int | None = None
 ):
@@ -324,7 +339,7 @@ async def get_cohort_analytics_metrics_for_tasks(
     )
 
 
-@router.get("/{cohort_id}/task_attempt_data")
+@router.get("/{cohort_id}/task_attempt_data", dependencies=[Depends(require_cohort_access)])
 async def get_cohort_attempt_data_for_tasks(
     cohort_id: int, task_ids: List[int] = Query(...), batch_id: int | None = None
 ):

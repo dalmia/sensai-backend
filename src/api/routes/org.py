@@ -1,5 +1,5 @@
 # --- START OF FILE sensai-api/sensai_backend/routes/org_routes.py ---
-from fastapi import APIRouter, HTTPException, Body
+from fastapi import APIRouter, HTTPException, Body, Depends, Request
 import traceback
 from typing import List, Dict, Annotated
 from api.db.org import (
@@ -10,7 +10,6 @@ from api.db.org import (
     remove_members_from_org as remove_members_from_org_from_db,
     get_org_members as get_org_members_from_db,
     get_org_by_slug as get_org_by_slug_from_db,
-    get_all_orgs as get_all_orgs_from_db,
 )
 from api.utils.db import get_new_db_connection
 from api.models import (
@@ -22,13 +21,18 @@ from api.models import (
     UpdateOrgOpenaiApiKeyRequest,
 )
 
+from api.middleware.permissions import require_org_staff
+
+from api.middleware import permissions
+
 router = APIRouter()
 
 
 @router.post("/")
-async def create_organization(
+async def create_organization(http_request: Request, 
     request: CreateOrganizationRequest,
 ) -> CreateOrganizationResponse:
+    request.user_id = permissions.caller_id(http_request)
     try:
         org_id = await create_organization_with_user(
             request.name,
@@ -61,13 +65,13 @@ async def get_org_by_slug(slug: str) -> Dict:
     return org_details
 
 
-@router.put("/{org_id}")
+@router.put("/{org_id}", dependencies=[Depends(require_org_staff)])
 async def update_org(org_id: int, request: UpdateOrgRequest):
     await update_org_in_db(org_id, request.name)
     return {"success": True}
 
 
-@router.post("/{org_id}/members")
+@router.post("/{org_id}/members", dependencies=[Depends(require_org_staff)])
 async def add_users_to_org_by_email(org_id: int, request: AddUsersToOrgRequest):
     try:
         await add_users_to_org_by_email_in_db(org_id, request.emails)
@@ -77,17 +81,14 @@ async def add_users_to_org_by_email(org_id: int, request: AddUsersToOrgRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 
-@router.delete("/{org_id}/members")
+@router.delete("/{org_id}/members", dependencies=[Depends(require_org_staff)])
 async def remove_members_from_org(org_id: int, request: RemoveMembersFromOrgRequest):
     await remove_members_from_org_from_db(org_id, request.user_ids)
     return {"success": True}
 
 
-@router.get("/{org_id}/members")
+@router.get("/{org_id}/members", dependencies=[Depends(require_org_staff)])
 async def get_org_members(org_id: int) -> List[Dict]:
     return await get_org_members_from_db(org_id)
 
 
-@router.get("/")
-async def get_all_orgs() -> List[Dict]:
-    return await get_all_orgs_from_db()

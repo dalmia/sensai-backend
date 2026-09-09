@@ -33,6 +33,7 @@ services:
       - BQ_PROJECT_NAME=${BQ_PROJECT_NAME}
       - BQ_DATASET_NAME=${BQ_DATASET_NAME}
       - SENTRY_DSN=${SENTRY_DSN}
+      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
 
   public-api:
@@ -65,6 +66,7 @@ services:
       - BQ_PROJECT_NAME=${BQ_PROJECT_NAME}
       - BQ_DATASET_NAME=${BQ_DATASET_NAME}
       - SENTRY_DSN=${SENTRY_DSN}
+      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
 
   # Cron service - only for production (use: docker compose --profile production up -d)
@@ -106,6 +108,7 @@ services:
       - BQ_PROJECT_NAME=${BQ_PROJECT_NAME}
       - BQ_DATASET_NAME=${BQ_DATASET_NAME}
       - SENTRY_DSN=${SENTRY_DSN}
+      - AUTH_SECRET_KEY=${AUTH_SECRET_KEY}
       - SENTRY_ENVIRONMENT=${SENTRY_ENVIRONMENT}
     restart: unless-stopped
 

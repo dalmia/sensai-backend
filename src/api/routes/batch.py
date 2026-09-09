@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends, Request
 from typing import List, Dict
 
 from api.db.batch import (
@@ -17,17 +17,22 @@ from api.models import (
     UpdateBatchRequest,
 )
 
+from api.middleware.permissions import require_batch_access, require_batch_write, require_cohort_access, require_user_scope
+
+from api.middleware import permissions
+
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("/", dependencies=[Depends(require_cohort_access)])
 async def get_all_batches_for_cohort(cohort_id: int) -> List[Dict]:
     """Get all batches for a cohort"""
     return await get_all_batches_for_cohort_from_db(cohort_id)
 
 
 @router.post("/", response_model=CreateBatchResponse)
-async def create_batch(request: CreateBatchRequest) -> CreateBatchResponse:
+async def create_batch(http_request: Request, request: CreateBatchRequest) -> CreateBatchResponse:
+    await permissions.require_cohort_write(http_request, request.cohort_id)
     """Create a new batch by name, optionally with initial members"""
     try:
         batch_id = await create_batch_with_members_in_db(
@@ -42,7 +47,7 @@ async def create_batch(request: CreateBatchRequest) -> CreateBatchResponse:
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/{batch_id}")
+@router.get("/{batch_id}", dependencies=[Depends(require_batch_access)])
 async def get_batch_by_id(batch_id: int) -> Dict:
     """Get batch details including all members"""
     batch_data = await get_batch_by_id_from_db(batch_id)
@@ -52,14 +57,14 @@ async def get_batch_by_id(batch_id: int) -> Dict:
     return batch_data
 
 
-@router.delete("/{batch_id}")
+@router.delete("/{batch_id}", dependencies=[Depends(require_batch_write)])
 async def delete_batch(batch_id: int):
     """Delete a batch"""
     await delete_batch_from_db(batch_id)
     return {"success": True}
 
 
-@router.put("/{batch_id}")
+@router.put("/{batch_id}", dependencies=[Depends(require_batch_write)])
 async def update_batch(batch_id: int, request: UpdateBatchRequest):
     """Update batch name and members"""
     return await update_batch_name_and_members(
@@ -70,7 +75,7 @@ async def update_batch(batch_id: int, request: UpdateBatchRequest):
     )
 
 
-@router.get("/user/{user_id}/cohort/{cohort_id}")
+@router.get("/user/{user_id}/cohort/{cohort_id}", dependencies=[Depends(require_user_scope)])
 async def get_batches_for_user_in_cohort(user_id: int, cohort_id: int) -> List[Dict]:
     """List all batches for a user id in a cohort based on cohort id and user id -
     return each batch name and batch id and role in batch"""

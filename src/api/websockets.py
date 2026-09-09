@@ -2,6 +2,10 @@ from typing import Dict, Set
 from fastapi import WebSocket, WebSocketDisconnect
 from fastapi.routing import APIRouter
 
+from api.utils.logging import logger
+from api.utils.authorization import can_access_course
+from api.utils.tokens import TokenError, decode_ws_ticket
+
 router = APIRouter()
 
 
@@ -47,6 +51,26 @@ manager = ConnectionManager()
 # WebSocket endpoint for course generation updates
 @router.websocket("/course/{course_id}/generation")
 async def websocket_course_generation(websocket: WebSocket, course_id: int):
+    ticket = websocket.query_params.get("ticket")
+    if not ticket:
+        await websocket.close(code=1008)
+        return
+
+    try:
+        payload = decode_ws_ticket(ticket, course_id)
+    except TokenError as exc:
+        logger.warning(f"Rejected websocket for course {course_id}: {exc}")
+        await websocket.close(code=1008)
+        return
+
+    # A valid ticket proves who the caller is, not that they may see this course.
+    if not await can_access_course(payload["user_id"], course_id):
+        logger.warning(
+            f"Rejected websocket: user {payload['user_id']} cannot access course {course_id}"
+        )
+        await websocket.close(code=1008)
+        return
+
     try:
         await manager.connect(websocket, course_id)
 

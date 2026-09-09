@@ -34,6 +34,7 @@ from api.routes import (
 from api.websockets import router as websocket_router
 from api.scheduler import scheduler
 from api.settings import settings
+from api.middleware.auth import auth_middleware
 import sentry_sdk
 
 
@@ -66,7 +67,14 @@ if settings.sentry_dsn:
     )
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
+
+app.middleware("http")(auth_middleware)
 
 
 # Add request logging middleware
@@ -103,8 +111,8 @@ async def log_requests(request: Request, call_next):
 # Add CORS middleware to allow cross-origin requests (for frontend to access backend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Replace with your frontend URL in production
-    allow_credentials=True,
+    allow_origins=[],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -176,6 +184,3 @@ async def health_check():
     return {"status": "ok"}
 
 
-@app.api_route("/sentry-debug", methods=["GET"])
-async def sentry_debug():
-    raise Exception("Sentry test error")

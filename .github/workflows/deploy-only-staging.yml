@@ -49,6 +49,7 @@ jobs:
             export S3_FOLDER_NAME="${{ secrets.S3_FOLDER_NAME }}"
             export ENV="${{ secrets.ENV }}"
             export SENTRY_DSN="${{ secrets.SENTRY_DSN }}"
+            export AUTH_SECRET_KEY="${{ secrets.AUTH_SECRET_KEY }}"
             export SENTRY_ENVIRONMENT="${{ secrets.SENTRY_ENVIRONMENT }}"
             export SLACK_USER_SIGNUP_WEBHOOK_URL="${{ secrets.SLACK_USER_SIGNUP_WEBHOOK_URL }}"
             export LANGFUSE_SECRET_KEY="${{ secrets.LANGFUSE_SECRET_KEY }}"
