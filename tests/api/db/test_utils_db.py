@@ -677,3 +677,73 @@ class TestTableBlocks:
 
         assert construct_description_from_blocks([{"type": "table", "content": {}}]) == ""
         assert construct_description_from_blocks([{"type": "table", "content": None}]) == ""
+
+
+class TestInlineTextExtraction:
+    """Rule 9: content the AI cannot see is content the learner is graded against blindly."""
+
+    def test_link_text_survives(self):
+        from api.db.utils import construct_description_from_blocks
+
+        blocks = [
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "See "},
+                    {
+                        "type": "link",
+                        "href": "https://sensai.hyperverge.org",
+                        "content": [{"type": "text", "text": "SensAI"}],
+                    },
+                    {"type": "text", "text": " for more."},
+                ],
+            }
+        ]
+
+        assert construct_description_from_blocks(blocks) == "See SensAI for more.\n"
+
+    def test_quote_is_not_dropped(self):
+        from api.db.utils import construct_description_from_blocks
+
+        blocks = [{"type": "quote", "content": [{"type": "text", "text": "Check Slack daily."}]}]
+
+        assert construct_description_from_blocks(blocks) == "> Check Slack daily.\n"
+
+    def test_checked_items_are_marked_checked(self):
+        from api.db.utils import construct_description_from_blocks
+
+        blocks = [
+            {"type": "checkListItem", "props": {"checked": True}, "content": [{"type": "text", "text": "done"}]},
+            {"type": "checkListItem", "props": {"checked": False}, "content": [{"type": "text", "text": "todo"}]},
+        ]
+
+        assert construct_description_from_blocks(blocks) == "- [x] done\n- [ ] todo\n"
+
+    def test_link_inside_a_list_item_and_a_table_cell(self):
+        from api.db.utils import construct_description_from_blocks
+
+        link = {"type": "link", "href": "https://x.dev", "content": [{"type": "text", "text": "docs"}]}
+
+        assert construct_description_from_blocks(
+            [{"type": "bulletListItem", "content": [link]}]
+        ) == "- docs\n"
+
+        assert construct_description_from_blocks(
+            [
+                {
+                    "type": "table",
+                    "content": {
+                        "type": "tableContent",
+                        "columnWidths": [None],
+                        "rows": [{"cells": [{"type": "tableCell", "props": {}, "content": [link]}]}],
+                    },
+                }
+            ]
+        ) == "| docs |\n"
+
+    def test_malformed_inline_content_does_not_raise(self):
+        from api.db.utils import extract_inline_text
+
+        assert extract_inline_text(None) == ""
+        assert extract_inline_text("not a list") == ""
+        assert extract_inline_text([None, 42, {"type": "link"}]) == ""

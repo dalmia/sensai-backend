@@ -37,10 +37,7 @@ def _quiz(title="Check", questions=None, **overrides):
 
 class TestBulkImport:
     def test_creates_learning_materials_and_quizzes(self, client):
-        created = [
-            {"index": 0, "task_id": 1, "milestone_id": MILESTONE_ID, "ordering": 0},
-            {"index": 1, "task_id": 2, "milestone_id": MILESTONE_ID, "ordering": 1},
-        ]
+        created = [1, 2]
         with patch(
             "api.routes.course.bulk_create_draft_tasks_in_db",
             AsyncMock(return_value=created),
@@ -74,6 +71,31 @@ class TestBulkImport:
         assert str(question["response_type"]) == "chat"
         assert question["max_attempts"] is None
 
+    def test_attempts_and_feedback_are_derived_not_accepted(self, client):
+        """QuizEditor recomputes both on every save, so a caller must not set them."""
+        with patch(
+            "api.routes.course.bulk_create_draft_tasks_in_db", AsyncMock(return_value=[])
+        ) as mock_bulk:
+            client.post(
+                f"/courses/{COURSE_ID}/tasks/bulk",
+                json={
+                    "items": [
+                        _quiz(title="exam", questions=[
+                            {"title": "Q", "response_type": "exam", "max_attempts": 99, "is_feedback_shown": True}
+                        ]),
+                        _quiz(title="chat", questions=[
+                            {"title": "Q", "response_type": "chat", "max_attempts": 99, "is_feedback_shown": False}
+                        ]),
+                    ]
+                },
+            )
+
+        items = mock_bulk.call_args[0][1]
+        assert items[0]["questions"][0]["max_attempts"] == 1
+        assert items[0]["questions"][0]["is_feedback_shown"] is False
+        assert items[1]["questions"][0]["max_attempts"] is None
+        assert items[1]["questions"][0]["is_feedback_shown"] is True
+
     def test_title_is_trimmed(self, client):
         with patch(
             "api.routes.course.bulk_create_draft_tasks_in_db", AsyncMock(return_value=[])
@@ -93,7 +115,6 @@ class TestBulkImport:
             [_lm(title="   ")],
             [_lm(title="x" * 256)],
             [_quiz(questions=[{"title": ""}])],
-            [_quiz(questions=[{"title": "Q", "max_attempts": 0}])],
             [_lm(milestone_id="not-an-int")],
         ],
     )
@@ -207,16 +228,25 @@ class TestBulkCreateDraftTasksDb:
             {"milestone_id": 2, "type": "quiz", "title": "b", "questions": []},
             {"milestone_id": 1, "type": "quiz", "title": "c", "questions": []},
         ]
-        created, _ = await self._run(items, {1: 4, 2: -1})
+        created, cursor = await self._run(items, {1: 4, 2: -1})
 
-        assert [c["ordering"] for c in created] == [5, 0, 6]
-        assert [c["index"] for c in created] == [0, 1, 2]
+        assert created == [101, 101, 101]  # lastrowid is stubbed
+        orderings = [
+            call[0][1][3]
+            for call in cursor.execute.call_args_list
+            if "INSERT INTO course_tasks" in call[0][0]
+        ]
+        assert orderings == [5, 0, 6]
 
     @pytest.mark.asyncio
     async def test_milestone_with_no_tasks_starts_at_zero(self):
         items = [{"milestone_id": 9, "type": "quiz", "title": "a", "questions": []}]
-        created, _ = await self._run(items, {})
-        assert created[0]["ordering"] == 0
+        _, cursor = await self._run(items, {})
+        insert = next(
+            call for call in cursor.execute.call_args_list
+            if "INSERT INTO course_tasks" in call[0][0]
+        )
+        assert insert[0][1][3] == 0
 
     @pytest.mark.asyncio
     async def test_ordering_is_read_once_regardless_of_row_count(self):

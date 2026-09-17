@@ -439,7 +439,7 @@ async def update_learning_material_task(
         return await get_task(task_id)
 
 
-async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[Dict]:
+async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[int]:
     """
     Create many draft tasks in one transaction, for importers.
 
@@ -461,6 +461,8 @@ async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[Dic
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
+        # Not chunked: MAX_BULK_TASKS (500) bounds the distinct milestone ids
+        # below _SQLITE_MAX_PARAMS (900). Raising that cap means chunking here.
         placeholders = ",".join("?" for _ in milestone_ids)
         await cursor.execute(
             f"""
@@ -475,7 +477,7 @@ async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[Dic
 
         created = []
 
-        for index, item in enumerate(items):
+        for item in items:
             milestone_id = item["milestone_id"]
             ordering = next_ordering.get(milestone_id, 0)
             next_ordering[milestone_id] = ordering + 1
@@ -503,14 +505,7 @@ async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[Dic
                 for position, question in enumerate(item.get("questions") or []):
                     await upsert_question(cursor, question, task_id, position)
 
-            created.append(
-                {
-                    "index": index,
-                    "task_id": task_id,
-                    "milestone_id": milestone_id,
-                    "ordering": ordering,
-                }
-            )
+            created.append(task_id)
 
         await conn.commit()
 

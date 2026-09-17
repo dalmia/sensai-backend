@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Tuple, Optional, Dict, Literal, Any
 from datetime import datetime
 
@@ -634,9 +634,17 @@ class BulkTaskQuestion(BaseModel):
     response_type: TaskAIResponseType = TaskAIResponseType.CHAT
     coding_languages: Optional[List[str]] = None
     context: Optional[Dict] = None
-    max_attempts: Optional[int] = Field(default=None, ge=1)
-    is_feedback_shown: bool = True
     settings: Optional[Any] = None
+
+    max_attempts: Optional[int] = None
+    is_feedback_shown: bool = True
+
+    @model_validator(mode="after")
+    def _derive_from_response_type(self):
+        is_exam = str(self.response_type) == str(TaskAIResponseType.EXAM)
+        self.max_attempts = 1 if is_exam else None
+        self.is_feedback_shown = not is_exam
+        return self
 
 
 class BulkTaskItem(BaseModel):
@@ -666,16 +674,10 @@ class BulkCreateTasksRequest(BaseModel):
     items: List[BulkTaskItem] = Field(min_length=1, max_length=MAX_BULK_TASKS)
 
 
-class BulkCreatedTask(BaseModel):
-    index: int
-    task_id: int
-    milestone_id: int
-    ordering: int
-
-
 class BulkCreateTasksResponse(BaseModel):
-    created: List[BulkCreatedTask]
+    """Ids of the tasks created, in request order."""
 
+    created: List[int]
 
 
 class DuplicateTaskRequest(BaseModel):
