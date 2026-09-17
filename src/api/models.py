@@ -624,6 +624,11 @@ class BulkTaskQuestion(BaseModel):
     null, and allows is_feedback_shown to be null while the column is NOT NULL.
     Importers send sparse rows, so the defaults live here. No `id` field - a
     bulk item always creates.
+
+    `max_attempts` and `is_feedback_shown` are DERIVED from `response_type` and
+    anything sent for them is discarded. QuizEditor.tsx and the generated-quiz
+    path in db/task.py both recompute them on every save, so accepting them here
+    would be a third source of truth that the first edit silently overwrites.
     """
 
     title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
@@ -636,6 +641,7 @@ class BulkTaskQuestion(BaseModel):
     context: Optional[Dict] = None
     settings: Optional[Any] = None
 
+    # Derived, see the class docstring.
     max_attempts: Optional[int] = None
     is_feedback_shown: bool = True
 

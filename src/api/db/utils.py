@@ -312,22 +312,22 @@ def construct_description_from_blocks(
             # Content is a list of text objects
             paragraph_text = extract_inline_text(content)
             if paragraph_text:
-                    description += f"{indent}{paragraph_text}\n"
+                description += f"{indent}{paragraph_text}\n"
 
         elif block_type == "heading":
             level = block.get("props", {}).get("level", 1)
             heading_text = extract_inline_text(content)
             if heading_text:
-                    # Headings are typically not indented, but we'll respect nesting for consistency
-                    description += f"{indent}{'#' * level} {heading_text}\n"
+                # Headings are typically not indented, but we'll respect nesting for consistency
+                description += f"{indent}{'#' * level} {heading_text}\n"
 
         elif block_type == "codeBlock":
             language = block.get("props", {}).get("language", "")
             code_text = extract_inline_text(content)
             if code_text:
-                    description += (
-                        f"{indent}```{language}\n{indent}{code_text}\n{indent}```\n"
-                    )
+                description += (
+                    f"{indent}```{language}\n{indent}{code_text}\n{indent}```\n"
+                )
 
         elif block_type in ["numberedListItem", "checkListItem", "bulletListItem"]:
             item_text = extract_inline_text(content)
