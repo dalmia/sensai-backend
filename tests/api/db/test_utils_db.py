@@ -616,3 +616,64 @@ class TestConstructDescriptionFromBlocks:
         result = construct_description_from_blocks(blocks)
         assert "# Notion Heading" in result
         assert "Notion paragraph" in result
+
+
+class TestTableBlocks:
+    """The editor allows tables, so the AI prompt has to include them."""
+
+    def _table(self, rows, header_rows=None):
+        content = {
+            "type": "tableContent",
+            "columnWidths": [None] * len(rows[0]),
+            "rows": [
+                {
+                    "cells": [
+                        {"type": "tableCell", "props": {}, "content": [{"type": "text", "text": cell}]}
+                        for cell in row
+                    ]
+                }
+                for row in rows
+            ],
+        }
+        if header_rows:
+            content["headerRows"] = header_rows
+        return {"type": "table", "content": content, "children": []}
+
+    def test_renders_a_table_as_markdown_rows(self):
+        from api.db.utils import construct_description_from_blocks
+
+        result = construct_description_from_blocks(
+            [self._table([["Language", "Use"], ["Python", "Backend"]], header_rows=1)]
+        )
+
+        assert result == (
+            "| Language | Use |\n"
+            "| --- | --- |\n"
+            "| Python | Backend |\n"
+        )
+
+    def test_renders_a_table_without_a_header(self):
+        from api.db.utils import construct_description_from_blocks
+
+        result = construct_description_from_blocks([self._table([["a", "b"], ["c", "d"]])])
+
+        assert result == "| a | b |\n| c | d |\n"
+
+    def test_table_content_is_not_lost_next_to_other_blocks(self):
+        from api.db.utils import construct_description_from_blocks
+
+        result = construct_description_from_blocks(
+            [
+                {"type": "heading", "props": {"level": 2}, "content": [{"type": "text", "text": "Data"}]},
+                self._table([["x", "y"]]),
+            ]
+        )
+
+        assert "Data" in result
+        assert "| x | y |" in result
+
+    def test_a_malformed_table_does_not_raise(self):
+        from api.db.utils import construct_description_from_blocks
+
+        assert construct_description_from_blocks([{"type": "table", "content": {}}]) == ""
+        assert construct_description_from_blocks([{"type": "table", "content": None}]) == ""

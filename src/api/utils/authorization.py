@@ -194,6 +194,27 @@ async def courses_for_course_milestone_rows(row_ids) -> dict:
     return await _rows_to_courses(course_milestones_table_name, row_ids)
 
 
+async def milestones_in_course(course_id: int, milestone_ids) -> set:
+    """Which of these milestone ids are actually linked to this course."""
+    ids = list({int(milestone_id) for milestone_id in milestone_ids})
+    found = set()
+
+    for start in range(0, len(ids), _SQLITE_MAX_PARAMS):
+        chunk = ids[start : start + _SQLITE_MAX_PARAMS]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await execute_db_operation(
+            f"""SELECT cm.milestone_id FROM {course_milestones_table_name} cm
+               JOIN {milestones_table_name} m ON cm.milestone_id = m.id
+               WHERE cm.course_id = ? AND cm.milestone_id IN ({placeholders})
+                 AND cm.deleted_at IS NULL AND m.deleted_at IS NULL""",
+            (course_id, *chunk),
+            fetch_all=True,
+        )
+        found.update(row[0] for row in rows or [])
+
+    return found
+
+
 async def org_id_for_slug(slug: str):
     row = await execute_db_operation(
         f"SELECT id FROM {organizations_table_name} WHERE slug = ?",

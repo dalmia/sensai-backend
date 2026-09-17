@@ -17,6 +17,7 @@ from api.utils.authorization import (
     is_staff_over_user,
     is_mentor_over_user,
     org_for_milestone,
+    milestones_in_course,
     org_for_scorecard,
 )
 from api.utils.logging import logger
@@ -255,6 +256,31 @@ async def require_cohort_join_or_write(
 
     # A valid self-join: the caller is enrolling only themselves as a learner.
     logger.info(f"Cohort self-join: user={caller} cohort={cohort_id}")
+
+
+async def require_milestones_in_course(
+    request: Request, course_id: int, milestone_ids
+) -> None:
+    """
+    Milestone ids arrive in the body, so the course dependency does not cover them.
+
+    A milestone deleted mid-session and one belonging to someone else's course get
+    the same answer: the first is the common case and needs a useful message, and
+    giving them different answers would say whether an id exists.
+    """
+    wanted = {int(milestone_id) for milestone_id in milestone_ids}
+    missing = wanted - await milestones_in_course(course_id, wanted)
+
+    if missing:
+        logger.warning(
+            f"AUTHZ blocked: user={getattr(request.state, 'user_id', None)} "
+            f"{request.method} {request.url.path} - milestones not in course "
+            f"{course_id}: {sorted(missing)}"
+        )
+        raise HTTPException(
+            status_code=409,
+            detail="Some modules are no longer part of this course. Refresh and try again.",
+        )
 
 
 async def require_tasks_write(request: Request, task_ids) -> None:

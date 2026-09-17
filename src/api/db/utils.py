@@ -331,6 +331,29 @@ def construct_description_from_blocks(
 
                     description += f"{indent}{marker}{item_text}\n"
 
+        elif block_type == "table" and isinstance(content, dict):
+            # The editor allows tables, so the AI has to be able to read them.
+            # Rendered as markdown rows, which is what the model reads best.
+            rows = content.get("rows") or []
+            header_rows = content.get("headerRows") or 0
+
+            for row_index, row in enumerate(rows):
+                cells = []
+                for cell in row.get("cells") or []:
+                    parts = cell.get("content") if isinstance(cell, dict) else cell
+                    cells.append(
+                        "".join(
+                            part.get("text", "")
+                            for part in (parts or [])
+                            if isinstance(part, dict)
+                        ).strip()
+                    )
+
+                description += f"{indent}| {' | '.join(cells)} |\n"
+
+                if row_index + 1 == header_rows and cells:
+                    description += f"{indent}|{'|'.join(' --- ' for _ in cells)}|\n"
+
         if children:
             child_description = construct_description_from_blocks(
                 children, nesting_level + 1

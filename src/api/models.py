@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Tuple, Optional, Dict, Literal, Any
 from datetime import datetime
 
@@ -230,7 +230,7 @@ class Block(BaseModel):
     id: Optional[str] = None
     type: str
     props: Optional[Dict] = {}
-    content: Optional[List] = []
+    content: Optional[List | Dict] = []
     children: Optional[List] = []
     position: Optional[int] = (
         None  # not present when sent from frontend at the time of publishing
@@ -609,6 +609,73 @@ class UpdatePublishedQuizRequest(BaseModel):
     title: str
     questions: List[UpdateQuestionRequest]
     scheduled_publish_at: datetime | None
+
+
+MAX_BULK_TASKS = 500
+MAX_BULK_QUESTIONS = 2000
+TITLE_MAX_LENGTH = 255
+
+
+class BulkTaskQuestion(BaseModel):
+    """
+    A question inside a bulk-created draft quiz.
+
+    Not CreateQuestionRequest: that model needs every field present even when
+    null, and allows is_feedback_shown to be null while the column is NOT NULL.
+    Importers send sparse rows, so the defaults live here. No `id` field - a
+    bulk item always creates.
+    """
+
+    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
+    blocks: List[Dict] = []
+    answer: Optional[List[Dict]] = None
+    type: QuestionType = QuestionType.OBJECTIVE
+    input_type: TaskInputType = TaskInputType.TEXT
+    response_type: TaskAIResponseType = TaskAIResponseType.CHAT
+    coding_languages: Optional[List[str]] = None
+    context: Optional[Dict] = None
+    max_attempts: Optional[int] = Field(default=None, ge=1)
+    is_feedback_shown: bool = True
+    settings: Optional[Any] = None
+
+
+class BulkTaskItem(BaseModel):
+    milestone_id: int
+    type: TaskType
+    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
+    blocks: List[Dict] = []
+    questions: List[BulkTaskQuestion] = []
+
+    @field_validator("type")
+    @classmethod
+    def _importable_type(cls, value):
+        if str(value) not in (str(TaskType.LEARNING_MATERIAL), str(TaskType.QUIZ)):
+            raise ValueError("type must be learning_material or quiz")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def _non_blank(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("title cannot be blank")
+        return value
+
+
+class BulkCreateTasksRequest(BaseModel):
+    items: List[BulkTaskItem] = Field(min_length=1, max_length=MAX_BULK_TASKS)
+
+
+class BulkCreatedTask(BaseModel):
+    index: int
+    task_id: int
+    milestone_id: int
+    ordering: int
+
+
+class BulkCreateTasksResponse(BaseModel):
+    created: List[BulkCreatedTask]
+
 
 
 class DuplicateTaskRequest(BaseModel):
