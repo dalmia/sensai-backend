@@ -222,6 +222,40 @@ class TestBulkCreateDraftTasksDb:
         return created, cursor
 
     @pytest.mark.asyncio
+    async def test_writes_learning_material_blocks_and_quiz_questions(self):
+        """Both write branches: _write_learning_material and the upsert_question loop."""
+        blocks = [{"type": "paragraph", "content": [{"type": "text", "text": "hi"}]}]
+        question = {
+            "title": "Q1",
+            "blocks": [{"type": "paragraph", "content": []}],
+            "answer": None,
+            "type": "objective",
+            "input_type": "text",
+            "response_type": "chat",
+            "coding_languages": None,
+            "context": None,
+            "max_attempts": None,
+            "is_feedback_shown": True,
+            "settings": None,
+        }
+        items = [
+            {"milestone_id": 1, "type": "learning_material", "title": "LM", "blocks": blocks, "questions": []},
+            {"milestone_id": 1, "type": "quiz", "title": "Quiz", "blocks": [], "questions": [question, question]},
+        ]
+
+        _, cursor = await self._run(items, {1: -1})
+        statements = [call[0][0] for call in cursor.execute.call_args_list]
+
+        assert sum("UPDATE tasks SET blocks" in stmt for stmt in statements) == 1
+        assert sum("INSERT INTO questions" in stmt for stmt in statements) == 2
+
+        blocks_written = next(
+            call[0][1][0] for call in cursor.execute.call_args_list
+            if "UPDATE tasks SET blocks" in call[0][0]
+        )
+        assert '"text": "hi"' in blocks_written
+
+    @pytest.mark.asyncio
     async def test_appends_after_existing_tasks_per_milestone(self):
         items = [
             {"milestone_id": 1, "type": "quiz", "title": "a", "questions": []},

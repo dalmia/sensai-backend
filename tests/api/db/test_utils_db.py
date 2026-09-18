@@ -747,3 +747,19 @@ class TestInlineTextExtraction:
         assert extract_inline_text(None) == ""
         assert extract_inline_text("not a list") == ""
         assert extract_inline_text([None, 42, {"type": "link"}]) == ""
+
+
+class TestConvertBlocksGuard:
+    def test_a_table_block_is_left_alone(self):
+        """Block.content now allows a dict; iterating it would walk the keys."""
+        from api.db.utils import convert_blocks_to_right_format
+
+        table = {"type": "table", "content": {"type": "tableContent", "rows": []}}
+        assert convert_blocks_to_right_format([table]) == [table]
+
+    def test_inline_blocks_are_still_normalised(self):
+        from api.db.utils import convert_blocks_to_right_format
+
+        result = convert_blocks_to_right_format([{"type": "paragraph", "content": [{"text": "hi"}]}])
+
+        assert result[0]["content"][0] == {"text": "hi", "type": "text", "styles": {}}
