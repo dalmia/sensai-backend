@@ -114,6 +114,16 @@ async def bulk_create_tasks_for_course(
     await permissions.require_milestones_in_course(
         http_request, course_id, {item.milestone_id for item in request.items}
     )
+    await permissions.require_scorecards_in_course_org(
+        http_request,
+        course_id,
+        {
+            question.scorecard_id
+            for item in request.items
+            for question in item.questions
+            if question.scorecard_id is not None
+        },
+    )
 
     created = await bulk_create_draft_tasks_in_db(
         course_id, [item.model_dump() for item in request.items]

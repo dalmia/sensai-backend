@@ -640,6 +640,7 @@ class BulkTaskQuestion(BaseModel):
     coding_languages: Optional[List[str]] = None
     context: Optional[Dict] = None
     settings: Optional[Any] = None
+    scorecard_id: Optional[int] = None
 
     # Derived, see the class docstring.
     max_attempts: Optional[int] = None

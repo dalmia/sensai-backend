@@ -503,7 +503,13 @@ async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[int
                 )
             else:
                 for position, question in enumerate(item.get("questions") or []):
-                    await upsert_question(cursor, question, task_id, position)
+                    question_id = await upsert_question(cursor, question, task_id, position)
+                    scorecard_id = question.get("scorecard_id")
+                    if scorecard_id is not None:
+                        await cursor.execute(
+                            f"INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)",
+                            (question_id, scorecard_id),
+                        )
 
             created.append(task_id)
 

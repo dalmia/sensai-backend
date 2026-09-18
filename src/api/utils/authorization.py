@@ -215,6 +215,25 @@ async def milestones_in_course(course_id: int, milestone_ids) -> set:
     return found
 
 
+async def scorecards_in_org(org_id: int, scorecard_ids) -> set:
+    """Which of these scorecard ids belong to this org and are not deleted."""
+    ids = list({int(scorecard_id) for scorecard_id in scorecard_ids})
+    found = set()
+
+    for start in range(0, len(ids), _SQLITE_MAX_PARAMS):
+        chunk = ids[start : start + _SQLITE_MAX_PARAMS]
+        placeholders = ",".join("?" for _ in chunk)
+        rows = await execute_db_operation(
+            f"""SELECT id FROM {scorecards_table_name}
+               WHERE org_id = ? AND id IN ({placeholders}) AND deleted_at IS NULL""",
+            (org_id, *chunk),
+            fetch_all=True,
+        )
+        found.update(row[0] for row in rows or [])
+
+    return found
+
+
 async def org_id_for_slug(slug: str):
     row = await execute_db_operation(
         f"SELECT id FROM {organizations_table_name} WHERE slug = ?",
