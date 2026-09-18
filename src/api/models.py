@@ -1,5 +1,5 @@
 from enum import Enum
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import List, Tuple, Optional, Dict, Literal, Any
 from datetime import datetime
 
@@ -230,7 +230,7 @@ class Block(BaseModel):
     id: Optional[str] = None
     type: str
     props: Optional[Dict] = {}
-    content: Optional[List] = []
+    content: Optional[List | Dict] = []
     children: Optional[List] = []
     position: Optional[int] = (
         None  # not present when sent from frontend at the time of publishing
@@ -609,6 +609,82 @@ class UpdatePublishedQuizRequest(BaseModel):
     title: str
     questions: List[UpdateQuestionRequest]
     scheduled_publish_at: datetime | None
+
+
+MAX_BULK_TASKS = 500
+MAX_BULK_QUESTIONS = 2000
+TITLE_MAX_LENGTH = 255
+
+
+class BulkTaskQuestion(BaseModel):
+    """
+    A question inside a bulk-created draft quiz.
+
+    Not CreateQuestionRequest: that model needs every field present even when
+    null, and allows is_feedback_shown to be null while the column is NOT NULL.
+    Importers send sparse rows, so the defaults live here. No `id` field - a
+    bulk item always creates.
+
+    `max_attempts` and `is_feedback_shown` are DERIVED from `response_type` and
+    anything sent for them is discarded. QuizEditor.tsx and the generated-quiz
+    path in db/task.py both recompute them on every save, so accepting them here
+    would be a third source of truth that the first edit silently overwrites.
+    """
+
+    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
+    blocks: List[Dict] = []
+    answer: Optional[List[Dict]] = None
+    type: QuestionType = QuestionType.OBJECTIVE
+    input_type: TaskInputType = TaskInputType.TEXT
+    response_type: TaskAIResponseType = TaskAIResponseType.CHAT
+    coding_languages: Optional[List[str]] = None
+    context: Optional[Dict] = None
+    settings: Optional[Any] = None
+    scorecard_id: Optional[int] = None
+
+    # Derived, see the class docstring.
+    max_attempts: Optional[int] = None
+    is_feedback_shown: bool = True
+
+    @model_validator(mode="after")
+    def _derive_from_response_type(self):
+        is_exam = str(self.response_type) == str(TaskAIResponseType.EXAM)
+        self.max_attempts = 1 if is_exam else None
+        self.is_feedback_shown = not is_exam
+        return self
+
+
+class BulkTaskItem(BaseModel):
+    milestone_id: int
+    type: TaskType
+    title: str = Field(min_length=1, max_length=TITLE_MAX_LENGTH)
+    blocks: List[Dict] = []
+    questions: List[BulkTaskQuestion] = []
+
+    @field_validator("type")
+    @classmethod
+    def _importable_type(cls, value):
+        if str(value) not in (str(TaskType.LEARNING_MATERIAL), str(TaskType.QUIZ)):
+            raise ValueError("type must be learning_material or quiz")
+        return value
+
+    @field_validator("title")
+    @classmethod
+    def _non_blank(cls, value):
+        value = value.strip()
+        if not value:
+            raise ValueError("title cannot be blank")
+        return value
+
+
+class BulkCreateTasksRequest(BaseModel):
+    items: List[BulkTaskItem] = Field(min_length=1, max_length=MAX_BULK_TASKS)
+
+
+class BulkCreateTasksResponse(BaseModel):
+    """Ids of the tasks created, in request order."""
+
+    created: List[int]
 
 
 class DuplicateTaskRequest(BaseModel):

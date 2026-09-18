@@ -616,3 +616,150 @@ class TestConstructDescriptionFromBlocks:
         result = construct_description_from_blocks(blocks)
         assert "# Notion Heading" in result
         assert "Notion paragraph" in result
+
+
+class TestTableBlocks:
+    """The editor allows tables, so the AI prompt has to include them."""
+
+    def _table(self, rows, header_rows=None):
+        content = {
+            "type": "tableContent",
+            "columnWidths": [None] * len(rows[0]),
+            "rows": [
+                {
+                    "cells": [
+                        {"type": "tableCell", "props": {}, "content": [{"type": "text", "text": cell}]}
+                        for cell in row
+                    ]
+                }
+                for row in rows
+            ],
+        }
+        if header_rows:
+            content["headerRows"] = header_rows
+        return {"type": "table", "content": content, "children": []}
+
+    def test_renders_a_table_as_markdown_rows(self):
+        from api.db.utils import construct_description_from_blocks
+
+        result = construct_description_from_blocks(
+            [self._table([["Language", "Use"], ["Python", "Backend"]], header_rows=1)]
+        )
+
+        assert result == (
+            "| Language | Use |\n"
+            "| --- | --- |\n"
+            "| Python | Backend |\n"
+        )
+
+    def test_renders_a_table_without_a_header(self):
+        from api.db.utils import construct_description_from_blocks
+
+        result = construct_description_from_blocks([self._table([["a", "b"], ["c", "d"]])])
+
+        assert result == "| a | b |\n| c | d |\n"
+
+    def test_table_content_is_not_lost_next_to_other_blocks(self):
+        from api.db.utils import construct_description_from_blocks
+
+        result = construct_description_from_blocks(
+            [
+                {"type": "heading", "props": {"level": 2}, "content": [{"type": "text", "text": "Data"}]},
+                self._table([["x", "y"]]),
+            ]
+        )
+
+        assert "Data" in result
+        assert "| x | y |" in result
+
+    def test_a_malformed_table_does_not_raise(self):
+        from api.db.utils import construct_description_from_blocks
+
+        assert construct_description_from_blocks([{"type": "table", "content": {}}]) == ""
+        assert construct_description_from_blocks([{"type": "table", "content": None}]) == ""
+
+
+class TestInlineTextExtraction:
+    """Rule 9: content the AI cannot see is content the learner is graded against blindly."""
+
+    def test_link_text_survives(self):
+        from api.db.utils import construct_description_from_blocks
+
+        blocks = [
+            {
+                "type": "paragraph",
+                "content": [
+                    {"type": "text", "text": "See "},
+                    {
+                        "type": "link",
+                        "href": "https://sensai.hyperverge.org",
+                        "content": [{"type": "text", "text": "SensAI"}],
+                    },
+                    {"type": "text", "text": " for more."},
+                ],
+            }
+        ]
+
+        assert construct_description_from_blocks(blocks) == "See SensAI for more.\n"
+
+    def test_quote_is_not_dropped(self):
+        from api.db.utils import construct_description_from_blocks
+
+        blocks = [{"type": "quote", "content": [{"type": "text", "text": "Check Slack daily."}]}]
+
+        assert construct_description_from_blocks(blocks) == "> Check Slack daily.\n"
+
+    def test_checked_items_are_marked_checked(self):
+        from api.db.utils import construct_description_from_blocks
+
+        blocks = [
+            {"type": "checkListItem", "props": {"checked": True}, "content": [{"type": "text", "text": "done"}]},
+            {"type": "checkListItem", "props": {"checked": False}, "content": [{"type": "text", "text": "todo"}]},
+        ]
+
+        assert construct_description_from_blocks(blocks) == "- [x] done\n- [ ] todo\n"
+
+    def test_link_inside_a_list_item_and_a_table_cell(self):
+        from api.db.utils import construct_description_from_blocks
+
+        link = {"type": "link", "href": "https://x.dev", "content": [{"type": "text", "text": "docs"}]}
+
+        assert construct_description_from_blocks(
+            [{"type": "bulletListItem", "content": [link]}]
+        ) == "- docs\n"
+
+        assert construct_description_from_blocks(
+            [
+                {
+                    "type": "table",
+                    "content": {
+                        "type": "tableContent",
+                        "columnWidths": [None],
+                        "rows": [{"cells": [{"type": "tableCell", "props": {}, "content": [link]}]}],
+                    },
+                }
+            ]
+        ) == "| docs |\n"
+
+    def test_malformed_inline_content_does_not_raise(self):
+        from api.db.utils import extract_inline_text
+
+        assert extract_inline_text(None) == ""
+        assert extract_inline_text("not a list") == ""
+        assert extract_inline_text([None, 42, {"type": "link"}]) == ""
+
+
+class TestConvertBlocksGuard:
+    def test_a_table_block_is_left_alone(self):
+        """Block.content now allows a dict; iterating it would walk the keys."""
+        from api.db.utils import convert_blocks_to_right_format
+
+        table = {"type": "table", "content": {"type": "tableContent", "rows": []}}
+        assert convert_blocks_to_right_format([table]) == [table]
+
+    def test_inline_blocks_are_still_normalised(self):
+        from api.db.utils import convert_blocks_to_right_format
+
+        result = convert_blocks_to_right_format([{"type": "paragraph", "content": [{"text": "hi"}]}])
+
+        assert result[0]["content"][0] == {"text": "hi", "type": "text", "styles": {}}

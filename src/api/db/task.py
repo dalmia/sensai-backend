@@ -36,6 +36,31 @@ from api.models import (
 from api.db.utils import convert_blocks_to_right_format
 
 
+async def _insert_draft_task(
+    cursor,
+    org_id: int,
+    title: str,
+    type: str,
+    course_id: int,
+    milestone_id: int,
+    ordering: int,
+) -> int:
+    """Insert one draft task and link it into the course at `ordering`."""
+    await cursor.execute(
+        f"INSERT INTO {tasks_table_name} (org_id, type, title, status) VALUES (?, ?, ?, ?)",
+        (org_id, str(type), title, "draft"),
+    )
+
+    task_id = cursor.lastrowid
+
+    await cursor.execute(
+        f"INSERT INTO {course_tasks_table_name} (course_id, task_id, milestone_id, ordering) VALUES (?, ?, ?, ?)",
+        (course_id, task_id, milestone_id, ordering),
+    )
+
+    return task_id
+
+
 async def create_draft_task_for_course(
     title: str,
     type: str,
@@ -47,15 +72,6 @@ async def create_draft_task_for_course(
 
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
-
-        query = f"INSERT INTO {tasks_table_name} (org_id, type, title, status) VALUES (?, ?, ?, ?)"
-
-        await cursor.execute(
-            query,
-            (org_id, str(type), title, "draft"),
-        )
-
-        task_id = cursor.lastrowid
 
         if ordering is not None:
             # Shift all tasks at or after the given ordering down by 1
@@ -77,9 +93,8 @@ async def create_draft_task_for_course(
             max_ordering = await cursor.fetchone()
             insert_ordering = max_ordering[0] + 1 if max_ordering else 0
 
-        await cursor.execute(
-            f"INSERT INTO {course_tasks_table_name} (course_id, task_id, milestone_id, ordering) VALUES (?, ?, ?, ?)",
-            (course_id, task_id, milestone_id, insert_ordering),
+        task_id = await _insert_draft_task(
+            cursor, org_id, title, type, course_id, milestone_id, insert_ordering
         )
 
         await conn.commit()
@@ -380,6 +395,27 @@ async def upsert_question(cursor, question: Dict, task_id: int, position: int) -
     return question_id
 
 
+async def _write_learning_material(
+    cursor,
+    task_id: int,
+    title: str,
+    blocks: List[Dict],
+    scheduled_publish_at: datetime,
+    status: TaskStatus,
+) -> None:
+    """Write the body of a learning material task onto an existing row."""
+    await cursor.execute(
+        f"UPDATE {tasks_table_name} SET blocks = ?, status = ?, title = ?, scheduled_publish_at = ? WHERE id = ?",
+        (
+            json.dumps(prepare_blocks_for_publish(blocks)),
+            str(status),
+            title,
+            scheduled_publish_at,
+            task_id,
+        ),
+    )
+
+
 async def update_learning_material_task(
     task_id: int,
     title: str,
@@ -394,20 +430,92 @@ async def update_learning_material_task(
     async with get_new_db_connection() as conn:
         cursor = await conn.cursor()
 
-        await cursor.execute(
-            f"UPDATE {tasks_table_name} SET blocks = ?, status = ?, title = ?, scheduled_publish_at = ? WHERE id = ?",
-            (
-                json.dumps(prepare_blocks_for_publish(blocks)),
-                str(status),
-                title,
-                scheduled_publish_at,
-                task_id,
-            ),
+        await _write_learning_material(
+            cursor, task_id, title, blocks, scheduled_publish_at, status
         )
 
         await conn.commit()
 
         return await get_task(task_id)
+
+
+async def bulk_create_draft_tasks(course_id: int, items: List[Dict]) -> List[int]:
+    """
+    Create many draft tasks in one transaction, for importers.
+
+    Every item lands as a draft inside an existing milestone - this never creates
+    milestones, so the caller must have already resolved `milestone_id` and checked
+    that it belongs to `course_id`.
+
+    Ordering is resolved with one grouped query and then advanced in memory, so a
+    500-row import does not run 500 MAX(ordering) queries. Question writing reuses
+    `upsert_question`: a freshly created task has no questions to diff against, so
+    every question is a plain insert.
+    """
+    if not items:
+        return []
+
+    org_id = await get_org_id_for_course(course_id)
+    milestone_ids = sorted({item["milestone_id"] for item in items})
+
+    async with get_new_db_connection() as conn:
+        cursor = await conn.cursor()
+
+        # Not chunked: MAX_BULK_TASKS (500) bounds the distinct milestone ids
+        # below _SQLITE_MAX_PARAMS (900). Raising that cap means chunking here.
+        placeholders = ",".join("?" for _ in milestone_ids)
+        await cursor.execute(
+            f"""
+            SELECT milestone_id, COALESCE(MAX(ordering), -1)
+            FROM {course_tasks_table_name}
+            WHERE course_id = ? AND milestone_id IN ({placeholders})
+            GROUP BY milestone_id
+            """,
+            (course_id, *milestone_ids),
+        )
+        next_ordering = {row[0]: row[1] + 1 for row in await cursor.fetchall()}
+
+        created = []
+
+        for item in items:
+            milestone_id = item["milestone_id"]
+            ordering = next_ordering.get(milestone_id, 0)
+            next_ordering[milestone_id] = ordering + 1
+
+            task_id = await _insert_draft_task(
+                cursor,
+                org_id,
+                item["title"],
+                str(item["type"]),
+                course_id,
+                milestone_id,
+                ordering,
+            )
+
+            if str(item["type"]) == str(TaskType.LEARNING_MATERIAL):
+                await _write_learning_material(
+                    cursor,
+                    task_id,
+                    item["title"],
+                    item.get("blocks") or [],
+                    None,
+                    TaskStatus.DRAFT,
+                )
+            else:
+                for position, question in enumerate(item.get("questions") or []):
+                    question_id = await upsert_question(cursor, question, task_id, position)
+                    scorecard_id = question.get("scorecard_id")
+                    if scorecard_id is not None:
+                        await cursor.execute(
+                            f"INSERT INTO {question_scorecards_table_name} (question_id, scorecard_id) VALUES (?, ?)",
+                            (question_id, scorecard_id),
+                        )
+
+            created.append(task_id)
+
+        await conn.commit()
+
+    return created
 
 
 async def update_draft_quiz(
