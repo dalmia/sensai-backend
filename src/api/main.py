@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.encoders import jsonable_encoder
 import os
 from os.path import exists
 from api.config import UPLOAD_FOLDER_NAME
@@ -160,7 +161,11 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logging.warning(
         f"Validation error on {request.method} {request.url.path}: {exc.errors()}"
     )
-    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+    # errors() carries the raw ValueError from custom validators, which json.dumps
+    # cannot encode - without this every validator failure becomes a 500.
+    return JSONResponse(
+        status_code=422, content={"detail": jsonable_encoder(exc.errors())}
+    )
 
 
 @app.exception_handler(HTTPException)

@@ -93,6 +93,12 @@ async def get_org_id_for_course(course_id: int):
 
 def convert_blocks_to_right_format(blocks: List[Dict]) -> List[Dict]:
     for block in blocks:
+        # A table's content is a dict, not inline content. Callers today only pass
+        # LLM-generated blocks, which never contain one, but Block.content now
+        # allows a dict so the guard stops this iterating the dict's keys.
+        if not isinstance(block.get("content"), list):
+            continue
+
         for content in block["content"]:
             content["type"] = "text"
             if "styles" not in content:
@@ -242,6 +248,29 @@ def extract_text_from_notion_blocks(blocks: List[Dict]) -> str:
     return "\n".join(text_content)
 
 
+def extract_inline_text(content) -> str:
+    """
+    Flatten BlockNote inline content to text.
+
+    Recurses into link nodes: a link is {"type": "link", "href": ..., "content":
+    [...]} with no "text" key of its own, so reading only "text" drops the whole
+    link - the AI then sees "and ." where the reference was.
+    """
+    if not isinstance(content, list):
+        return ""
+
+    parts = []
+    for node in content:
+        if not isinstance(node, dict):
+            continue
+        if "text" in node:
+            parts.append(node["text"])
+        elif node.get("type") == "link":
+            parts.append(extract_inline_text(node.get("content")))
+
+    return "".join(parts)
+
+
 def construct_description_from_blocks(
     blocks: List[Dict], nesting_level: int = 0
 ) -> str:
@@ -281,55 +310,60 @@ def construct_description_from_blocks(
         # Process based on block type
         if block_type == "paragraph":
             # Content is a list of text objects
-            if isinstance(content, list):
-                paragraph_text = ""
-                for text_obj in content:
-                    if isinstance(text_obj, dict) and "text" in text_obj:
-                        paragraph_text += text_obj["text"]
-                if paragraph_text:
-                    description += f"{indent}{paragraph_text}\n"
+            paragraph_text = extract_inline_text(content)
+            if paragraph_text:
+                description += f"{indent}{paragraph_text}\n"
 
         elif block_type == "heading":
             level = block.get("props", {}).get("level", 1)
-            if isinstance(content, list):
-                heading_text = ""
-                for text_obj in content:
-                    if isinstance(text_obj, dict) and "text" in text_obj:
-                        heading_text += text_obj["text"]
-                if heading_text:
-                    # Headings are typically not indented, but we'll respect nesting for consistency
-                    description += f"{indent}{'#' * level} {heading_text}\n"
+            heading_text = extract_inline_text(content)
+            if heading_text:
+                # Headings are typically not indented, but we'll respect nesting for consistency
+                description += f"{indent}{'#' * level} {heading_text}\n"
 
         elif block_type == "codeBlock":
             language = block.get("props", {}).get("language", "")
-            if isinstance(content, list):
-                code_text = ""
-                for text_obj in content:
-                    if isinstance(text_obj, dict) and "text" in text_obj:
-                        code_text += text_obj["text"]
-                if code_text:
-                    description += (
-                        f"{indent}```{language}\n{indent}{code_text}\n{indent}```\n"
-                    )
+            code_text = extract_inline_text(content)
+            if code_text:
+                description += (
+                    f"{indent}```{language}\n{indent}{code_text}\n{indent}```\n"
+                )
 
         elif block_type in ["numberedListItem", "checkListItem", "bulletListItem"]:
-            if isinstance(content, list):
-                item_text = ""
-                for text_obj in content:
-                    if isinstance(text_obj, dict) and "text" in text_obj:
-                        item_text += text_obj["text"]
+            item_text = extract_inline_text(content)
+            if item_text:
+                if block_type == "numberedListItem":
+                    marker = f"{numbered_list_counter}. "
+                    numbered_list_counter += 1
+                elif block_type == "checkListItem":
+                    checked = block.get("props", {}).get("checked", False)
+                    marker = "- [x] " if checked else "- [ ] "
+                else:
+                    marker = "- "
 
-                if item_text:
-                    # Use proper list marker based on parent list type
-                    if block_type == "numberedListItem":
-                        marker = f"{numbered_list_counter}. "
-                        numbered_list_counter += 1
-                    elif block_type == "checkListItem":
-                        marker = "- [ ] "
-                    elif block_type == "bulletListItem":
-                        marker = "- "
+                description += f"{indent}{marker}{item_text}\n"
 
-                    description += f"{indent}{marker}{item_text}\n"
+        elif block_type == "quote":
+            quote_text = extract_inline_text(content)
+            if quote_text:
+                description += f"{indent}> {quote_text}\n"
+
+        elif block_type == "table" and isinstance(content, dict):
+            # The editor allows tables, so the AI has to be able to read them.
+            # Rendered as markdown rows, which is what the model reads best.
+            rows = content.get("rows") or []
+            header_rows = content.get("headerRows") or 0
+
+            for row_index, row in enumerate(rows):
+                cells = []
+                for cell in row.get("cells") or []:
+                    parts = cell.get("content") if isinstance(cell, dict) else cell
+                    cells.append(extract_inline_text(parts).strip())
+
+                description += f"{indent}| {' | '.join(cells)} |\n"
+
+                if row_index + 1 == header_rows and cells:
+                    description += f"{indent}|{'|'.join(' --- ' for _ in cells)}|\n"
 
         if children:
             child_description = construct_description_from_blocks(

@@ -18,6 +18,7 @@ from api.db.course import (
     swap_task_ordering_for_course as swap_task_ordering_for_course_in_db,
     duplicate_course_to_org,
 )
+from api.db.task import bulk_create_draft_tasks as bulk_create_draft_tasks_in_db
 from api.db.cohort import (
     add_course_to_cohorts as add_course_to_cohorts_in_db,
     remove_course_from_cohorts as remove_course_from_cohorts_from_db,
@@ -40,6 +41,9 @@ from api.models import (
     SwapTaskOrderingRequest,
     CourseCohort,
     DuplicateCourseRequest,
+    BulkCreateTasksRequest,
+    BulkCreateTasksResponse,
+    MAX_BULK_QUESTIONS,
 )
 
 from api.middleware.permissions import require_course_access, require_course_write, require_org_staff
@@ -90,6 +94,41 @@ async def update_task_orders(http_request: Request, request: UpdateTaskOrdersReq
     await permissions.require_course_task_rows_write(http_request, [t[1] for t in request.task_orders])
     await update_task_orders_in_db(request.task_orders)
     return {"success": True}
+
+
+@router.post(
+    "/{course_id}/tasks/bulk",
+    dependencies=[Depends(require_course_write)],
+    response_model=BulkCreateTasksResponse,
+)
+async def bulk_create_tasks_for_course(
+    http_request: Request, course_id: int, request: BulkCreateTasksRequest
+) -> BulkCreateTasksResponse:
+    total_questions = sum(len(item.questions) for item in request.items)
+    if total_questions > MAX_BULK_QUESTIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Cannot import more than {MAX_BULK_QUESTIONS} questions at once",
+        )
+
+    await permissions.require_milestones_in_course(
+        http_request, course_id, {item.milestone_id for item in request.items}
+    )
+    await permissions.require_scorecards_in_course_org(
+        http_request,
+        course_id,
+        {
+            question.scorecard_id
+            for item in request.items
+            for question in item.questions
+            if question.scorecard_id is not None
+        },
+    )
+
+    created = await bulk_create_draft_tasks_in_db(
+        course_id, [item.model_dump() for item in request.items]
+    )
+    return {"created": created}
 
 
 @router.post("/{course_id}/milestones", dependencies=[Depends(require_course_write)])

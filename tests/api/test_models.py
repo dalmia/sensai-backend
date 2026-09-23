@@ -673,3 +673,53 @@ class TestChatEnums:
         # This should trigger the elif isinstance(other, UserCourseRole) branch
         # and execute: return self.value == other.value (should return False)
         assert role_a.__eq__(role_b) is False
+
+
+class TestBlockContentShapes:
+    """A table block carries a dict content; everything else carries a list."""
+
+    def test_accepts_inline_content_as_a_list(self):
+        from api.models import Block
+
+        block = Block(type="paragraph", content=[{"type": "text", "text": "hi"}])
+        assert block.content == [{"type": "text", "text": "hi"}]
+
+    def test_accepts_table_content_as_a_dict(self):
+        from api.models import Block
+
+        content = {
+            "type": "tableContent",
+            "columnWidths": [None, None],
+            "headerRows": 1,
+            "rows": [
+                {
+                    "cells": [
+                        {"type": "tableCell", "props": {}, "content": [{"type": "text", "text": "A"}]}
+                    ]
+                }
+            ],
+        }
+        assert Block(type="table", content=content).content == content
+
+    def test_learning_material_task_serialises_a_table_block(self):
+        """Regression: GET /tasks/{id} returned 500 for any task holding a table."""
+        from api.models import LearningMaterialTask
+
+        task = LearningMaterialTask(
+            id=1,
+            title="t",
+            type="learning_material",
+            status="draft",
+            scheduled_publish_at=None,
+            blocks=[
+                {"type": "paragraph", "content": [{"type": "text", "text": "hi"}]},
+                {
+                    "type": "table",
+                    "props": {"textColor": "default"},
+                    "content": {"type": "tableContent", "columnWidths": [None], "rows": []},
+                    "children": [],
+                },
+            ],
+        )
+
+        assert task.blocks[1].content["type"] == "tableContent"
