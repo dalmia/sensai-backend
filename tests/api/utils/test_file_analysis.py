@@ -211,6 +211,119 @@ class TestFileAnalysis:
     @patch("src.api.utils.file_analysis.shutil.rmtree")
     @patch("src.api.utils.file_analysis.extract_zip_file")
     @patch("api.settings.settings")
+    def test_extract_submission_file_skips_excluded_directories(
+        self, mock_settings, mock_extract, mock_rmtree
+    ):
+        """Test that files in excluded directories (e.g. node_modules, __pycache__) are skipped."""
+        mock_settings.s3_folder_name = None
+        mock_settings.local_upload_folder = "/tmp/uploads"
+        mock_extract.return_value = (
+            "/tmp/extract_dir",
+            [
+                "/tmp/extract_dir/src/app.js",
+                "/tmp/extract_dir/node_modules/lodash/index.js",
+                "/tmp/extract_dir/__pycache__/utils.cpython-313.py",
+                "/tmp/extract_dir/.git/config.txt",
+                "/tmp/extract_dir/src/components/Header.tsx",
+            ]
+        )
+
+        with patch("os.path.exists", return_value=True):
+            def mock_file_open(file_path, mode, **kwargs):
+                if mode == 'rb' and 'test-uuid.zip' in file_path:
+                    return mock_open(read_data=b"zip content")()
+                else:
+                    return mock_open(read_data="file content")()
+
+            with patch("builtins.open", side_effect=mock_file_open):
+                result = extract_submission_file("test-uuid")
+
+        assert result["extracted_files_count"] == 2
+        assert "src/app.js" in result["file_contents"]
+        assert "src/components/Header.tsx" in result["file_contents"]
+        assert not any("node_modules" in k for k in result["file_contents"])
+        assert not any("__pycache__" in k for k in result["file_contents"])
+        assert not any(".git" in k for k in result["file_contents"])
+
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
+    @patch("src.api.utils.file_analysis.extract_zip_file")
+    @patch("api.settings.settings")
+    def test_extract_submission_file_skips_excluded_filenames(
+        self, mock_settings, mock_extract, mock_rmtree
+    ):
+        """Test that excluded filenames (e.g. package-lock.json, yarn.lock) are skipped."""
+        mock_settings.s3_folder_name = None
+        mock_settings.local_upload_folder = "/tmp/uploads"
+        mock_extract.return_value = (
+            "/tmp/extract_dir",
+            [
+                "/tmp/extract_dir/package.json",
+                "/tmp/extract_dir/package-lock.json",
+                "/tmp/extract_dir/yarn.lock",
+                "/tmp/extract_dir/.DS_Store",
+                "/tmp/extract_dir/src/index.js",
+            ]
+        )
+
+        with patch("os.path.exists", return_value=True):
+            def mock_file_open(file_path, mode, **kwargs):
+                if mode == 'rb' and 'test-uuid.zip' in file_path:
+                    return mock_open(read_data=b"zip content")()
+                else:
+                    return mock_open(read_data="file content")()
+
+            with patch("builtins.open", side_effect=mock_file_open):
+                result = extract_submission_file("test-uuid")
+
+        assert result["extracted_files_count"] == 2
+        assert "package.json" in result["file_contents"]
+        assert "src/index.js" in result["file_contents"]
+        assert "package-lock.json" not in result["file_contents"]
+        assert "yarn.lock" not in result["file_contents"]
+
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
+    @patch("src.api.utils.file_analysis.extract_zip_file")
+    @patch("api.settings.settings")
+    def test_extract_submission_file_skips_minified_files(
+        self, mock_settings, mock_extract, mock_rmtree
+    ):
+        """Test that minified/bundled files (e.g. .min.js, .bundle.js) are skipped."""
+        mock_settings.s3_folder_name = None
+        mock_settings.local_upload_folder = "/tmp/uploads"
+        mock_extract.return_value = (
+            "/tmp/extract_dir",
+            [
+                "/tmp/extract_dir/src/app.js",
+                "/tmp/extract_dir/src/app.min.js",
+                "/tmp/extract_dir/src/styles.min.css",
+                "/tmp/extract_dir/src/vendor.bundle.js",
+                "/tmp/extract_dir/src/main.chunk.js",
+                "/tmp/extract_dir/src/app.js.map",
+            ]
+        )
+
+        with patch("os.path.exists", return_value=True):
+            def mock_file_open(file_path, mode, **kwargs):
+                if mode == 'rb' and 'test-uuid.zip' in file_path:
+                    return mock_open(read_data=b"zip content")()
+                else:
+                    return mock_open(read_data="file content")()
+
+            with patch("builtins.open", side_effect=mock_file_open):
+                result = extract_submission_file("test-uuid")
+
+        # Only src/app.js should be included; minified/bundled files are excluded
+        assert result["extracted_files_count"] == 1
+        assert "src/app.js" in result["file_contents"]
+        assert not any(".min.js" in k for k in result["file_contents"])
+        assert not any(".min.css" in k for k in result["file_contents"])
+        assert not any(".bundle.js" in k for k in result["file_contents"])
+        assert not any(".chunk.js" in k for k in result["file_contents"])
+        assert not any(".map" in k for k in result["file_contents"])
+
+    @patch("src.api.utils.file_analysis.shutil.rmtree")
+    @patch("src.api.utils.file_analysis.extract_zip_file")
+    @patch("api.settings.settings")
     def test_extract_submission_file_general_exception_handling(
         self, mock_settings, mock_extract, mock_rmtree
     ):
